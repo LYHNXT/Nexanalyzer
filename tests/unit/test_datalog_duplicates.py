@@ -220,6 +220,20 @@ class TestRemoveDuplicate:
         assert stored == {_RAW: "VBBE00"}
 
 
+    def test_an_unreadable_sidecar_still_counts_the_file_as_removed(self, tmp_path, monkeypatch):
+        # The file is already in the Recycle Bin when the tag is cleared, so a
+        # sidecar that cannot be read must neither be overwritten nor turn the
+        # removal into a "skipped" row.
+        monkeypatch.setattr("modules.datalog.io.tag_store._UPDATE_READ_RETRY_S", 0)
+        raw, canonical = _write_pair(tmp_path)
+        damaged = '{"' + _RAW + '": "VBB'
+        (tmp_path / RUNCARD_TAGS_FILENAME).write_text(damaged, encoding="utf-8")
+        plan = DuplicatePlan(path=raw, keeper=canonical)
+
+        assert remove_duplicates(str(tmp_path), [plan]) == CleanupResult(removed=[plan], skipped=[])
+        assert not Path(raw).exists()
+        assert (tmp_path / RUNCARD_TAGS_FILENAME).read_text(encoding="utf-8") == damaged
+
 class TestRemoveDuplicates:
     def test_reports_what_it_removed(self, tmp_path):
         raw, canonical = _write_pair(tmp_path)

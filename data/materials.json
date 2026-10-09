@@ -148,7 +148,7 @@
             "peak_label": "2ZA(M)",
             "center": 244.2,
             "center_tolerance": 4.0,
-            "width_fwhm": 2.0,
+            "width_fwhm": 1.64,
             "shape": 0.3,
             "color": "#FF7F0E"
           },
@@ -269,7 +269,7 @@
             "peak_label": "2ZA(M)",
             "center": 244.2,
             "center_tolerance": 4.0,
-            "width_fwhm": 2.0,
+            "width_fwhm": 1.64,
             "shape": 0.3,
             "color": "#FF7F0E"
           },
@@ -345,7 +345,7 @@
           }
         ],
         "exclusion_ranges": "650-880",
-        "max_iterations": 2000
+        "max_iterations": 10000
       },
       "optical": {
         "2L": {
@@ -562,7 +562,7 @@
           }
         ],
         "exclusion_ranges": "650-880",
-        "max_iterations": 2000
+        "max_iterations": 10000
       },
       "optical": {
         "2L": {

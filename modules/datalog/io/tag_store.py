@@ -27,6 +27,7 @@ copies of it are two chances for that property to drift.
 """
 
 import json
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -60,9 +61,64 @@ def _read_json(path: Path, default):
         return default
     try:
         with open(path, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
+            data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return default
+    # A sidecar holding a list or a string is as unusable as a malformed one,
+    # and would otherwise surface as an AttributeError far from here.
+    return data if isinstance(data, type(default)) else default
+
+
+class SidecarUnreadable(OSError):
+    """A sidecar exists but could not be read, so it must not be overwritten.
+
+    An `OSError` so the pages' existing ``except OSError`` around every save
+    reports it the way they report a read-only share, and `renamer` rolls a
+    rename back on it like any other failed re-key.
+    """
+
+
+_UPDATE_READ_ATTEMPTS = 3
+_UPDATE_READ_RETRY_S = 0.2
+
+
+def _read_json_for_update(path: Path, default):
+    """Read a sidecar that is about to be rewritten -- strictly.
+
+    Every save here is read, change one entry, write the whole file. If the
+    read degraded to `default` the way `_read_json` does, a file that was
+    merely locked (robocopy or datalog_monitor holding it) or caught half-copied
+    would be "read" as empty, and the write would then replace every stored
+    tag with the one being saved. Losing a tag must not stop a page opening;
+    it is equally true that opening a page must not lose every tag.
+
+    So: a missing file is still `default` (nothing to lose); a locked or
+    unparseable one is retried briefly, since both are usually a copy in
+    flight; and if it still cannot be read, or holds something other than a
+    JSON object, this raises `SidecarUnreadable` and nothing is written.
+    """
+    if not path.exists():
+        return default
+    for attempt in range(_UPDATE_READ_ATTEMPTS):
+        try:
+            with open(path, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+            break
+        except (json.JSONDecodeError, OSError) as exc:
+            if attempt == _UPDATE_READ_ATTEMPTS - 1:
+                raise SidecarUnreadable(
+                    f"{path.name} could not be read ({exc}), so nothing was saved -- "
+                    "saving would have replaced every entry in it. If another "
+                    "program has it open, try again; if it is damaged, repair or "
+                    "remove it by hand."
+                ) from exc
+            time.sleep(_UPDATE_READ_RETRY_S)
+    if not isinstance(data, type(default)):
+        raise SidecarUnreadable(
+            f"{path.name} holds a JSON {type(data).__name__}, not an object, so "
+            "nothing was saved. Repair or remove it by hand."
+        )
+    return data
 
 
 def _write_json(path: Path, data) -> None:
@@ -163,7 +219,7 @@ def set_runcard_tag(root_folder: str, file_path: str, tag: str) -> None:
     free to answer again. `pop` with a default, so clearing an absent tag is a
     no-op rather than an error.
     """
-    tags = load_runcard_tags(root_folder)
+    tags = _read_json_for_update(Path(root_folder) / RUNCARD_TAGS_FILENAME, {})
     key = _relative_key(root_folder, file_path)
     if tag:
         tags[key] = tag
@@ -183,7 +239,7 @@ def clear_runcard_tag(root_folder: str, file_path: str) -> None:
     nothing in this module should leave a sidecar behind to record that it had
     nothing to record.
     """
-    tags = load_runcard_tags(root_folder)
+    tags = _read_json_for_update(Path(root_folder) / RUNCARD_TAGS_FILENAME, {})
     key = _relative_key(root_folder, file_path)
     if key not in tags:
         return
@@ -201,7 +257,7 @@ def set_runcard_tags(root_folder: str, tags_by_path: dict) -> None:
     Same rules as the single call: keys relative to the root, an empty tag
     deletes the entry.
     """
-    tags = load_runcard_tags(root_folder)
+    tags = _read_json_for_update(Path(root_folder) / RUNCARD_TAGS_FILENAME, {})
     for file_path, tag in tags_by_path.items():
         key = _relative_key(root_folder, file_path)
         if tag:
@@ -222,7 +278,7 @@ def move_runcard_tag(root_folder: str, old_path: str, new_path: str) -> None:
     would turn an implicit tag into an explicit one as a side effect of a
     rename.
     """
-    tags = load_runcard_tags(root_folder)
+    tags = _read_json_for_update(Path(root_folder) / RUNCARD_TAGS_FILENAME, {})
     old_key = _relative_key(root_folder, old_path)
     if old_key not in tags:
         return

@@ -157,6 +157,43 @@ def _warn_if_preset_moved(spectrum, preset) -> None:
     )
 
 
+_LOAD_NOTICE_KEY = "load_notice"
+
+
+def _same_folder(a, b) -> bool:
+    """Two source folders are the same folder (Windows: case- and slash-blind)."""
+    if not a or not b:
+        return False
+    import os
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
+def _entry_name(name: str, source_dir: str, files: dict):
+    """The sidebar name to load a file under, or None if it is already loaded.
+
+    Files are keyed by name, and wafer folders reuse the same point names
+    (`W01/RM_center.txt`, `W02/RM_center.txt`), so the bare name alone used to
+    drop the second wafer's file as "already loaded". Only the same name *from
+    the same folder* is a re-load; a clash from another folder takes its
+    folder into the name -- `RM_center (W02).txt` -- and a counter if the folder
+    names clash too. No `/`: the name also becomes export filenames as-is.
+    """
+    import itertools
+    import os
+    stem, ext = os.path.splitext(name)
+    folder = os.path.basename(os.path.normpath(source_dir or "")) or "folder"
+    candidates = itertools.chain(
+        [name, f"{stem} ({folder}){ext}"],
+        (f"{stem} ({folder} {k}){ext}" for k in itertools.count(2)),
+    )
+    for candidate in candidates:
+        existing = files.get(candidate)
+        if existing is None:
+            return candidate
+        if _same_folder(getattr(existing, "source_dir", None), source_dir):
+            return None
+
+
 def render_sidebar():
     """
     Render sidebar with mode toggle, file upload, and results export.
@@ -256,9 +293,6 @@ def render_sidebar():
                     set_view_options({'show_fit': True, 'show_components': True,
                                       'show_on_background': True})
 
-                    # Auto-expand export section
-                    st.session_state['expanded_section'] = 'export'
-
                 else:
                     # Show error message with suggestions
                     st.error(format_workflow_summary(result, preset, current_spectrum.mode))
@@ -271,18 +305,13 @@ def render_sidebar():
                         )
                         st.info(suggestions)
 
-                    # Expand section where failure occurred
-                    stage_to_section = {
-                        'x_range': 'processing_range',
-                        'despike': 'despiking',
-                        'baseline': 'baseline',
-                        'fitting': 'peak_fitting'
-                    }
-                    failed_section = stage_to_section.get(result['stage_completed'], 'processing_range')
-                    st.session_state['expanded_section'] = failed_section
-
-                # Trigger rerun to update UI
-                st.rerun()
+                # No st.rerun() here, for the batch button's reason below: it
+                # discarded the success summary, and on a failure the error and
+                # its suggestions, one frame after drawing them -- while the
+                # workflow had already reset the spectrum to raw, so a failed
+                # run looked like the previous fit silently vanishing. The plot
+                # is drawn after the sidebar, and show_fit/show_components land
+                # before their checkboxes further down this function.
 
             # Batch auto-workflow button (only if multiple files loaded)
             if len(files) > 1:
@@ -611,6 +640,7 @@ print(json.dumps(list(selected_files)))
 
         loaded_count = 0
         skipped_count = 0
+        renamed = []
 
         for file_path in files_to_load:
             filename = os.path.basename(file_path)
@@ -637,11 +667,13 @@ print(json.dumps(list(selected_files)))
                 base, ext = os.path.splitext(filename)
                 n = len(spectra)
                 for i, spectrum_data in enumerate(spectra, start=1):
-                    entry_name = filename if n == 1 else f"{base}__{i}{ext}"
-
-                    if entry_name in st.session_state.get("files", {}):
+                    wanted = filename if n == 1 else f"{base}__{i}{ext}"
+                    entry_name = _entry_name(wanted, source_dir, st.session_state.get("files", {}))
+                    if entry_name is None:
                         skipped_count += 1
                         continue
+                    if entry_name != wanted:
+                        renamed.append(entry_name)
 
                     spectrum_file = SpectrumFile(
                         filename=entry_name,
@@ -659,14 +691,27 @@ print(json.dumps(list(selected_files)))
             except Exception as e:
                 st.error(f"❌ Failed to load {filename}: {e}")
 
-        # Show summary message
+        # The summary is handed to the next run rather than drawn here: the
+        # rerun below (which the material picker above needs, to see the new
+        # files) would discard it one frame after drawing it.
+        notice = []
         if loaded_count > 0:
-            st.success(f"✅ Loaded {loaded_count} file(s)")
+            notice.append(("success", f"✅ Loaded {loaded_count} file(s)"))
+            if renamed:
+                notice.append(("info", "ℹ️ Same name as a file from another folder, so loaded as: "
+                                       + ", ".join(renamed)))
             if skipped_count > 0:
-                st.info(f"ℹ️ Skipped {skipped_count} already-loaded file(s)")
-            st.rerun()
+                notice.append(("info", f"ℹ️ Skipped {skipped_count} already-loaded file(s)"))
         elif skipped_count > 0:
-            st.info(f"ℹ️ All {skipped_count} file(s) already loaded")
+            notice.append(("info", f"ℹ️ All {skipped_count} file(s) already loaded"))
+        if loaded_count > 0:
+            st.session_state[_LOAD_NOTICE_KEY] = notice
+            st.rerun()
+        for kind, text in notice:
+            getattr(st, kind)(text)
+
+    for kind, text in st.session_state.pop(_LOAD_NOTICE_KEY, None) or []:
+        getattr(st, kind)(text)
 
     st.markdown("---")
 

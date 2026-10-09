@@ -6,6 +6,8 @@ import pytest
 
 from modules.datalog.io.tag_store import (
     RUNCARD_TAGS_FILENAME,
+    SidecarUnreadable,
+    clear_runcard_tag,
     get_runcard_tag,
     load_runcard_tags,
     move_runcard_tag,
@@ -246,3 +248,61 @@ class TestSidecarFileHandling:
         set_runcard_tag(str(tmp_path), _run(tmp_path), "VBBE00")
 
         assert [p.name for p in tmp_path.glob("*.tmp")] == []
+
+
+class TestASaveNeverWipesASidecarItCouldNotRead:
+    """Every save is read-modify-write of the whole file. A read that degraded
+    to {} used to be written back, replacing every stored tag with one."""
+
+    @pytest.fixture(autouse=True)
+    def _no_retry_wait(self, monkeypatch):
+        monkeypatch.setattr("modules.datalog.io.tag_store._UPDATE_READ_RETRY_S", 0)
+
+    def _damaged(self, tmp_path, text='{"a.csv": "HADH01", "b.csv": "HAD'):
+        (tmp_path / RUNCARD_TAGS_FILENAME).write_text(text, encoding="utf-8")
+        return (tmp_path / RUNCARD_TAGS_FILENAME).read_text(encoding="utf-8")
+
+    @pytest.mark.parametrize("save", [
+        lambda root, run: set_runcard_tag(root, run, "HADH99"),
+        lambda root, run: set_runcard_tags(root, {run: "HADH99"}),
+        lambda root, run: clear_runcard_tag(root, run),
+        lambda root, run: move_runcard_tag(root, run, run + ".new"),
+    ])
+    def test_a_damaged_sidecar_is_left_untouched(self, tmp_path, save):
+        before = self._damaged(tmp_path)
+        run = _run(tmp_path)
+
+        with pytest.raises(SidecarUnreadable):
+            save(str(tmp_path), run)
+
+        assert (tmp_path / RUNCARD_TAGS_FILENAME).read_text(encoding="utf-8") == before
+
+    def test_it_is_an_oserror_so_the_pages_report_it(self):
+        assert issubclass(SidecarUnreadable, OSError)
+
+    def test_a_sidecar_holding_a_list_is_refused_for_writing(self, tmp_path):
+        self._damaged(tmp_path, '["HADH01"]')
+        with pytest.raises(SidecarUnreadable):
+            set_runcard_tag(str(tmp_path), _run(tmp_path), "HADH99")
+
+    def test_a_sidecar_holding_a_list_reads_as_empty(self, tmp_path):
+        self._damaged(tmp_path, '["HADH01"]')
+        run = _run(tmp_path)
+        assert load_runcard_tags(str(tmp_path)) == {}
+        assert get_runcard_tag(str(tmp_path), run) == "VBBE00"  # the filename's
+
+    def test_a_briefly_locked_sidecar_is_retried(self, tmp_path, monkeypatch):
+        set_runcard_tag(str(tmp_path), _run(tmp_path, "a.csv"), "HADH01")
+        import builtins
+        real_open, failures = builtins.open, [1]
+
+        def flaky(path, mode="r", *a, **kw):
+            if str(path).endswith(RUNCARD_TAGS_FILENAME) and "r" in mode and failures:
+                failures.pop()
+                raise PermissionError(32, "being used by another process")
+            return real_open(path, mode, *a, **kw)
+
+        monkeypatch.setattr(builtins, "open", flaky)
+        set_runcard_tag(str(tmp_path), _run(tmp_path, "b.csv"), "HADH02")
+
+        assert _sidecar(tmp_path) == {"a.csv": "HADH01", "b.csv": "HADH02"}

@@ -50,7 +50,7 @@ import streamlit as st
 
 from .renamer import target_filename
 from .scanner import RunMetadata
-from .tag_store import clear_runcard_tag, get_runcard_tag, load_runcard_tags
+from .tag_store import SidecarUnreadable, clear_runcard_tag, get_runcard_tag, load_runcard_tags
 
 _HASH_CHUNK_BYTES = 1 << 20
 """Read size for hashing. A run CSV runs to a couple of megabytes, so this is
@@ -285,7 +285,13 @@ def remove_duplicate(root_folder: str, plan: DuplicatePlan) -> None:
     # result, but only the first declines to write when there was no entry, and
     # a folder that has never been tagged must not gain a `runcard_tags.json`
     # as a side effect of a file being removed from it.
-    clear_runcard_tag(root_folder, plan.path)
+    try:
+        clear_runcard_tag(root_folder, plan.path)
+    except SidecarUnreadable:
+        # The file is already in the Recycle Bin, so reporting this plan as
+        # skipped would be false. What is left is the harmless stale key the
+        # docstring describes; the sidecar was not touched.
+        pass
 
 
 @dataclass(frozen=True)

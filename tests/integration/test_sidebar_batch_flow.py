@@ -105,3 +105,77 @@ class TestRunAllFilesBatch:
         # still take effect in this very run.
         assert at.session_state["show_fit"] is True
         assert at.session_state["show_components"] is True
+
+
+class TestRunAutoWorkflowSingle:
+    """The single-file Run had the same trailing st.rerun(), which discarded its
+    success summary and, worse, a failure's error -- after the workflow had
+    already reset the spectrum to raw."""
+
+    @staticmethod
+    def _run(at):
+        next(b for b in at.sidebar.button if "Run Auto-Workflow" in b.label).click().run()
+        return at
+
+    def test_the_success_summary_survives_the_run(self, tmp_path):
+        at = self._run(_select_silicon(_app_with_files(tmp_path, count=1)))
+
+        assert not at.exception
+        assert at.sidebar.success, "the single-run success summary was discarded"
+
+    def test_a_failed_run_says_why(self, tmp_path):
+        # Silicon has no PL block, so a PL file cannot be fitted with it.
+        path = tmp_path / "PL_sample1.txt"
+        _write_silicon_raman_file(path, seed=1)
+        at = AppTest.from_file(str(PROJECT_ROOT / "pages/1_Spectra.py"), default_timeout=180)
+        at.session_state["pending_files_to_load"] = [str(path)]
+        at.run()
+
+        at = self._run(_select_silicon(at))
+
+        assert not at.exception
+        assert at.sidebar.error, "a failed run left no error on the page"
+
+
+class TestSameNameFromAnotherFolder:
+    """Wafer folders reuse point names; files used to be keyed by bare name, so
+    the second wafer's RM_center.txt was dropped as "already loaded"."""
+
+    @staticmethod
+    def _load(paths):
+        at = AppTest.from_file(str(PROJECT_ROOT / "pages/1_Spectra.py"), default_timeout=180)
+        at.session_state["pending_files_to_load"] = [str(p) for p in paths]
+        at.run()
+        return at
+
+    @staticmethod
+    def _two_wafers(tmp_path):
+        paths = []
+        for i, wafer in enumerate(("W01", "W02"), start=1):
+            (tmp_path / wafer).mkdir()
+            path = tmp_path / wafer / "RM_center.txt"
+            _write_silicon_raman_file(path, seed=i)
+            paths.append(path)
+        return paths
+
+    def test_both_files_load_under_distinct_names(self, tmp_path):
+        at = self._load(self._two_wafers(tmp_path))
+
+        assert not at.exception
+        files = at.session_state["files"]
+        assert sorted(files) == ["RM_center (W02).txt", "RM_center.txt"]
+        assert files["RM_center (W02).txt"].source_dir.endswith("W02")
+
+    def test_the_rename_is_reported(self, tmp_path):
+        at = self._load(self._two_wafers(tmp_path))
+
+        assert any("RM_center (W02).txt" in m.value for m in at.sidebar.info)
+
+    def test_the_same_file_twice_is_still_skipped(self, tmp_path):
+        path = self._two_wafers(tmp_path)[0]
+        at = self._load([path])
+        at.session_state["pending_files_to_load"] = [str(path)]
+        at.run()
+
+        assert list(at.session_state["files"]) == ["RM_center.txt"]
+        assert any("already loaded" in m.value for m in at.sidebar.info)

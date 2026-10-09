@@ -5,6 +5,37 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.14.0] - 2026-10-09
+
+### Fixed
+
+- **A peak's width bound is now on its Voigt FWHM, so Lorentzian-shaped peaks
+  are no longer capped at about half of it.** The fitter bounded sigma and
+  gamma separately, each to half of `width_max` (3x the preset width), so a
+  peak whose fit wanted a mostly Lorentzian shape stopped at ~0.52 x
+  `width_max` with gamma on its bound: WSe2's E2g+A1g (preset 4 cm-1) piled up
+  at 6.21 cm-1 across the TSMC/HA/VB datasets and the 7 cm-1 FWHM spec line
+  could hardly be crossed. The fit now varies the Voigt FWHM itself
+  (`vfwhm`, bounded to `[width_min, width_max]`) and `gmix`, which places the
+  Gaussian share between its floor and 1; sigma and gamma are derived by an
+  exact inversion of `voigt_fwhm`. The Gaussian floor is the one sigma always
+  had (f_G >= width_min / 2) -- without it a capped peak turns pure Lorentzian
+  to grow wings. The reported FWHM's stderr now comes straight from lmfit's
+  covariance, so `voigt_fwhm_stderr` is gone.
+- **`2ZA(M)` starts at 1.64 cm-1 (was 2.0) in `WSe2` and `WSe2_truncate`**, so
+  its ceiling stays at ~4.9 cm-1 as chosen in v5.12.1. Under the new bound 2.0
+  would have let it reach 6.0.
+
+Numbers move. All datasets (TSMC_Raman_Spec + HA1P01 + VB1P01): the E2g+A1g
+pile-up at 6.15-6.25 cm-1 is gone and R2 rises ~0.01. E2g+A1g's shape is
+unchanged (median Lorentzian share 0.82), but 2ZA(M) -- no longer forced to
+sit with both components on their maxima -- is more Lorentzian (0.54 -> 0.83)
+and takes a little more of E2g+A1g's low-side wing: E2g+A1g FWHM narrows by a
+median ~0.13 cm-1 on spectra that were not capped, while the formerly capped
+ones widen. Other peaks that sat on the old cap now reach their real
+`width_max`: Mode 1's LA goes from ~36.8 to its 45 cm-1 limit in most fits,
+2LA spreads further. `WSe2 extended` / `V2` were not retuned.
+
 ## [5.13.0] - 2026-10-06
 
 ### Added
@@ -27,6 +58,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   version, or projects saved before it, have none and show the
   baseline-corrected view with a note to re-run.
 
+## [5.12.2] - 2026-10-05
+
+### Fixed
+
+- **A narrow peak no longer freezes at its starting guess.** The fitter started
+  gamma exactly on its lower bound whenever a template's shape split put the
+  Lorentzian half under its floor (shape ≤ 0.25, or a peak narrow against the
+  data spacing). lmfit enforces bounds through a sine whose slope is zero at
+  the bound, so Levenberg–Marquardt could stop on its first step with every
+  parameter unchanged and still report success: a synthetic shape-0.3 peak came
+  back after 11 evaluations at R² 0.94 with 78% of its area. Every starting
+  value — centre, sigma, gamma and area — now sits at least 1% of its range
+  inside its bounds (`fitting.START_MARGIN`). The bounds themselves are
+  unchanged.
+- **A failed single Run Auto-Workflow now says why.** A trailing `st.rerun()`
+  discarded the success summary and, on a failure, the error and its
+  suggestions, one frame after drawing them — while the workflow had already
+  reset the spectrum to raw, so the previous fit vanished without a word. The
+  batch button lost the same rerun in an earlier release.
+- **Saving a runcard tag can no longer wipe `runcard_tags.json`.** Every save
+  reads the whole file, changes one entry and writes it back, and the read
+  treated a file it could not open -- locked by robocopy or datalog_monitor,
+  caught half-copied, or damaged -- as empty. The write then replaced every
+  stored tag with the one being saved; `thresholds.json` lost its overrides and
+  timing keys the same way. A save now reads strictly: it retries a locked
+  file briefly, and if the file still cannot be read it writes nothing and the
+  page says so (`tag_store.SidecarUnreadable`). Pages that only *show* tags
+  still open on a damaged file, as before. A sidecar holding a JSON list rather
+  than an object now reads as empty instead of raising.
+- **Two files with the same name from different folders both load.** Files
+  were keyed by bare name, so loading `W01/RM_center.txt` and
+  `W02/RM_center.txt` kept the first and dropped the second as "already
+  loaded" -- and the notice saying so was discarded by the rerun after
+  loading. The second now loads as `RM_center (W02).txt` (with a counter if
+  the folder names clash too), the page lists the files it renamed, and only
+  the same name from the same folder counts as a re-load. The new name is
+  what the master CSV's `Filename` column and the export filenames carry, so
+  the two wafers stay apart there too.
+
+Numbers move. On 22 well-fitted WSe2 spectra from Internal_QC (R² > 0.9, every
+third file), R² never falls by more than 0.0007. E2g+A1g intensity and FWHM
+and LA/E2g+A1g barely move (mostly under 1%); the B2g centre moves most, from a
+302.6–318.9 cm⁻¹ scatter to 306.4–311.4, because B2g was one of the peaks that
+froze. WSe2 extended moves more — 17 of its peaks started on a bound — with
+R² up to +0.024 and LA/E2g+A1g down by up to 0.06 on the same files. MoS2 and
+Silicon are unchanged.
 ## [5.12.1] - 2026-10-05
 
 ### Changed

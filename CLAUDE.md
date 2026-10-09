@@ -60,6 +60,14 @@ The full reasoning is in the
 - **FWHM means the Voigt FWHM.** Use `fitting.voigt_fwhm(sigma, gamma)`. Reporting
   `2.355 * sigma` — the Gaussian half, ignoring the Lorentzian — was a real bug
   fixed in v3.4.0. It under-reports every width.
+- **The width bound is on the Voigt FWHM, not on sigma and gamma.** The fit
+  varies `vfwhm` in `[width_min, width_max]` and `gmix` (the Gaussian share,
+  between its floor f_G >= width_min/2 and 1); sigma and gamma are derived
+  expressions. Keep the Gaussian floor: without it a capped peak goes pure
+  Lorentzian to grow wings. Bounding the two separately (each to
+  half of `width_max`) capped Lorentzian peaks at ~0.52 x `width_max` — WSe2's
+  E2g+A1g piled up at 6.21 until v5.14.0. A "on its limit" check reads
+  `vfwhm@max`, not `gamma@max`.
 - **The preset owns position and width; the data owns intensity.** `fit_voigt_peaks()`
   auto-estimates the initial intensity from the spectrum at fit time, because
   intensity depends on measurement conditions while center/FWHM are material

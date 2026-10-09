@@ -2,6 +2,10 @@
 
 import json
 
+import pytest
+
+from modules.datalog.io.tag_store import SidecarUnreadable
+
 from modules.datalog.io.threshold_store import (
     DEFAULT_TIMING_FLOOR_SEC,
     DEFAULT_TIMING_TOLERANCE_PCT,
@@ -107,3 +111,15 @@ class TestSaveThresholds:
         save_thresholds(str(tmp_path), {"global_default_pct": 3.0})
 
         assert [p.name for p in tmp_path.glob("*.tmp")] == []
+
+
+class TestASaveNeverWipesTheFileItCouldNotRead:
+    def test_a_damaged_file_is_left_untouched(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("modules.datalog.io.tag_store._UPDATE_READ_RETRY_S", 0)
+        damaged = '{"overrides": {"MFC-1": 9.0}, "timing_tolerance_pct": 12'
+        (tmp_path / THRESHOLDS_FILENAME).write_text(damaged, encoding="utf-8")
+
+        with pytest.raises(SidecarUnreadable):
+            save_thresholds(str(tmp_path), {"global_default_pct": 4.0})
+
+        assert (tmp_path / THRESHOLDS_FILENAME).read_text(encoding="utf-8") == damaged

@@ -24,7 +24,7 @@ that must not drift between them.
 
 from pathlib import Path
 
-from .tag_store import _read_json, _write_json
+from .tag_store import _read_json, _read_json_for_update, _write_json
 
 THRESHOLDS_FILENAME = "thresholds.json"
 
@@ -62,13 +62,17 @@ def load_thresholds(root_folder: str) -> dict:
     `analysis.get_tolerance_pct` index ``global_default_pct`` directly, and it
     is what quietly upgrades a two-key file written by an older build.
     """
+    return _with_defaults(_read_json(get_thresholds_path(root_folder), {}))
+
+
+def _with_defaults(stored: dict) -> dict:
+    """`stored` backfilled with every default it lacks (a shallow merge)."""
     defaults = {
         "global_default_pct": DEFAULT_TOLERANCE_PCT,
         "overrides": {},
         "timing_tolerance_pct": DEFAULT_TIMING_TOLERANCE_PCT,
         "timing_floor_sec": DEFAULT_TIMING_FLOOR_SEC,
     }
-    stored = _read_json(get_thresholds_path(root_folder), {})
     defaults.update(stored)
     return defaults
 
@@ -90,6 +94,9 @@ def save_thresholds(root_folder: str, thresholds: dict) -> None:
     and keeps the ability to delete an override, which the tolerance editor
     depends on: ``overrides`` is replaced wholesale by whatever is passed.
     """
-    merged = load_thresholds(root_folder)
+    # Read strictly: a locked or damaged file read as empty would be saved back
+    # as defaults, erasing the overrides and timing keys this merge preserves.
+    path = get_thresholds_path(root_folder)
+    merged = _with_defaults(_read_json_for_update(path, {}))
     merged.update(thresholds)
-    _write_json(get_thresholds_path(root_folder), merged)
+    _write_json(path, merged)

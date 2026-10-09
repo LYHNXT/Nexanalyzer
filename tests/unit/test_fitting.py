@@ -8,7 +8,6 @@ from modules.spectra.processing.fitting import (
     detect_overlapping_peaks,
     fit_voigt_peaks,
     voigt_fwhm,
-    voigt_fwhm_stderr,
 )
 from modules.spectra.models.peak import MAX_PEAKS, PeakDefinition
 from modules.spectra.models.preset import PeakTemplate
@@ -174,27 +173,50 @@ class TestVoigtFwhm:
         assert peak.width_fwhm == pytest.approx(measured, rel=0.02)
 
 
-class TestVoigtFwhmStderr:
-    def test_zero_uncertainty_in_gives_zero_out(self):
-        assert voigt_fwhm_stderr(2.0, 3.0, 0.0, 0.0) == 0.0
+class TestWidthBoundIsOnTheVoigtFwhm:
+    """The width bound applies to the Voigt FWHM, not to sigma and gamma
+    separately. Capping each at half of width_max stopped a Lorentzian peak at
+    ~0.52 x width_max; WSe2's E2g+A1g (preset 4 cm-1) piled up at 6.21."""
 
-    def test_anticorrelation_shrinks_the_uncertainty(self):
-        """sigma and gamma trade off against each other, so each is poorly
-        determined alone while their sum is not. Ignoring that is what quoted
-        a width of 2.07 +/- 133.29."""
-        quadrature = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.5, correlation=None)
-        with_correl = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.5, correlation=-0.92)
+    def test_a_lorentzian_peak_wider_than_the_old_cap_is_fitted_to_its_width(self):
+        from lmfit.models import VoigtModel
+        x = np.linspace(200.0, 300.0, 1000)
+        y = VoigtModel().eval(x=x, center=250.0, amplitude=5000.0, sigma=0.3, gamma=3.5)
+        truth = voigt_fwhm(0.3, 3.5)  # ~7.1, past the old 6.21 ceiling
 
-        assert with_correl < quadrature
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0, shape=0.5)
+        result = fit_voigt_peaks(x, y, [peak], mode="Raman")
 
-    def test_degenerate_widths_do_not_divide_by_zero(self):
-        assert voigt_fwhm_stderr(0.0, 0.0, 1.0, 1.0) == 0.0
+        assert result.fitted_peaks[0].width_fwhm == pytest.approx(truth, rel=0.01)
 
-    def test_grows_with_the_input_uncertainty(self):
-        small = voigt_fwhm_stderr(2.0, 3.0, 0.1, 0.1)
-        large = voigt_fwhm_stderr(2.0, 3.0, 1.0, 1.0)
+    def test_the_reported_width_never_exceeds_width_max(self):
+        from lmfit.models import VoigtModel
+        x = np.linspace(200.0, 300.0, 1000)
+        y = VoigtModel().eval(x=x, center=250.0, amplitude=5000.0, sigma=3.0, gamma=6.0)
 
-        assert large > small > 0
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0, shape=0.5)
+        result = fit_voigt_peaks(x, y, [peak], mode="Raman")
+
+        assert result.fitted_peaks[0].width_fwhm <= peak.width_max + 1e-9
+        assert result.fitted_peaks[0].width_fwhm == pytest.approx(peak.width_max, rel=0.01)
+
+
+    def test_the_gaussian_part_keeps_its_floor(self):
+        """A capped peak may not turn pure Lorentzian to grow wings: f_G >= width_min / 2,
+        the floor sigma always had."""
+        from lmfit.models import VoigtModel
+        x = np.linspace(200.0, 300.0, 1000)
+        y = VoigtModel().eval(x=x, center=250.0, amplitude=5000.0, sigma=0.05, gamma=8.0)
+
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=4.0, shape=0.5)
+        result = fit_voigt_peaks(x, y, [peak], mode="Raman")
+        fitted = result.fitted_peaks[0]
+
+        # shape = gamma / (gamma + sigma), and voigt_fwhm is linear in a common
+        # scale, so sigma = f_V / voigt_fwhm(1, gamma/sigma).
+        ratio = fitted.shape / (1.0 - fitted.shape)
+        sigma = fitted.width_fwhm / voigt_fwhm(1.0, ratio)
+        assert 2.3548200450309493 * sigma >= peak.width_min / 2.0 * (1 - 1e-6)
 
 
 class TestIntensityMaxIsAnIntensity:
@@ -346,3 +368,48 @@ class TestCenterBoundsCannotInvert:
 
 
 RANGE_FOR_FIT = (6.674, 399.867)
+
+
+class TestNoParameterStartsOnItsBound:
+    """lmfit's bound transform has zero slope at a bound, so a parameter that
+    starts there can freeze the whole fit and still report success."""
+
+    def test_a_narrow_low_shape_peak_is_actually_fitted(self):
+        from lmfit.models import VoigtModel
+        x = np.arange(200.226, 300, 0.87)  # the Raman grid's real step
+        y = VoigtModel().eval(x=x, center=250.3, amplitude=1000.0, sigma=1.0, gamma=0.6)
+        # shape 0.3 at width 3 puts gamma's guess under its floor: it used to be
+        # clamped exactly onto it, and the fit returned after 11 evaluations
+        # with nothing moved (R² 0.94, area 777).
+        peak = PeakDefinition(center=250.0, intensity=1.0, width_fwhm=3.0,
+                              center_tolerance=5.0, shape=0.3)
+
+        result = fit_voigt_peaks(x, y, [peak], mode="Raman")
+
+        assert result.success
+        assert result.r_squared > 0.999
+        assert result.fitted_peaks[0].area == pytest.approx(1000.0, rel=0.01)
+
+    def test_every_start_is_strictly_inside_its_bounds(self, monkeypatch):
+        import lmfit
+        from lmfit.models import VoigtModel
+        seen = {}
+        original = lmfit.Model.fit
+
+        def spy(self, data, params=None, **kw):
+            seen["params"] = params.copy()
+            return original(self, data, params, **kw)
+
+        monkeypatch.setattr(lmfit.Model, "fit", spy)
+        x = np.arange(200.226, 300, 0.87)
+        y = VoigtModel().eval(x=x, center=250.3, amplitude=1000.0, sigma=1.0, gamma=0.6)
+        peaks = [
+            PeakDefinition(center=250.0, intensity=1.0, width_fwhm=3.0,
+                           center_tolerance=5.0, shape=shape)
+            for shape in (0.0, 0.3, 1.0)
+        ]
+        fit_voigt_peaks(x, y, peaks, mode="Raman")
+
+        for name, p in seen["params"].items():
+            if p.vary:
+                assert p.min < p.value < p.max, name

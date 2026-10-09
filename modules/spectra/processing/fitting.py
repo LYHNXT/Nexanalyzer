@@ -48,45 +48,44 @@ def voigt_fwhm(sigma: float, gamma: float) -> float:
     return 0.5346 * f_l + np.sqrt(0.2166 * f_l * f_l + f_g * f_g)
 
 
-def _correlation(param, other_name: str):
-    """lmfit's fitted correlation between `param` and `other_name`, or None."""
-    correl = getattr(param, "correl", None)
-    if not correl:
-        return None
-    return correl.get(other_name)
+START_MARGIN = 0.01
+"""How far inside its bounds a starting value is placed, as a fraction of the
+bounded range.
+
+lmfit enforces bounds by mapping each parameter through a sine, whose slope is
+zero exactly at a bound. A parameter that *starts* there has no gradient, and
+Levenberg-Marquardt can stop on its first step with every parameter unchanged
+and still report success: a WSe2-like peak with shape 0.3 came back from 11
+evaluations at R² 0.94 and 78% of its area. It hits any peak whose shape split
+puts gamma (or sigma) under its floor, and a centre clamped onto the edge.
+"""
 
 
-def voigt_fwhm_stderr(
-    sigma: float, gamma: float, sigma_stderr: float, gamma_stderr: float, correlation=None
-) -> float:
-    """
-    Standard error on `voigt_fwhm`, propagated from both width parameters.
+def _inside(value: float, lo: float, hi: float) -> float:
+    """`value` moved at least START_MARGIN of the range away from either bound."""
+    margin = START_MARGIN * (hi - lo)
+    return min(max(value, lo + margin), hi - margin)
 
-    Taking 2.355*sigma_stderr — the previous behaviour — reports the
-    uncertainty of the Gaussian component rather than of the width, and
-    overstates it badly: sigma and gamma trade off against each other, so each
-    is poorly determined on its own while their combination is not. That
-    produced widths quoted as 2.07 +/- 133.29.
 
-    Uses lmfit's fitted correlation between the two when it is available, which
-    is what cancels most of that; without it the terms add in quadrature, which
-    is an upper bound rather than a wrong answer.
-    """
-    f_g = _GAUSSIAN_FWHM_PER_SIGMA * float(sigma)
-    f_l = 2.0 * float(gamma)
-    root = np.sqrt(0.2166 * f_l * f_l + f_g * f_g)
-    if root == 0:
-        return 0.0
-
-    # d(f_V)/d(sigma) and d(f_V)/d(gamma), via f_G and f_L.
-    d_sigma = _GAUSSIAN_FWHM_PER_SIGMA * (f_g / root)
-    d_gamma = 2.0 * (0.5346 + 0.2166 * f_l / root)
-
-    variance = (d_sigma * sigma_stderr) ** 2 + (d_gamma * gamma_stderr) ** 2
-    if correlation is not None:
-        variance += 2.0 * d_sigma * d_gamma * correlation * sigma_stderr * gamma_stderr
-
-    return float(np.sqrt(variance)) if variance > 0 else 0.0
+# The fit varies `vfwhm` (the Voigt FWHM, f_V) and `gmix`, which places the
+# Gaussian share gfrac = f_G / f_V between its floor and 1:
+#     gfrac = g0 + (1 - g0) * gmix,   g0 = f_G,min / f_V,   f_G,min = width_min / 2.
+# That floor is the one sigma always had (width_min / (2 * 2.355)): an
+# instrument-resolution floor on the Gaussian part. Without it a capped peak
+# goes pure Lorentzian to grow wings -- 2ZA(M) did, and took E2g+A1g's wing.
+# sigma and gamma are derived. sigma = gfrac * f_V / 2.3548. gamma = f_L / 2, where
+# f_L inverts voigt_fwhm's Olivero-Longbothum formula exactly: with
+# L = f_L / f_V and r = gfrac, (1 - 0.5346 L)^2 = 0.2166 L^2 + r^2 is
+# a L^2 - 2(0.5346) L + (1 - r^2) = 0 with a = 0.5346^2 - 0.2166, whose smaller
+# root is written in the cancellation-free form 2c / (b + sqrt(b^2 - 4ac)).
+# So voigt_fwhm(sigma, gamma) gives back vfwhm, and bounding vfwhm bounds the
+# reported width.
+_GFRAC_EXPR = "{fg_min!r} / {p}vfwhm + (1 - {fg_min!r} / {p}vfwhm) * {p}gmix"
+_SIGMA_EXPR = "{p}gfrac * {p}vfwhm / " + repr(_GAUSSIAN_FWHM_PER_SIGMA)
+_GAMMA_EXPR = (
+    "{p}vfwhm * (1 - {p}gfrac**2)"
+    " / (1.0692 + sqrt(1.0692**2 - 4 * 0.06919716 * (1 - {p}gfrac**2)))"
+)
 
 
 def fit_voigt_peaks(
@@ -187,21 +186,25 @@ def fit_voigt_peaks(
         frac_gaussian = 1.0 - shape
         frac_lorentzian = shape
 
-        # Distribute FWHM according to shape
-        # Gaussian FWHM = 2.355 * sigma, Lorentzian FWHM = 2 * gamma
-        sigma_guess = (peak.width_fwhm * frac_gaussian) / 2.355
-        gamma_guess = (peak.width_fwhm * frac_lorentzian) / 2.0
-
-        # Ensure non-zero values (minimum bounds)
-        sigma_min = peak.width_min / (2 * 2.355)
-        gamma_min = peak.width_min / 4.0
-        sigma_guess = max(sigma_guess, sigma_min)
-        gamma_guess = max(gamma_guess, gamma_min)
+        # The fit varies the Voigt FWHM itself, bounded to [width_min,
+        # width_max], and the Gaussian share of it; sigma and gamma follow by
+        # expression (see VOIGT_* below). Bounding sigma and gamma separately
+        # -- each to half of width_max -- capped a Lorentzian-shaped peak at
+        # ~0.52 x width_max: WSe2's E2g+A1g piled up at 6.21 cm-1.
+        # The shape split only sets the starting Gaussian share.
+        f_g0 = peak.width_fwhm * frac_gaussian
+        f_l0 = peak.width_fwhm * frac_lorentzian
+        f_v0 = 0.5346 * f_l0 + np.sqrt(0.2166 * f_l0 * f_l0 + f_g0 * f_g0)
+        fwhm_guess = _inside(peak.width_fwhm, peak.width_min, peak.width_max)
+        fg_min = peak.width_min / 2.0
+        g0 = fg_min / fwhm_guess
+        gmix_guess = _inside((f_g0 / f_v0 - g0) / (1.0 - g0), 0.0, 1.0)
 
         # The starting center must lie inside its own bounds, which it doesn't
         # when the preset places the peak outside the spectrum's range and
-        # calculate_auto_bounds has pinned it to the edge.
-        center_guess = min(max(peak.center, peak.center_min), peak.center_max)
+        # calculate_auto_bounds has pinned it to the edge (then it is fixed,
+        # and the margin collapses to the pinned value).
+        center_guess = _inside(peak.center, peak.center_min, peak.center_max)
 
         # Auto-estimate the peak intensity from the data at center_guess.
         # Position + FWHM come from the preset (material properties); intensity
@@ -211,8 +214,8 @@ def fit_voigt_peaks(
         fwhm_eff = peak.width_fwhm
         # lmfit's "amplitude" is the area, so both the guess and the ceiling
         # convert from intensity: area = intensity x FWHM x 1.064 for a Voigt.
-        area_guess = intensity_guess * fwhm_eff * 1.064
         area_max = peak.intensity_max * fwhm_eff * 1.064
+        area_guess = _inside(intensity_guess * fwhm_eff * 1.064, 0.0, area_max)
 
         # Add parameters with bounds
         if peak.center_min == peak.center_max:
@@ -228,10 +231,12 @@ def fit_voigt_peaks(
                        min=peak.center_min, max=peak.center_max)
         params.add(f"{prefix}amplitude", value=area_guess,
                    min=0, max=area_max)
-        params.add(f"{prefix}sigma", value=sigma_guess,
-                   min=peak.width_min / (2 * 2.355), max=peak.width_max / (2 * 2.355))
-        params.add(f"{prefix}gamma", value=gamma_guess,
-                   min=peak.width_min / 4.0, max=peak.width_max / 4.0)
+        params.add(f"{prefix}vfwhm", value=fwhm_guess,
+                   min=peak.width_min, max=peak.width_max)
+        params.add(f"{prefix}gmix", value=gmix_guess, min=0.0, max=1.0)
+        params.add(f"{prefix}gfrac", expr=_GFRAC_EXPR.format(p=prefix, fg_min=float(fg_min)))
+        params.add(f"{prefix}sigma", expr=_SIGMA_EXPR.format(p=prefix))
+        params.add(f"{prefix}gamma", expr=_GAMMA_EXPR.format(p=prefix))
 
     # Fit using Levenberg-Marquardt with increased tolerance
     start_time = time.time()
@@ -302,7 +307,6 @@ def fit_voigt_peaks(
             area_fit = get_param_value(result.params[f"{prefix}amplitude"])
             area_stderr = get_param_stderr(result.params[f"{prefix}amplitude"])
             sigma_fit = get_param_value(result.params[f"{prefix}sigma"])
-            sigma_stderr = get_param_stderr(result.params[f"{prefix}sigma"])
             gamma_fit = get_param_value(result.params[f"{prefix}gamma"])
         except AttributeError as e:
             # Debug: print parameter type if extraction fails
@@ -316,13 +320,10 @@ def fit_voigt_peaks(
             )
 
         # A Voigt's width comes from both of its components, so 2.355*sigma
-        # is only the Gaussian half of it (see voigt_fwhm).
-        gamma_stderr = get_param_stderr(result.params[f"{prefix}gamma"])
-        sigma_gamma_correl = _correlation(result.params[f"{prefix}sigma"], f"{prefix}gamma")
-        width_fwhm_fit = voigt_fwhm(sigma_fit, gamma_fit)
-        width_stderr = voigt_fwhm_stderr(
-            sigma_fit, gamma_fit, sigma_stderr, gamma_stderr, sigma_gamma_correl
-        )
+        # is only the Gaussian half of it. The width is itself a fitted
+        # parameter, so its stderr comes straight from lmfit's covariance.
+        width_fwhm_fit = get_param_value(result.params[f"{prefix}vfwhm"])
+        width_stderr = get_param_stderr(result.params[f"{prefix}vfwhm"])
         # The pre-v3.4.0 value, kept only for the "FWHM (v1)" comparison
         # column -- see FittedPeak.width_fwhm_v1.
         width_fwhm_v1_fit = _GAUSSIAN_FWHM_PER_SIGMA * sigma_fit

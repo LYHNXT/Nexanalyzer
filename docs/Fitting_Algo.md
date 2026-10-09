@@ -177,6 +177,14 @@ for i, peak in enumerate(peak_table):
                min=peak.width_min / 4.0, max=peak.width_max / 4.0)
 ```
 
+> **Superseded at v5.14.0.** The listing above bounds sigma and gamma
+> separately, each to half of `width_max`, which capped a mostly Lorentzian
+> peak at ~0.52 x `width_max` (WSe2's E2g+A1g at 6.21 cm-1). The fit now
+> varies `{prefix}vfwhm` (the Voigt FWHM, bounded to `[width_min, width_max]`)
+> and `{prefix}gmix` (Gaussian share f_G/f_V, from its floor f_G >= width_min/2
+> up to 1); `sigma` and `gamma` are lmfit expressions that invert `voigt_fwhm` exactly. The reported FWHM
+> and its stderr are `vfwhm`'s. See `_SIGMA_EXPR` / `_GAMMA_EXPR` in fitting.py.
+
 **Step 4: Levenberg-Marquardt Optimization** ([fitting.py](../modules/spectra/processing/fitting.py))
 ```python
 result = composite_model.fit(
