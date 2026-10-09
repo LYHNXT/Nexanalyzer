@@ -1,0 +1,18 @@
+#!/bin/sh
+# Refuse the commit/push unless the fit algorithm still reproduces the golden
+# record in tests/fixtures/golden_fit/expected.json. See tests/unit/test_golden_fit.py.
+# Enabled per clone with:  git config core.hooksPath .githooks
+cd "$(git rev-parse --show-toplevel)" || exit 1
+if [ -x venv/Scripts/python.exe ]; then PY=venv/Scripts/python.exe
+elif [ -x venv/bin/python ]; then PY=venv/bin/python
+else PY=python
+fi
+echo "[golden-fit] checking the spectral fit against the golden record..."
+NEXANALYZER_REQUIRE_GOLDEN=1 "$PY" -m pytest tests/unit/test_golden_fit.py -q -p no:warnings --no-header
+status=$?
+if [ $status -ne 0 ]; then
+    echo "[golden-fit] FAILED: the fit numbers changed, so the algorithm was touched."
+    echo "             If that is intended: python tests/unit/test_golden_fit.py --regenerate"
+    echo "             and record it in CHANGELOG.md."
+fi
+exit $status

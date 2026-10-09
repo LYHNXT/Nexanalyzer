@@ -56,6 +56,9 @@ Thumbs.db
 !requirements.txt
 !requirements-dev.txt
 tests/fixtures/*.txt
+# Except the golden-fit pair (HKU-20230524-2), cleared for the repo on 2026-10-09:
+# the commit/push hooks refit them, so every clone must have them.
+!tests/fixtures/golden_fit/*.txt
 
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).

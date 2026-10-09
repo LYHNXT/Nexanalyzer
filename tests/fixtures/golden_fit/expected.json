@@ -1,0 +1,126 @@
+{
+  "RM_1.txt": {
+    "mode": "Raman",
+    "r_squared": 0.8957437706289682,
+    "chi_squared": 28776.646007763626,
+    "peaks": {
+      "E2g+A1g": {
+        "center": 252.91714669516605,
+        "center_stderr": 0.0,
+        "intensity": 264.0230060243181,
+        "intensity_stderr": 0.0,
+        "area": 1278.4165693312104,
+        "area_stderr": 0.0,
+        "fwhm": 3.4840160063378254,
+        "fwhm_stderr": 0.0,
+        "shape": 0.5736995025830463
+      },
+      "2LA": {
+        "center": 264.11581715950456,
+        "center_stderr": 0.0,
+        "intensity": 61.8905467425573,
+        "intensity_stderr": 0.0,
+        "area": 808.61980857926,
+        "area_stderr": 0.0,
+        "fwhm": 8.42424718615047,
+        "fwhm_stderr": 0.0,
+        "shape": 0.853275294906767
+      },
+      "2ZA(M)": {
+        "center": 245.24423526083825,
+        "center_stderr": 0.0,
+        "intensity": 29.108963268937917,
+        "intensity_stderr": 0.0,
+        "area": 220.54874786851153,
+        "area_stderr": 0.0,
+        "fwhm": 4.919999502753937,
+        "fwhm_stderr": 0.0,
+        "shape": 0.8233880002655534
+      },
+      "B2g": {
+        "center": 313.97486291104457,
+        "center_stderr": 0.0,
+        "intensity": 3.8418919625578525,
+        "intensity_stderr": 0.0,
+        "area": 35.84887527729704,
+        "area_stderr": 0.0,
+        "fwhm": 5.999999998587727,
+        "fwhm_stderr": 0.0,
+        "shape": 0.8530399384735241
+      },
+      "LB": {
+        "center": 30.281569845285723,
+        "center_stderr": 0.0,
+        "intensity": 1.2854867042054672,
+        "intensity_stderr": 0.0,
+        "area": 12.12477026903586,
+        "area_stderr": 0.0,
+        "fwhm": 5.999999998039471,
+        "fwhm_stderr": 0.0,
+        "shape": 0.8530399361439509
+      },
+      "LA": {
+        "center": 128.9080951784512,
+        "center_stderr": 0.0,
+        "intensity": 17.64719783309756,
+        "intensity_stderr": 0.0,
+        "area": 1244.7446018497267,
+        "area_stderr": 0.0,
+        "fwhm": 44.9999999994222,
+        "fwhm_stderr": 0.0,
+        "shape": 0.9334377217849712
+      },
+      "C": {
+        "center": 18.013720790223992,
+        "center_stderr": 0.0,
+        "intensity": 3.427385781050464,
+        "intensity_stderr": 0.0,
+        "area": 23.971252572619886,
+        "area_stderr": 0.0,
+        "fwhm": 4.570887517243982,
+        "fwhm_stderr": 0.0,
+        "shape": 0.798345431063427
+      },
+      "center": {
+        "center": 2.9999896490869435,
+        "center_stderr": 0.0,
+        "intensity": 95.98774303049223,
+        "intensity_stderr": 0.0,
+        "area": 342.1751288606831,
+        "area_stderr": 0.0,
+        "fwhm": 3.0291442405738653,
+        "fwhm_stderr": 0.0,
+        "shape": 0.14602070084250357
+      }
+    }
+  },
+  "PL_1.txt": {
+    "mode": "PL",
+    "r_squared": 0.9992106997196669,
+    "chi_squared": 940866.4244759766,
+    "peaks": {
+      "Exciton": {
+        "center": 755.8611687529775,
+        "center_stderr": 0.09760961571226878,
+        "intensity": 3908.5811282116497,
+        "intensity_stderr": 76.12075929325738,
+        "area": 106618.51349099465,
+        "area_stderr": 2076.426696908885,
+        "fwhm": 23.413688675012967,
+        "fwhm_stderr": 0.15899738478870223,
+        "shape": 0.23102880846476376
+      },
+      "Trion": {
+        "center": 774.5052195309976,
+        "center_stderr": 0.5088838960169222,
+        "intensity": 1386.0886157794762,
+        "intensity_stderr": 42.57539773984599,
+        "area": 69174.73099413828,
+        "area_stderr": 2124.7860000394485,
+        "fwhm": 32.87466723916691,
+        "fwhm_stderr": 0.5520192210860608,
+        "shape": 0.7772188755274146
+      }
+    }
+  }
+}

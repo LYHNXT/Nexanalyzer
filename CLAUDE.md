@@ -15,6 +15,18 @@ python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
 
+## Golden fit — commits and pushes are gated on it
+
+`.githooks/` (enable per clone: `git config core.hooksPath .githooks`) runs
+[tests/unit/test_golden_fit.py](tests/unit/test_golden_fit.py) before every
+commit and push: HKU-20230524-2's RM_1 and PL_1, fitted with a frozen copy of the
+WSe2 preset, must reproduce `tests/fixtures/golden_fit/expected.json` to 1e-5.
+A failure means the parser, despike, baseline or fit changed. Preset edits don't
+trip it. Moving the numbers on purpose: `python tests/unit/test_golden_fit.py
+--regenerate` in the same commit, and say so in CHANGELOG. The two `.txt`
+spectra are committed through a `.gitignore` exception — the only measurement
+data in the repo; don't widen it.
+
 ## Two quantities, two names — never "amplitude"
 
 A peak has a maximum and it has an area. These are different numbers, they differ
