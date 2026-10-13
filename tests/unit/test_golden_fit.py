@@ -121,7 +121,7 @@ def test_fit_matches_golden_record(filename):
     assert not drift, (
         f"{filename}: the fit no longer reproduces the golden record -- the "
         f"algorithm changed.\n  " + "\n  ".join(drift) + "\nIf intended, run "
-        f"`python tests/unit/test_golden_fit.py --regenerate` and say so in CHANGELOG."
+        "`python tests/unit/test_golden_fit.py --regenerate` and say so in CHANGELOG."
     )
 
 
