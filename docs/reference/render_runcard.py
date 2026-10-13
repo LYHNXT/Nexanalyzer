@@ -396,6 +396,68 @@ FALLBACK_RAMPS = [
 ]
 
 
+# Which MFCs are summed into the combined "inner tube" / "outer tube" rows,
+# chosen per reactor series from the first two letters of the run name
+# (VBCA08 -> VB, VABD14 -> VA, HADI44 -> HA). Edit the numbers to match the
+# reactor plumbing. VA is set equal to VB. VA/VB (8 MFCs): MFC-1..4 are the
+# inner tube, MFC-5..8 the outer tube (confirmed by user).
+_VB_GROUPS = {'inner': (1, 2, 3, 4), 'outer': (5, 6, 7, 8)}
+SERIES_TUBE_GROUPS = {
+    'VB': _VB_GROUPS,
+    'VA': _VB_GROUPS,
+    'HA': {'inner': (1, 3, 4), 'outer': (6, 7, 8)},
+}
+DEFAULT_SERIES = 'HA'
+
+
+def tube_groups_for(run_name):
+    key = (run_name or '')[:2].upper()
+    if key not in SERIES_TUBE_GROUPS:
+        print(f'Note: no inner/outer mapping for series "{key}"; using {DEFAULT_SERIES}.')
+        key = DEFAULT_SERIES
+    return SERIES_TUBE_GROUPS[key]
+
+
+def tube_label(kind, nums):
+    return f"{kind} tube (MFC{'+'.join(str(n) for n in nums)})"
+
+
+def compute_combined_flow(parsed, mfc_prefixes):
+    """Sum the flows of several MFCs (matched by their 'MFC-N' prefix,
+    e.g. {'MFC-1','MFC-3','MFC-4'}) into one merged piecewise-constant
+    series covering the full run. Returns [(start, end, total_flow), ...],
+    omitting zero-flow stretches."""
+    total_sec = parsed['total_sec']
+    group_intervals = []
+    for full_name, intervals in parsed['mfc_intervals'].items():
+        prefix = full_name.split()[0] if full_name.split() else full_name
+        if prefix in mfc_prefixes:
+            group_intervals.extend(intervals)
+    if not group_intervals:
+        return []
+    breakpoints = {0.0, total_sec}
+    for s, e, _ in group_intervals:
+        breakpoints.add(s)
+        breakpoints.add(e)
+    breakpoints = sorted(breakpoints)
+    merged = []
+    for i in range(len(breakpoints) - 1):
+        t0, t1 = breakpoints[i], breakpoints[i + 1]
+        if t1 <= t0:
+            continue
+        mid = (t0 + t1) / 2.0
+        total = sum(flow for s, e, flow in group_intervals if s <= mid < e)
+        if total > 0:
+            merged.append((t0, t1, total))
+    collapsed = []
+    for s, e, v in merged:
+        if collapsed and abs(collapsed[-1][2] - v) < 1e-9 and abs(collapsed[-1][1] - s) < 1e-6:
+            collapsed[-1] = (collapsed[-1][0], e, v)
+        else:
+            collapsed.append((s, e, v))
+    return collapsed
+
+
 def gas_color(name, fallback_idx):
     """Return (light_fill, dark_fill, dark_text, light_text) for a gas name."""
     # Extract species from "MFC-3 O2" → "O2"
@@ -440,7 +502,10 @@ def render_svg(parsed, title_label):
     pc_channel_names = sorted(parsed['pc_channel_intervals'].keys())
     has_spin = bool(parsed.get('stage_rot_intervals'))
     n_pressure_rows = (1 if parsed['rtv_intervals'] else 0) + len(pc_channel_names) + (1 if has_spin else 0)
-    time_axis_y = pressure_y0 + n_pressure_rows * (pressure_h + gas_bar_gap) + 16
+    combined_y0 = pressure_y0 + n_pressure_rows * (pressure_h + gas_bar_gap) + 14  # divider gap
+    combined_h = 18
+    n_combined_rows = 2  # inner tube, outer tube
+    time_axis_y = combined_y0 + n_combined_rows * (combined_h + gas_bar_gap) + 16
     summary_box_y = time_axis_y + 50
     n_extra_summary_lines = (1 if parsed.get('has_p1_heater') else 0) + (1 if parsed.get('has_p2_heater') else 0)
     svg_height = summary_box_y + 70 + n_extra_summary_lines * 15
@@ -757,6 +822,30 @@ def render_svg(parsed, title_label):
             parts.append(f'<text x="{cx:.1f}" y="{row_y + pressure_h - 5}" text-anchor="middle" font-family="Anthropic Sans, sans-serif" font-size="11" font-weight="500" fill="white">{format_flow(rpm)} rpm</text>')
         parts.append(f'<text x="55" y="{row_y + pressure_h - 5}" text-anchor="end" font-family="Anthropic Sans, sans-serif" font-size="11" font-weight="500" fill="{spin_text}">Spin</text>')
         row_y += pressure_h + gas_bar_gap
+
+    # ---------- Combined inner-tube / outer-tube flow rows ----------
+    combined_divider_y = combined_y0 - 8
+    parts.append(f'<line x1="{plot_x0}" y1="{combined_divider_y}" x2="{plot_x1}" y2="{combined_divider_y}" stroke="#D3D1C7" stroke-width="0.5"/>')
+    TUBE_GROUPS = tube_groups_for(title_label)
+    combined_rows = [
+        (tube_label('Inner', TUBE_GROUPS['inner']),
+         compute_combined_flow(parsed, {f'MFC-{n}' for n in TUBE_GROUPS['inner']}),
+         '#AFA9EC', '#7F77DD', '#26215C', '#EEEDFE'),
+        (tube_label('Outer', TUBE_GROUPS['outer']),
+         compute_combined_flow(parsed, {f'MFC-{n}' for n in TUBE_GROUPS['outer']}),
+         '#5DCAA5', '#1D9E75', '#04342C', '#E1F5EE'),
+    ]
+    for i, (label, intervals, light_fill, dark_fill, dark_text, light_text) in enumerate(combined_rows):
+        row_y = combined_y0 + i * (combined_h + gas_bar_gap)
+        sw_y = row_y + (combined_h - swatch_size) / 2
+        parts.append(f'<rect x="{swatch_x_left}" y="{sw_y:.1f}" width="{swatch_size}" height="{swatch_size}" rx="2" fill="{dark_fill}"/>')
+        for s_t, e_t, flow_total in intervals:
+            bx = x(s_t)
+            bw = x(e_t) - bx
+            parts.append(f'<rect x="{bx:.1f}" y="{row_y}" width="{bw:.1f}" height="{combined_h}" rx="3" fill="{light_fill}"/>')
+            cx = bx + bw / 2
+            parts.append(f'<text x="{cx:.1f}" y="{row_y + combined_h - 5}" text-anchor="middle" font-family="Anthropic Sans, sans-serif" font-size="11" font-weight="500" fill="{dark_text}">{format_flow(flow_total)}</text>')
+        parts.append(f'<text x="640" y="{row_y + combined_h - 5}" text-anchor="end" font-family="Anthropic Sans, sans-serif" font-size="11" font-weight="500" fill="{dark_text}">{escape(label)}</text>')
 
     # ---------- Time axis ----------
     parts.append(f'<line x1="{plot_x0}" y1="{time_axis_y}" x2="{plot_x1}" y2="{time_axis_y}" stroke="#5F5E5A" stroke-width="0.5"/>')

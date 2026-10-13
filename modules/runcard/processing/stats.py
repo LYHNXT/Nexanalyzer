@@ -113,7 +113,8 @@ class BarSegment:
 class BarRow:
     """One gantt row: a channel, its segments, and what kind of thing it is.
 
-    `kind` is `"gas"`, `"rtv"`, `"pc"` or `"spin"`. It carries no colour — the
+    `kind` is `"gas"`, `"rtv"`, `"pc"`, `"spin"` or `"tube"` (a summed-flow
+    row, see `build_tube_rows`). It carries no colour — the
     figure picks those — but it is what the figure switches on, because gas
     rows and pressure rows are drawn differently in four places and a boolean
     called `is_pressure` could not say which of the three pressure-ish rows it
@@ -251,14 +252,20 @@ def _simple_row(events: Sequence[ValueEvent], total: float, label: str, kind: st
     return BarRow(label=label, kind=kind, unit=unit, segments=segments)
 
 
-def build_bar_rows(timeline: Timeline) -> List[BarRow]:
+def build_bar_rows(timeline: Timeline, run_id: str = "") -> List[BarRow]:
     """The gantt rows, top to bottom, in the order they are stacked.
 
     Gases first (first-appearance order), then the throttle valve, then the
-    pressure controllers, then the stage. Gases lead because they are what a
-    grower reads first and what the on/off markers above the temperature trace
-    refer to; the stage is last because it is usually one segment spanning the
-    whole run and carries the least information per pixel.
+    pressure controllers, then the stage, then the inner- and outer-tube sums.
+    Gases lead because they are what a grower reads first and what the on/off
+    markers above the temperature trace refer to; the stage is last of the
+    commanded channels because it is usually one segment spanning the whole run
+    and carries the least information per pixel. The tube sums are derived
+    rather than commanded, so they sit below everything the recipe set.
+
+    `run_id` only picks *which* MFCs each tube sums (see `tube_groups_for`); it
+    never changes how many rows there are. That is what lets `profile_stats`
+    size the figure without being told the run id.
 
     The row *count* is load-bearing beyond the drawing: `profile_stats` derives
     the figure height from it, so both come from this one function rather than
@@ -266,6 +273,7 @@ def build_bar_rows(timeline: Timeline) -> List[BarRow]:
     """
     total = timeline.total_time
     rows = _named_rows(timeline.mfc_events, total, MFC_BAR_FLOOR, "gas", "sccm")
+    gas_rows = list(rows)
 
     # "RTV P" with a Torr unit, both restored. This row briefly read "RTV" and
     # carried no unit, on the reasoning that the stored number was neither the
@@ -282,7 +290,92 @@ def build_bar_rows(timeline: Timeline) -> List[BarRow]:
     if spin is not None:
         rows.append(spin)
 
+    rows.extend(build_tube_rows(gas_rows, total, run_id))
     return rows
+
+
+#: Which MFCs feed the inner tube and which the outer, per reactor series —
+#: `(inner, outer)` MFC numbers. The CSV never says which tube a line feeds,
+#: so this is plumbing knowledge, keyed on the first two letters of the run id
+#: (`VBCA08` -> VB, `VABD14` -> VA, `HADI44` -> HA). VA is plumbed like VB.
+#: From the reference renderer's `SERIES_TUBE_GROUPS`; keep the two in step.
+_VB_TUBES: Tuple[Tuple[int, ...], Tuple[int, ...]] = ((1, 2, 3, 4), (5, 6, 7, 8))
+TUBE_GROUPS: Dict[str, Tuple[Tuple[int, ...], Tuple[int, ...]]] = {
+    "VB": _VB_TUBES,
+    "VA": _VB_TUBES,
+    "HA": ((1, 3, 4), (6, 7, 8)),
+}
+
+#: The series an unrecognised run id falls back to, as the reference does.
+DEFAULT_TUBE_SERIES = "HA"
+
+
+def tube_groups_for(run_id: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
+    """`(inner, outer)` MFC numbers for the series `run_id` belongs to."""
+    return TUBE_GROUPS.get((run_id or "")[:2].upper(), TUBE_GROUPS[DEFAULT_TUBE_SERIES])
+
+
+def tube_label(kind: str, numbers: Sequence[int]) -> str:
+    """`"Inner tube (MFC1+3+4)"` — the row names the MFCs it sums."""
+    return f"{kind} tube (MFC{'+'.join(str(n) for n in numbers)})"
+
+
+def _summed_segments(rows: Sequence[BarRow], numbers: Sequence[int], total: float) -> Tuple[BarSegment, ...]:
+    """The total flow of the MFCs numbered `numbers`, as held segments.
+
+    A channel is matched on its `MFC-N` prefix, the first word of its name, so
+    `MFC-3 O2` is MFC 3 whatever gas it carries. Every segment edge of every
+    matched channel is a breakpoint; between two breakpoints the total is
+    constant. Neighbouring stretches with the same total are merged, and a
+    stretch where the total is zero is left out — an empty tube row is blank,
+    as the reference draws it.
+    """
+    prefixes = {f"MFC-{n}" for n in numbers}
+    segments = [
+        segment
+        for row in rows
+        if (row.label.split() or [""])[0] in prefixes
+        for segment in row.segments
+    ]
+    if not segments:
+        return ()
+
+    edges = sorted({0.0, total, *(s.start_s for s in segments), *(s.end_s for s in segments)})
+    merged: List[BarSegment] = []
+    for t0, t1 in zip(edges, edges[1:]):
+        if t1 <= t0:
+            continue
+        mid = (t0 + t1) / 2
+        value = sum(s.value for s in segments if s.start_s <= mid < s.end_s)
+        if value <= 0:
+            continue
+        if merged and merged[-1].end_s == t0 and abs(merged[-1].value - value) < 1e-9:
+            merged[-1] = BarSegment(start_s=merged[-1].start_s, end_s=t1, value=merged[-1].value)
+        else:
+            merged.append(BarSegment(start_s=t0, end_s=t1, value=value))
+    return tuple(merged)
+
+
+def build_tube_rows(gas_rows: Sequence[BarRow], total: float, run_id: str = "") -> List[BarRow]:
+    """The two summed-flow rows: inner tube, then outer tube.
+
+    They exist to check one rule at a glance — the inner tube must run at least
+    60 sccm above the outer — which no single gas row can show.
+
+    Both rows are present whenever the recipe addressed any gas line, even when
+    one sums to nothing, so every figure of a series has the same two rows in
+    the same place. A recipe with no gas lines gets neither, which keeps the
+    gantt's "no commands" note for a recipe that really has none.
+    """
+    if not gas_rows:
+        return []
+    inner, outer = tube_groups_for(run_id)
+    return [
+        BarRow(label=tube_label("Inner", inner), kind="tube", unit="sccm",
+               segments=_summed_segments(gas_rows, inner, total)),
+        BarRow(label=tube_label("Outer", outer), kind="tube", unit="sccm",
+               segments=_summed_segments(gas_rows, outer, total)),
+    ]
 
 
 def gantt_row_slots(rows: Sequence[BarRow]) -> int:

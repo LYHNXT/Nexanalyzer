@@ -72,10 +72,11 @@ class TestBuildProfileFigure:
         assert isinstance(fig, go.Figure)
         # Six scatters: the heater, then each preheater's line and the inline
         # label marker that names its hold temperature, then the gas markers.
-        assert [trace.type for trace in fig.data] == ["scatter"] * 6 + ["bar"] * 7
+        assert [trace.type for trace in fig.data] == ["scatter"] * 6 + ["bar"] * 9
         assert fig.data[0].name == "Heater"
         assert [trace.y[0] for trace in _bars(fig)] == [
             "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV P", "PC-1", "PC-2", "Spin",
+            "Inner tube (MFC1+2+3+4)", "Outer tube (MFC5+6+7+8)",
         ]
 
     def test_the_preheaters_carry_their_final_temperature(self, tmp_path):
@@ -124,7 +125,8 @@ class TestBuildProfileFigure:
         fig = build_profile_figure("NOWIN", profile)
 
         assert fig.layout.shapes == ()
-        assert [a.text for a in fig.layout.annotations] == []
+        # Row labels (yref "y2") are annotations too; none of the rest may be.
+        assert [a.text for a in fig.layout.annotations if a.yref != "y2"] == []
 
     def test_the_band_is_captioned_with_its_duration_and_plateau(self, tmp_path):
         profile = _profile(tmp_path, RUNCARD_FULL)
@@ -271,8 +273,8 @@ class TestBuildProfileFigure:
 
         fig = build_profile_figure("SHUT", profile)
 
-        assert [trace.y[0] for trace in _bars(fig)] == ["MFC-2 Ar"]
-        assert fig.layout.yaxis2.categoryarray == ("MFC-2 Ar",)
+        assert [trace.y[0] for trace in _bars(fig)][0] == "MFC-2 Ar"
+        assert fig.layout.yaxis2.categoryarray[-1] == "MFC-2 Ar"
 
     def test_the_row_labels_are_stacked_bottom_up(self, tmp_path):
         # Paper coordinates run bottom-up, so the axis array is the row order
@@ -281,7 +283,9 @@ class TestBuildProfileFigure:
 
         fig = build_profile_figure("AAA00", profile)
 
-        assert fig.layout.yaxis2.categoryarray == ("Spin", "PC-1", "MFC-1 Ar")
+        assert fig.layout.yaxis2.categoryarray == (
+            "Outer tube (MFC6+7+8)", "Inner tube (MFC1+3+4)", "Spin", "PC-1", "MFC-1 Ar",
+        )
 
     def test_within_a_row_the_darker_bar_is_the_higher_setpoint(self, tmp_path):
         # Shaded per row rather than across the figure: a gas line running
@@ -292,8 +296,38 @@ class TestBuildProfileFigure:
         fig = build_profile_figure("VBBE00", profile)
 
         fills = _bar(fig, "PC-1").marker.color
-        assert fills[0] == PC1_COLOR  # 400 Torr, this row's own maximum
+        assert fills[0] == profile_module.PC1_RAMP.dark  # 400 Torr, this row's own maximum
+        assert fills[1] == PC1_COLOR  # 300 Torr, the mid level
         assert _brightness(fills[1]) > _brightness(fills[0])
+
+    def test_bars_take_the_references_discrete_levels_and_text_colours(self, tmp_path):
+        # Dark fill and pale text at a row's maximum, pale fill and dark text
+        # below it, opaque -- not a continuous fade toward white, which read
+        # as washed out beside the reference's PNGs.
+        profile = _profile(tmp_path, "MFC/PC,MFC-8 H2Se,30\nWait,Sec,60\nMFC/PC,MFC-8 H2Se,80\nWait,Sec,60\n")
+
+        bar = _bar(build_profile_figure("HADI46", profile), "MFC-8 H2Se")
+
+        light, dark = GAS_COLORS["H2Se"]
+        dark_text, light_text = profile_module.GAS_TEXT_COLORS["H2Se"]
+        assert bar.marker.color == (light, dark)
+        assert bar.insidetextfont.color == (dark_text, light_text)
+        assert bar.opacity is None
+
+    def test_one_trace_per_row_does_not_shift_rows_off_their_labels(self, tmp_path):
+        # Plotly's default "group" mode gives each trace its own slot inside a
+        # category, which with one trace per row drew every bar off its label.
+        fig = build_profile_figure("VBBE00", _profile(tmp_path, RUNCARD_FULL))
+
+        assert fig.layout.barmode == "overlay"
+
+    def test_each_row_label_is_printed_in_its_rows_colour(self, tmp_path):
+        fig = build_profile_figure("VBBE00", _profile(tmp_path, RUNCARD_FULL))
+
+        labels = {a.text: a.font.color for a in fig.layout.annotations if a.yref == "y2"}
+        assert labels["MFC-8 H2Se"] == profile_module.GAS_TEXT_COLORS["H2Se"][0]
+        assert labels["RTV P"] == profile_module.RTV_LABEL_COLOR
+        assert fig.layout.yaxis2.showticklabels is False
 
     def test_a_known_species_keeps_the_colour_it_has_always_had(self, tmp_path):
         # Growers read these plots beside years of old ones, and H2Se has been
@@ -335,7 +369,7 @@ class TestBuildProfileFigure:
 
         assert "&lt;b&gt;evil&lt;/b&gt;" in fig.layout.title.text
         assert "<b>evil</b>" not in fig.layout.title.text
-        assert fig.layout.yaxis2.categoryarray == ("MFC-1 &lt;x&gt; Ar",)
+        assert fig.layout.yaxis2.categoryarray[-1] == "MFC-1 &lt;x&gt; Ar"
 
     def test_an_empty_recipe_does_not_collapse_the_time_axis(self, tmp_path):
         # A zero-wide x-axis is a Plotly error rather than an empty chart. The
@@ -561,3 +595,20 @@ class TestTheTimeAxisFollowsTheRunLength:
         # The reference's own ladder. A fixed half-hour tick gave a 25-minute
         # recipe one interior gridline and a five-hour one a wall of them.
         assert time_tick_step(total_min) == expected
+
+
+class TestTubeRows:
+    def test_the_tube_rows_are_drawn_flat_in_purple_and_teal(self, tmp_path):
+        # The reference draws both in their light fill with dark text, at
+        # every level -- the number on the bar carries the value.
+        profile = _profile(tmp_path, "MFC/PC,MFC-1 Ar,100\nMFC/PC,MFC-6 Ar,40\nWait,Sec,60\n")
+
+        fig = build_profile_figure("HADI44", profile)
+        bars = {trace.y[0]: trace for trace in _bars(fig)}
+        inner, outer = bars["Inner tube (MFC1+3+4)"], bars["Outer tube (MFC6+7+8)"]
+
+        assert inner.marker.color[0] == profile_module.INNER_TUBE_RAMP.light
+        assert outer.marker.color[0] == profile_module.OUTER_TUBE_RAMP.light
+        assert inner.insidetextfont.color[0] == profile_module.INNER_TUBE_RAMP.dark_text
+        assert list(inner.text) == ["100"]
+        assert list(outer.text) == ["40"]

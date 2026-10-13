@@ -73,8 +73,11 @@ class TestBuildBarRows:
 
         assert [row.label for row in rows] == [
             "MFC-1 Ar", "MFC-3 O2", "MFC-8 H2Se", "RTV P", "PC-1", "PC-2", "Spin",
+            "Inner tube (MFC1+3+4)", "Outer tube (MFC6+7+8)",
         ]
-        assert [row.kind for row in rows] == ["gas", "gas", "gas", "rtv", "pc", "pc", "spin"]
+        assert [row.kind for row in rows] == [
+            "gas", "gas", "gas", "rtv", "pc", "pc", "spin", "tube", "tube",
+        ]
 
     def test_a_segment_runs_until_that_channels_next_command(self, tmp_path):
         # PC-1 is set to 400 at t=10 and to 300 at t=70 by an Accumulation row;
@@ -97,7 +100,7 @@ class TestBuildBarRows:
 
         rows = build_bar_rows(profile.timeline)
 
-        assert [row.label for row in rows] == ["MFC-2 Ar"]
+        assert [row.label for row in rows][0] == "MFC-2 Ar"
         assert rows[0].segments == ()
 
     def test_the_bar_floor_is_strict(self, tmp_path):
@@ -112,7 +115,8 @@ class TestBuildBarRows:
 
         labels = [row.label for row in build_bar_rows(profile.timeline)]
 
-        assert labels == ["MFC-1 Ar", "PC-1", "Spin"]
+        assert labels[:3] == ["MFC-1 Ar", "PC-1", "Spin"]
+        assert "RTV P" not in labels
 
     def test_the_unit_travels_on_the_row(self, tmp_path):
         # The RTV row is in Torr like the other pressure rows: its number is
@@ -267,7 +271,8 @@ class TestProfileStats:
         assert stats["gw_dur"] == 2.0
         assert stats["p1_T"] == 40.0
         assert stats["p2_T"] == 50.0
-        assert stats["canvas_h"] == CANVAS_BASE_PX + BAR_ROW_PX * 7
+        # Seven commanded rows and the two tube sums.
+        assert stats["canvas_h"] == CANVAS_BASE_PX + BAR_ROW_PX * 9
 
     def test_the_clock_is_the_recipes_own_and_not_wall_clock(self, tmp_path):
         # RUNCARD_FULL holds two Pumping Forward commands, which contribute
@@ -339,9 +344,10 @@ class TestProfileStats:
     def test_the_canvas_grows_one_row_at_a_time(self, tmp_path):
         # Height and the bar region are both derived from BAR_ROW_PX, or the
         # rows crowd as a recipe adds channels.
-        three_rows = _profile(tmp_path, RUNCARD_SHORT, "short.csv")
+        # Three commanded rows and the two tube sums.
+        five_rows = _profile(tmp_path, RUNCARD_SHORT, "short.csv")
 
-        assert profile_stats(three_rows)["canvas_h"] == CANVAS_BASE_PX + BAR_ROW_PX * 3
+        assert profile_stats(five_rows)["canvas_h"] == CANVAS_BASE_PX + BAR_ROW_PX * 5
 
     def test_a_rowless_recipe_still_reports_one_rows_worth_of_canvas(self, tmp_path):
         # build_profile_figure reserves a row for its "no commands in this
@@ -384,3 +390,68 @@ class TestCanvasHeight:
         # applying their own floor, which is how they came to disagree.
         assert gantt_row_slots([]) == 1
         assert gantt_row_slots([object(), object()]) == 2
+
+
+class TestTubeRows:
+    #: MFC-1 and MFC-3 feed the inner tube in every series; MFC-2 and MFC-5 are
+    #: the ones the series disagree on.
+    _RECIPE = (
+        "MFC/PC,MFC-1 Ar,100\n"
+        "MFC/PC,MFC-2 Ar,30\n"
+        "MFC/PC,MFC-5 Ar,20\n"
+        "MFC/PC,MFC-6 Ar,40\n"
+        "Wait,Sec,60\n"
+        "MFC/PC,MFC-3 O2,5\n"
+        "Wait,Sec,60\n"
+        "MFC/PC,MFC-3 O2,0\n"
+        "Wait,Sec,60\n"
+    )
+
+    def _tubes(self, tmp_path, run_id):
+        profile = _profile(tmp_path, self._RECIPE)
+        rows = build_bar_rows(profile.timeline, run_id)
+        return [
+            (row.label, [(s.start_s, s.end_s, s.value) for s in row.segments])
+            for row in rows if row.kind == "tube"
+        ]
+
+    def test_ha_sums_mfc_1_3_4_and_6_7_8(self, tmp_path):
+        assert self._tubes(tmp_path, "HADI44") == [
+            ("Inner tube (MFC1+3+4)", [(0.0, 60.0, 100.0), (60.0, 120.0, 105.0), (120.0, 180.0, 100.0)]),
+            ("Outer tube (MFC6+7+8)", [(0.0, 180.0, 40.0)]),
+        ]
+
+    @pytest.mark.parametrize("run_id", ["VBCA08", "VABD14", "vbbe00"])
+    def test_va_and_vb_sum_mfc_1_to_4_and_5_to_8(self, tmp_path, run_id):
+        assert self._tubes(tmp_path, run_id) == [
+            ("Inner tube (MFC1+2+3+4)", [(0.0, 60.0, 130.0), (60.0, 120.0, 135.0), (120.0, 180.0, 130.0)]),
+            ("Outer tube (MFC5+6+7+8)", [(0.0, 180.0, 60.0)]),
+        ]
+
+    def test_an_unknown_series_falls_back_to_ha(self, tmp_path):
+        assert [label for label, _ in self._tubes(tmp_path, "NX123")] == [
+            "Inner tube (MFC1+3+4)", "Outer tube (MFC6+7+8)",
+        ]
+
+    def test_equal_neighbouring_totals_merge_and_zero_stretches_are_blank(self, tmp_path):
+        # Two lines swapping 10 sccm at t=60 leave the sum unchanged, so that is
+        # one bar; after both close, the row is blank rather than reading "0".
+        profile = _profile(tmp_path, (
+            "MFC/PC,MFC-1 Ar,10\nWait,Sec,60\n"
+            "MFC/PC,MFC-1 Ar,0\nMFC/PC,MFC-4 H2,10\nWait,Sec,60\n"
+            "MFC/PC,MFC-4 H2,0\nWait,Sec,60\n"
+        ))
+        inner = build_bar_rows(profile.timeline, "HA")[-2]
+
+        assert [(s.start_s, s.end_s, s.value) for s in inner.segments] == [(0.0, 120.0, 10.0)]
+
+    def test_the_row_count_does_not_depend_on_the_run_id(self, tmp_path):
+        # profile_stats sizes the figure without knowing the run id.
+        profile = _profile(tmp_path, self._RECIPE)
+
+        assert len(build_bar_rows(profile.timeline, "VB")) == len(build_bar_rows(profile.timeline, "HA"))
+
+    def test_a_recipe_with_no_gas_lines_gets_no_tube_rows(self, tmp_path):
+        profile = _profile(tmp_path, "MFC/PC,PC-1,400\nWait,Sec,10\n")
+
+        assert [row.label for row in build_bar_rows(profile.timeline)] == ["PC-1"]

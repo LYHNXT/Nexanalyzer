@@ -5,8 +5,9 @@ Two stacked panels over one shared time axis. The top panel is the heater's
 reconstructed temperature with its synthesized cooldown tail, the preheaters as
 dashed lines, the growth window as a shaded band, and a marker wherever a
 reactive gas opened or closed. The bottom panel is a gantt: one row per gas
-line, then the throttle valve, the pressure controllers and the stage, each
-segment shaded by how far its setpoint sits toward that row's maximum. Under
+line, then the throttle valve, the pressure controllers, the stage and the
+inner/outer tube sums, each segment filled at one of its row's discrete levels
+(dark at the row's maximum, light below it) as the reference draws them. Under
 both, a summary block naming what was holding at the growth midpoint.
 
 Pure — no Streamlit, no file access. `core.viz.render.render_plot()` is what
@@ -44,8 +45,8 @@ recipe asks for 60 Torr; the chamber settles somewhere else. A setpoint and a
 measurement are allowed to differ, and this chart draws recipes.
 """
 
-import math
 import zlib
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import plotly.graph_objects as go
@@ -127,6 +128,71 @@ PC1_COLOR = "#1d9e75"
 PC2_COLOR = "#7f77dd"
 SPIN_COLOR = "#8b96a5"
 
+#: Text drawn on a gas bar, per species: `(on the light fill, on the dark
+#: fill)` — the 800/900 and 50 stops of the same ramp as `GAS_COLORS`, so a
+#: number is always dark-on-pale or pale-on-dark and never grey-on-colour.
+GAS_TEXT_COLORS: Dict[str, Tuple[str, str]] = {
+    "Ar": ("#2c2c2a", "#f1efe8"),
+    "O2": ("#173404", "#eaf3de"),
+    "O₂": ("#173404", "#eaf3de"),
+    "H2": ("#4a1b0c", "#faece7"),
+    "H₂": ("#4a1b0c", "#faece7"),
+    "H2Se": ("#4b1528", "#fbeaf0"),
+    "H₂Se": ("#4b1528", "#fbeaf0"),
+    "H2S": ("#412402", "#faeeda"),
+    "H₂S": ("#412402", "#faeeda"),
+    "N2": ("#042c53", "#e6f1fb"),
+    "N₂": ("#042c53", "#e6f1fb"),
+}
+
+#: The same, for `FALLBACK_GAS_COLORS`, index for index.
+FALLBACK_GAS_TEXT_COLORS: Tuple[Tuple[str, str], ...] = (
+    ("#26215c", "#eeedfe"),
+    ("#04342c", "#e1f5ee"),
+    ("#412402", "#faeeda"),
+    ("#042c53", "#e6f1fb"),
+)
+
+
+@dataclass(frozen=True)
+class _Ramp:
+    """The fills and text colours one gantt row draws its segments with.
+
+    `mid` is `None` for a two-level row (gas, tube) and set for the pressure
+    controllers, which the reference draws in three levels.
+    """
+
+    light: str
+    dark: str
+    dark_text: str
+    light_text: str
+    mid: Optional[str] = None
+
+
+#: The pressure controllers' three-level ramps — light, mid, dark — from the
+#: reference's `PC_CHANNEL_RAMPS`. PC-1 teal, PC-2 purple; `PC1_COLOR` and
+#: `PC2_COLOR` are the mid stops.
+PC1_RAMP = _Ramp("#5dcaa5", "#0f6e56", "#04342c", "#e1f5ee", mid=PC1_COLOR)
+PC2_RAMP = _Ramp("#afa9ec", "#4a4396", "#26215c", "#eeedfe", mid=PC2_COLOR)
+
+#: The throttle valve: one solid fill, and a darker one for "vac".
+RTV_RAMP = _Ramp(RTV_COLOR, "#26215c", "#eeedfe", "#eeedfe")
+RTV_LABEL_COLOR = "#3c3489"
+
+#: The stage: one flat slate fill with dark text, as the reference draws it.
+SPIN_RAMP = _Ramp(SPIN_COLOR, SPIN_COLOR, "#1f2937", "#1f2937")
+
+#: The summed inner- and outer-tube rows: the reference's purple and teal.
+#: Told apart by their label's first word, since both rows are kind `"tube"`.
+INNER_TUBE_RAMP = _Ramp("#afa9ec", "#7f77dd", "#26215c", "#eeedfe")
+OUTER_TUBE_RAMP = _Ramp("#5dcaa5", "#1d9e75", "#04342c", "#e1f5ee")
+
+#: A segment at or above this fraction of its row's maximum takes the dark
+#: fill (when the row holds more than one value); a pressure segment at or
+#: above `_MID_FRACTION` takes the mid fill. The reference's own thresholds.
+_DARK_FRACTION = 0.95
+_MID_FRACTION = 0.5
+
 #: A gas with no entry in `GAS_COLORS` still gets a marker, in grey rather than
 #: in its row's fallback colour — a marker that borrowed the fallback hue would
 #: claim a species identity the table does not actually have.
@@ -149,6 +215,13 @@ _TIME_AXIS_PX = 50
 _MARGIN_BOTTOM_PX = 130
 _MARGIN_LEFT_PX = 90
 _MARGIN_RIGHT_PX = 110
+
+#: The right margin holds the gantt's row labels, so it widens to fit the
+#: longest one: ~6.5 px per character at the 11 px tick font, plus a gap.
+#: "Outer tube (MFC5+6+7+8)" needs ~160 px, and at a fixed 110 it was clipped
+#: mid-word in every figure.
+_LABEL_CHAR_PX = 6.5
+_LABEL_PAD_PX = 12
 
 #: Gap between the time-axis title and the summary block below it. The block
 #: runs to at most six lines, so it and this gap have to fit inside
@@ -234,7 +307,9 @@ def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
     one row's worth of space, so the panel has somewhere to say it is empty.
     """
     stats = profile_stats(profile)
-    rows = build_bar_rows(profile.timeline)
+    # The run id picks which MFCs each tube row sums; it never changes the
+    # row count, so `stats` above sized the figure correctly without it.
+    rows = build_bar_rows(profile.timeline, run_id)
     timeline = profile.timeline
     growth = profile.growth
 
@@ -266,12 +341,13 @@ def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
     _add_temperature_traces(fig, profile, stats)
     _add_gas_markers(fig, profile)
     _add_bar_rows(fig, rows, x_max)
+    _add_row_labels(fig, rows)
 
     fig.update_layout(
         height=height,
         font=dict(family=FONT_FAMILY, size=12),
         margin=dict(
-            l=_MARGIN_LEFT_PX, r=_MARGIN_RIGHT_PX,
+            l=_MARGIN_LEFT_PX, r=_right_margin(rows),
             t=_MARGIN_TOP_PX, b=_MARGIN_BOTTOM_PX,
         ),
         plot_bgcolor="white",
@@ -298,6 +374,11 @@ def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
             font=dict(size=11), bgcolor="rgba(0,0,0,0)",
         ),
         hovermode="closest",
+        # One bar trace per row. Plotly's default "group" mode gives every
+        # trace its own slot inside each category, so with one trace per row
+        # the bars drifted further off their row label the further down they
+        # were — a row in eleven was drawn most of a row away from its name.
+        barmode="overlay",
         xaxis=dict(
             # Anchored to the gantt axis so the time axis is drawn once, under
             # the bars, exactly where the ancestor put it.
@@ -329,6 +410,9 @@ def build_profile_figure(run_id: str, profile: RuncardProfile) -> go.Figure:
             side="right",
             categoryorder="array",
             categoryarray=[_escape(row.label) for row in reversed(rows)],
+            # The names are drawn by `_add_row_labels` instead, each in its
+            # row's own colour; an axis has one tick colour for every label.
+            showticklabels=False,
             tickfont=dict(size=11, color="#555555"),
             showgrid=False, zeroline=False, showline=False,
         ),
@@ -580,12 +664,13 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
     segment width off it — see `_MIN_BAR_SPAN_FRACTION` for why an
     instantaneous setpoint change has to be drawn wider than it lasted.
 
-    The shade is a square-root-compressed ramp from a whitened version of the
-    row's colour at the floor to the full colour at that row's own maximum, so
-    within a row the darker bar is the higher setpoint. It is **per row**: a
-    gas line running 0–5 sccm and a controller running 0–400 Torr each use
-    their own full range, because the alternative is a gas row that is white
-    from end to end.
+    Fills come in discrete levels from the row's ramp, as the reference draws
+    them (see `_segment_style`), opaque and with text in the ramp's own dark or
+    pale stop. This used to be a continuous square-root shade toward white at
+    85 % opacity with grey text on every bar; next to the reference's PNGs it
+    read as washed out, and the levels were too close to tell apart. The
+    levels are **per row**: a gas line running 0–5 sccm and a controller
+    running 0–400 Torr each take their dark fill at their own maximum.
     """
     min_span = total_min * _MIN_BAR_SPAN_FRACTION
 
@@ -604,16 +689,7 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
             ))
             continue
 
-        fill_base, stroke_base = _row_colors(row)
-        is_pressure = row.kind != "gas"
-        vmax = max(segment.value for segment in row.segments)
-
-        fills = [_shade(fill_base, s.value, vmax, is_pressure) for s in row.segments]
-        strokes = (
-            [stroke_base] * len(row.segments)
-            if is_pressure
-            else [_shade(stroke_base, s.value, vmax, is_pressure, blend=0.5) for s in row.segments]
-        )
+        styles = _segment_styles(row)
         unit = f" {row.unit}" if row.unit else ""
 
         fig.add_trace(go.Bar(
@@ -622,11 +698,12 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
             x=[max(s.end_s / 60 - s.start_s / 60, min_span) for s in row.segments],
             base=[s.start_s / 60 for s in row.segments],
             orientation="h", width=0.8, yaxis="y2",
+            # A thin white edge, so two neighbouring segments of one fill still
+            # read as two — the reference gets the same from rounded corners.
             marker=dict(
-                color=fills,
-                line=dict(color=strokes, width=0.0 if is_pressure else 0.5),
+                color=[fill for fill, _text in styles],
+                line=dict(color="white", width=1.0),
             ),
-            opacity=0.9 if is_pressure else 0.85,
             # Units are printed on the rows whose label does not already imply
             # one — the throttle valve and the stage — and left off the gas and
             # pressure-controller rows, which is what the reference does and
@@ -639,7 +716,7 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
             # controls to.
             text=[_bar_label(row, s.value) for s in row.segments],
             textposition="inside", insidetextanchor="middle",
-            insidetextfont=dict(size=11, color="white" if is_pressure else "#444444"),
+            insidetextfont=dict(size=11, color=[text for _fill, text in styles]),
             #
             # The **true** start and end, deliberately not `base` and
             # `base + x`: a segment narrower than `min_span` is drawn wider
@@ -652,6 +729,22 @@ def _add_bar_rows(fig: go.Figure, rows: Sequence[BarRow], total_min: float) -> N
             ),
             showlegend=False,
         ))
+
+
+def _add_row_labels(fig: go.Figure, rows: Sequence[BarRow]) -> None:
+    """Each gantt row's name in the right margin, in its row's dark stop.
+
+    As the reference prints them, so a label is tied to its bars by colour as
+    well as by position. Annotations rather than the axis's tick labels,
+    because an axis has a single tick colour for all of them.
+    """
+    for row in rows:
+        fig.add_annotation(
+            xref="paper", x=1.0, xanchor="left", xshift=4,
+            yref="y2", y=_escape(row.label), yanchor="middle",
+            text=_escape(row.label), showarrow=False,
+            font=dict(size=11, color=_row_label_color(row)),
+        )
 
 
 def _add_summary_block(fig: go.Figure, profile: RuncardProfile, inner_px: int) -> None:
@@ -732,8 +825,8 @@ def summary_lines(profile: RuncardProfile) -> List[Tuple[str, str, bool]]:
 
 
 # ------------------------------------------------------------------ colours
-def _row_colors(row: BarRow) -> Tuple[str, str]:
-    """(fill, outline) for one gantt row.
+def _row_ramp(row: BarRow) -> _Ramp:
+    """The ramp one gantt row draws with.
 
     The two pressure controllers are told apart by a digit in their name rather
     than by position, because `Accumulation PC*` commands can introduce a
@@ -741,76 +834,70 @@ def _row_colors(row: BarRow) -> Tuple[str, str]:
     the recipe's, not the hardware's.
     """
     if row.kind == "rtv":
-        return RTV_COLOR, RTV_COLOR
+        return RTV_RAMP
     if row.kind == "spin":
-        return SPIN_COLOR, SPIN_COLOR
+        return SPIN_RAMP
+    if row.kind == "tube":
+        return INNER_TUBE_RAMP if row.label.startswith("Inner") else OUTER_TUBE_RAMP
     if row.kind == "pc":
-        color = PC1_COLOR if "1" in row.label else PC2_COLOR
-        return color, color
+        return PC1_RAMP if "1" in row.label else PC2_RAMP
     species = get_species(row.label)
     if species in GAS_COLORS:
-        return GAS_COLORS[species]
-    return FALLBACK_GAS_COLORS[zlib.crc32(row.label.encode("utf-8")) % len(FALLBACK_GAS_COLORS)]
+        (light, dark), (dark_text, light_text) = GAS_COLORS[species], GAS_TEXT_COLORS[species]
+    else:
+        index = zlib.crc32(row.label.encode("utf-8")) % len(FALLBACK_GAS_COLORS)
+        (light, dark), (dark_text, light_text) = FALLBACK_GAS_COLORS[index], FALLBACK_GAS_TEXT_COLORS[index]
+    return _Ramp(light, dark, dark_text, light_text)
 
 
-def _shade(base: str, value: float, vmax: float, is_pressure: bool, blend: Optional[float] = None) -> str:
-    """`base`, whitened in proportion to how far `value` falls short of `vmax`.
+def _row_label_color(row: BarRow) -> str:
+    """The colour a row's name is printed in: its ramp's dark text stop."""
+    if row.kind == "rtv":
+        return RTV_LABEL_COLOR
+    return _row_ramp(row).dark_text
 
-    Square-root-compressed, so the bottom of a row's range is still visibly
-    coloured: a linear ramp put a 0.1 sccm dopant flow on a row whose maximum is
-    30 sccm at 0.3 % of full colour, i.e. white.
 
-    The floor stops a small value disappearing entirely, and gas rows get a
-    lighter empty end than pressure rows because they are the rows an operator
-    is comparing across — a pale bar has to read as "open but low", not as "no
-    bar".
+def _segment_styles(row: BarRow) -> List[Tuple[str, str]]:
+    """`(fill, text colour)` for each of `row`'s segments, in order.
+
+    The reference's levels, per row:
+
+    - **gas**: the dark fill for a segment at or above 95 % of the row's
+      maximum, the light fill for the rest — and the light fill throughout
+      when the row only ever holds one value, so a gas opened once is not
+      drawn as if it were a peak;
+    - **pressure controller**: the same, with a mid fill between 50 % and 95 %;
+    - **throttle valve**: one solid fill, and the dark one for "vac";
+    - **stage** and **tube sums**: one flat fill.
     """
-    if vmax <= 0:
-        return base
-    floor = 0.35 if is_pressure else 0.25
-    fraction = max(math.sqrt(max(value, 0.0) / vmax), floor)
-    light_blend = blend if blend is not None else (0.45 if is_pressure else 0.6)
-    return _lerp_color(_make_light(base, light_blend), base, fraction)
+    ramp = _row_ramp(row)
+    values = [segment.value for segment in row.segments]
+    vmax = max(values, default=0.0)
+    varied = len(set(values)) > 1
 
-
-def _make_light(color: str, blend: float) -> str:
-    """`color` moved `blend` of the way to white."""
-    r, g, b = _hex_to_rgb(color)
-    return _rgb_to_hex((
-        r + (255 - r) * blend,
-        g + (255 - g) * blend,
-        b + (255 - b) * blend,
-    ))
-
-
-def _lerp_color(light: str, dark: str, fraction: float) -> str:
-    """`fraction` of the way from `light` to `dark`; 0 is lightest, 1 is `dark`."""
-    lr, lg, lb = _hex_to_rgb(light)
-    dr, dg, db = _hex_to_rgb(dark)
-    return _rgb_to_hex((
-        lr + (dr - lr) * fraction,
-        lg + (dg - lg) * fraction,
-        lb + (db - lb) * fraction,
-    ))
-
-
-def _hex_to_rgb(color: str) -> Tuple[int, int, int]:
-    """`"#rrggbb"` -> three ints."""
-    value = color.lstrip("#")
-    return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
-
-
-def _rgb_to_hex(rgb: Tuple[float, float, float]) -> str:
-    """Three channel values back to `"#rrggbb"`, truncating as the ancestor did.
-
-    `int()` rather than `round()`: rounding shifts every derived shade by up to
-    one level, which is invisible on its own and turns every colour assertion
-    against the old renderer into a near-miss.
-    """
-    return "#{:02x}{:02x}{:02x}".format(*(max(0, min(255, int(channel))) for channel in rgb))
+    styles: List[Tuple[str, str]] = []
+    for value in values:
+        if row.kind == "rtv":
+            fill = ramp.dark if value <= _RTV_VACUUM_TORR else ramp.light
+            styles.append((fill, ramp.light_text))
+        elif row.kind in ("spin", "tube"):
+            styles.append((ramp.light, ramp.dark_text))
+        elif varied and value >= _DARK_FRACTION * vmax:
+            styles.append((ramp.dark, ramp.light_text))
+        elif ramp.mid is not None and value >= _MID_FRACTION * vmax:
+            styles.append((ramp.mid, ramp.light_text))
+        else:
+            styles.append((ramp.light, ramp.dark_text))
+    return styles
 
 
 # ------------------------------------------------------------------ helpers
+def _right_margin(rows: Sequence[BarRow]) -> int:
+    """Right margin wide enough for the longest gantt row label."""
+    longest = max((len(row.label) for row in rows), default=0)
+    return max(_MARGIN_RIGHT_PX, int(longest * _LABEL_CHAR_PX) + _LABEL_PAD_PX)
+
+
 def _gridline_values(peak_temp: float) -> List[int]:
     """Tick positions for the temperature axis: zero, 300 °C, and this peak."""
     return [*_FIXED_GRIDLINES_C, int(peak_temp)]

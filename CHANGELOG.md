@@ -5,6 +5,38 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.17.0] - 2026-10-13
+
+### Added
+
+- **Runcard: Inner tube / Outer tube rows.** Two rows at the bottom of the
+  recipe gantt sum the inner-tube and outer-tube MFC flows (sccm), so the rule
+  that the inner tube runs at least 60 sccm above the outer can be checked at a
+  glance. Which MFCs feed which tube is chosen from the run id's first two
+  letters: VA and VB sum MFC 1+2+3+4 / 5+6+7+8, HA sums MFC 1+3+4 / 6+7+8, and
+  any other series falls back to HA. The row label names the MFCs it sums.
+  Stretches with zero total flow are left blank. Recipes with any gas line are
+  two rows (60 px) taller; the PNG export follows. The right margin now widens
+  to fit the longest row label, so these labels are not clipped.
+  **No numbers move**: the metrics, growth window and summary are unchanged.
+- `docs/reference/render_runcard.py` updated to the version that draws these
+  rows (the only change is the combined-flow block).
+
+### Changed
+
+- **Runcard gantt colours match the reference's contrast.** Bars are opaque and
+  filled at discrete levels: the dark stop at a row's maximum with pale text,
+  the light stop below it with dark text, and a mid level for the pressure
+  controllers. Before, every bar faded toward white at 85% opacity with grey
+  text, which looked washed out beside the reference PNGs. Row names are
+  printed in their row's colour.
+
+### Fixed
+
+- **Runcard gantt bars sat off their row labels**, by more the further down
+  the row was. Each row is its own bar trace, and Plotly's default grouped bar
+  mode gave every trace its own sub-slot in each row.
+
 ## [5.16.0] - 2026-10-13
 
 ### Added
