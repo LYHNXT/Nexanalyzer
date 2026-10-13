@@ -5,6 +5,42 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.15.0] - 2026-10-13
+
+### Added
+
+- **Tools page** (new "Setup" section): records where each tool folder is on
+  this PC, once. It shows each tool's datalog, runcard and optical folders
+  with whether each one is really there. You can edit a tool's subfolders and
+  add new tools on the page.
+- **Tool dropdown on Datalog, Runcard, QC Report and OneNote.**
+  - **Datalog** and **Runcard**: choosing a tool points the page at that
+    tool's folder.
+  - **QC Report**: lists the tool's wafers, newest first, and picking one
+    loads its sample folder.
+  - **OneNote**: opens on the last tool used.
+  - Every page keeps its folder picker for one-off folders.
+- **VB1P01 in `data/tool_layouts.json`**: optical data in `OPTICAL`, runcards
+  in `RUNCARD/LYH` (wafer lookup also searches `RUNCARD/JK`), datalogs in
+  `DATALOG`.
+
+### Changed
+
+- Folder locations are split into two files:
+  - `data/tool_layouts.json` (committed): each tool's subfolders, relative to
+    the tool folder.
+  - `data/tool_roots.json` (new, gitignored): where each tool folder is on
+    this PC. Absolute paths include the Windows user name, so they cannot be
+    shared.
+- `tool_layout` moved from `modules/onenote/io` to `core/io`, because four
+  pages now read it.
+- The Datalog page's runcard-matching folder is still guessed from the
+  datalog folder (`RUNCARD/lcy`). It does not come from the layout:
+  HA1P01's CLEANING cards sit one level above the layout's
+  `RUNCARD/lcy/NSHA1P01`, so the layout's folder would miss them.
+
+No numbers move.
+
 ## [5.14.0] - 2026-10-09
 
 ### Fixed

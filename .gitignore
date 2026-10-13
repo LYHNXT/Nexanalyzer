@@ -71,6 +71,10 @@ data/report_settings.json
 data/datalog.json
 data/runcard.json
 
+# Where each tool folder is on this PC (the Tools page). A OneDrive path carries
+# the Windows user name; the relative layout, data/tool_layouts.json, is shared.
+data/tool_roots.json
+
 # Local Claude Code settings (per-developer, unlike .claude/commands/)
 .claude/settings.local.json
 

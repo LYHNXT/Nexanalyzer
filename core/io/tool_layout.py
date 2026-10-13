@@ -43,7 +43,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Union
 
-from core.paths import DATA_DIR
+from ..paths import DATA_DIR
+from .tool_roots import load_roots
 
 #: The three artifact roles a tool folder holds. Used as dict keys in the
 #: layout file and as the labels callers show.
@@ -86,6 +87,22 @@ def load_layouts(path: Optional[Union[str, Path]] = None) -> dict:
 
     layouts = data.get("layouts") if isinstance(data, dict) else None
     return layouts if isinstance(layouts, dict) else {}
+
+
+def save_layouts(layouts: dict, path: Optional[Union[str, Path]] = None) -> None:
+    """Write the layout table back, tools sorted by name.
+
+    Only the Tools page calls this, to add a tool or change a subfolder. The
+    file is committed, so what it writes is a change for review like any other.
+    """
+    path = Path(path) if path is not None else get_layouts_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(
+            {"schema_version": 1, "layouts": dict(sorted(layouts.items()))},
+            f, indent=2, ensure_ascii=False,
+        )
+        f.write("\n")
 
 
 def tool_name(folder: Union[str, Path]) -> str:
@@ -320,3 +337,44 @@ def list_wafers(layout: ToolLayout) -> list[str]:
                 wafers[name] = mtime
 
     return sorted(wafers, key=lambda name: (-wafers[name], name))
+
+
+def configured_tools(
+    layouts: Optional[dict] = None,
+    roots: Optional[dict] = None,
+) -> list[ToolLayout]:
+    """Every declared tool whose root this PC has recorded, by name.
+
+    A tool needs both halves: the committed layout (which subfolder is which)
+    and the per-PC root from ``tool_roots.json`` (where the tool folder is).
+    One without the other is not offered — a root with no layout cannot say
+    where its datalogs are, and a layout with no root has nowhere to look.
+    """
+    layouts = load_layouts() if layouts is None else layouts
+    roots = load_roots() if roots is None else roots
+    return [
+        ToolLayout(name=name, root=Path(roots[name]), spec=layouts[name])
+        for name in sorted(layouts)
+        if roots.get(name)
+    ]
+
+
+def tool_owning(
+    folder: Optional[Union[str, Path]],
+    role: Optional[str],
+    tools: list[ToolLayout],
+) -> Optional[ToolLayout]:
+    """The tool whose `role` subfolder is `folder` or contains it, if any.
+
+    How a page that remembers only a folder knows which tool it is on, so the
+    selector opens showing it without storing the tool a second time. A `role`
+    of None matches against the tool folder itself.
+    """
+    if not folder:
+        return None
+    picked = Path(folder)
+    for tool in tools:
+        sub = tool.root if role is None else tool.subfolder(role)
+        if sub is not None and (picked == sub or sub in picked.parents):
+            return tool
+    return None

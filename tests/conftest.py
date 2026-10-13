@@ -102,3 +102,17 @@ def synthetic_spectrum():
         return x, y
 
     return _make
+
+
+@pytest.fixture(autouse=True)
+def _isolate_tool_roots(tmp_path_factory, monkeypatch):
+    """Redirect data/tool_roots.json to a scratch dir.
+
+    The same reasoning as the two sidecar fixtures above, with one more: every
+    folder page draws a Tool dropdown when this file names a tool, so the
+    developer's own roots would add widgets the page tests do not expect.
+    """
+    import core.io.tool_roots as tool_roots
+
+    scratch = tmp_path_factory.mktemp("sidecars")
+    monkeypatch.setattr(tool_roots, "get_tool_roots_path", lambda: scratch / "tool_roots.json")

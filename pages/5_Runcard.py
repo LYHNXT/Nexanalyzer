@@ -47,6 +47,8 @@ import streamlit as st
 
 from core.io.export import export_figure_html, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
+from core.io.tool_layout import RUNCARD
+from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
 from modules.runcard.io.config_store import load_runcard_folder, save_runcard_folder
 from modules.runcard.io.parser import derive_run_id, file_mtime, list_runcards, load_runcard
@@ -269,6 +271,11 @@ def _render_metrics(stats: dict) -> None:
 
 # --------------------------------------------------------------- Folder pick
 st.subheader("1. Runcard Folder")
+tool, tool_changed = render_tool_select(RUNCARD, state["folder"], key="runcard_tool")
+tool_folder = tool.subfolder(RUNCARD) if tool_changed else None
+if tool_changed and tool_folder is None:
+    st.error(f"{tool.name} declares no runcard folder in tool_layouts.json.")
+
 col_pick, col_scan = st.columns([1, 1])
 with col_pick:
     pick_clicked = st.button("Select Runcard Folder", width="stretch")
@@ -290,27 +297,30 @@ if pick_clicked:
     except Exception as e:
         st.error(f"Failed to open folder browser: {e}")
         picked = None
+else:
+    # Choosing a tool is a pick like any other: remembered, and read at once.
+    picked = str(tool_folder) if tool_folder is not None else None
 
-    if picked:
-        state["folder"] = picked
-        try:
-            save_runcard_folder(picked)
-        except OSError as e:
-            # A preference that cannot be written is not a reason to lose the
-            # pick, and — unguarded — it was not just the preference that was
-            # lost: a read-only `data/` (an install under Program Files, a
-            # checkout without write access, a full disk) raised PermissionError
-            # here and aborted the script *before* `_scan_folder`, so naming a
-            # folder appeared to do nothing at all. Same guard as the Datalog
-            # page's pick.
-            st.warning(f"Could not remember this folder: {e}")
-        reset_results(state)
-        # Scanned here rather than after an `st.rerun()`: naming a folder in the
-        # dialog *is* the request to read it, and a rerun would either lose the
-        # status box or need a flag in state to say a scan was owed. Nothing
-        # stale is left on screen because everything below this point — the
-        # path caption included — is drawn after this handler.
-        _scan_folder(state)
+if picked:
+    state["folder"] = picked
+    try:
+        save_runcard_folder(picked)
+    except OSError as e:
+        # A preference that cannot be written is not a reason to lose the
+        # pick, and — unguarded — it was not just the preference that was
+        # lost: a read-only `data/` (an install under Program Files, a
+        # checkout without write access, a full disk) raised PermissionError
+        # here and aborted the script *before* `_scan_folder`, so naming a
+        # folder appeared to do nothing at all. Same guard as the Datalog
+        # page's pick.
+        st.warning(f"Could not remember this folder: {e}")
+    reset_results(state)
+    # Scanned here rather than after an `st.rerun()`: naming a folder in the
+    # dialog *is* the request to read it, and a rerun would either lose the
+    # status box or need a flag in state to say a scan was owed. Nothing
+    # stale is left on screen because everything below this point — the
+    # path caption included — is drawn after this handler.
+    _scan_folder(state)
 
 if scan_clicked:
     reset_results(state)

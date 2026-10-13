@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from modules.onenote.io import tool_layout as tl
+from core.io import tool_layout as tl
 
 
 @pytest.fixture
@@ -77,10 +77,10 @@ def test_an_unknown_tool_raises_rather_than_resolving_to_nothing(tmp_path, layou
     data in it.
     """
     with pytest.raises(tl.UnknownToolError) as excinfo:
-        tl.resolve_tool(tmp_path / "VB1P01", layouts=layouts)
+        tl.resolve_tool(tmp_path / "DD1P01", layouts=layouts)
 
     message = str(excinfo.value)
-    assert "VB1P01" in message
+    assert "DD1P01" in message
     assert "tool_layouts.json" in message  # names the fix
 
 
@@ -245,4 +245,4 @@ def test_any_depth_under_the_tool_resolves(tool_root, layouts):
 def test_a_folder_with_no_known_ancestor_still_raises(tmp_path, layouts):
     """The walk-up must not turn a genuinely undeclared tool into a pass."""
     with pytest.raises(tl.UnknownToolError):
-        tl.resolve_tool(tmp_path / "VB1P01" / "Optical Properties", layouts=layouts)
+        tl.resolve_tool(tmp_path / "DD1P01" / "Optical Properties", layouts=layouts)

@@ -28,6 +28,9 @@ claimed it reads measurements or reads tool logs, and it does neither, so the
 data-source rule above holds for exactly the two sections that state it. A
 third page that sends results somewhere belongs here; a page that reads a new
 kind of file does not.
+
+"Setup" (v5.15.0) holds the Tools page, which reads no data either: it records
+where each tool's folders are, for every page above to use.
 """
 
 import streamlit as st
@@ -54,6 +57,7 @@ material_presets_page = st.Page("pages/3_Material_Presets.py", title="Material P
 datalog_page = st.Page("pages/4_Datalog.py", title="Datalog", icon="📈")
 runcard_page = st.Page("pages/5_Runcard.py", title="Runcard", icon="📋")
 onenote_page = st.Page("pages/6_OneNote.py", title="OneNote", icon="📓")
+tools_page = st.Page("pages/7_Tools.py", title="Tools", icon="🧰")
 
 nav = st.navigation(
     {
@@ -68,6 +72,9 @@ nav = st.navigation(
         ],
         "Publish": [
             onenote_page,
+        ],
+        "Setup": [
+            tools_page,
         ],
     },
     position="sidebar",

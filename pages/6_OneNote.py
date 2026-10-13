@@ -17,7 +17,7 @@ not happen.
 **Point it at the tool, then pick the wafer.** A wafer's three artifacts live
 in three unrelated subfolders of its tool folder — `OPTICALS`,
 `RUNCARD/lcy/NSHA1P01`, `DATALOG` — so the folder worth picking once is the
-tool, and `modules/onenote/io/tool_layout.py` knows where each artifact sits
+tool, and `core/io/tool_layout.py` knows where each artifact sits
 under it. The OneNote page is named for the wafer.
 
 **Two of the three often cannot be found by wafer ID**, and this page says
@@ -42,11 +42,14 @@ from pathlib import Path
 
 import streamlit as st
 
+from core.io import tool_layout
 from core.io.folder_picker import prompt_folder_path
+from core.io.tool_roots import load_last_tool, save_last_tool
 from core.io.report_settings import save_default_material
+from core.ui.tool_select import render_tool_select
 from modules.datalog.ui.datalog_state import get_datalog_state
 from modules.datalog.ui.datalog_state import reset_results as reset_datalog_results
-from modules.onenote.io import prefix_store, tool_layout
+from modules.onenote.io import prefix_store
 from modules.onenote.processing import artifacts
 from modules.onenote.ui.onenote_state import (
     failed_uploads,
@@ -86,6 +89,21 @@ st.subheader("1. Wafer")
 # the thing the operator can point at once and reuse for every wafer is the
 # tool. `tool_layout` declares where each one sits; see that module for why the
 # layout is declared per tool rather than inferred.
+_tool, _tool_changed = render_tool_select(
+    None, state.get("tool_folder"), key="onenote_tool", fallback=load_last_tool()
+)
+if _tool is not None and (_tool_changed or not state.get("tool_folder")):
+    # The fallback is shown before anything is loaded, so it is taken as the
+    # pick: a remembered tool should not need choosing a second time.
+    if _tool_changed:
+        try:
+            save_last_tool(_tool.name)
+        except OSError:
+            pass
+    state["tool_folder"] = str(_tool.root)
+    reset_results(state)
+    st.rerun()
+
 col_pick, col_path = st.columns([1, 3])
 with col_pick:
     pick_clicked = st.button("Select Tool Folder", width="stretch")

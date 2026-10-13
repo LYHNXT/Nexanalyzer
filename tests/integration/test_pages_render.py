@@ -20,6 +20,7 @@ PAGES = [
     "pages/4_Datalog.py",
     "pages/5_Runcard.py",
     "pages/6_OneNote.py",
+    "pages/7_Tools.py",
 ]
 
 

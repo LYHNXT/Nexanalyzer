@@ -55,6 +55,8 @@ import streamlit as st
 
 from core.io.export import create_filename, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
+from core.io.tool_layout import DATALOG
+from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
 from modules.datalog.io import duplicates, renamer
 from modules.datalog.io.config_store import load_last_folder, save_last_folder
@@ -1291,6 +1293,24 @@ if state["folder"] is None:
     # down a share and picking it is a dozen clicks; a page that charges that
     # on every restart is a page nobody opens twice.
     state["folder"] = load_last_folder()
+
+tool, tool_changed = render_tool_select(DATALOG, state["folder"], key="datalog_tool")
+if tool_changed:
+    tool_folder = tool.subfolder(DATALOG)
+    if tool_folder is None:
+        st.error(f"{tool.name} declares no datalog folder in tool_layouts.json.")
+    else:
+        state["folder"] = str(tool_folder)
+        try:
+            save_last_folder(state["folder"])
+        except OSError as e:
+            st.warning(f"Could not remember this folder: {e}")
+        # The runcard folder is left to the guess from the new datalog folder,
+        # not the layout's runcard subfolder: matching needs the operator's
+        # whole recipe folder (HA1P01's CLEANING cards sit at RUNCARD/lcy, one
+        # level above the layout's RUNCARD/lcy/NSHA1P01).
+        reset_results(state)
+        st.rerun()
 
 col_pick, col_path = st.columns([1, 3])
 with col_pick:

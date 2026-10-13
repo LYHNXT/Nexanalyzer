@@ -51,7 +51,9 @@ block of its own runs the algorithm's own defaults, and the page says so.
 """
 
 import io
+import json
 import os
+from pathlib import Path
 from datetime import date
 
 import streamlit as st
@@ -59,8 +61,11 @@ from PIL import Image
 
 from core.io.export import export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
+from core.io.tool_layout import OPTICAL, ToolLayout, find_wafer, list_wafers
+from core.io.tool_roots import load_last_tool, save_last_tool
 from core.io.report_settings import load_default_material, save_default_material
 from core.report.progress import build as build_progress
+from core.ui.tool_select import render_tool_select
 from core.report.summary_figure import (
     FIT_COLUMN_ASPECT_RATIO,
     FIT_GRID_COLUMNS,
@@ -134,6 +139,52 @@ state = get_qc_report_state()
 
 # ---------------------------------------------------------------- Folder pick
 st.subheader("1. Sample Folder")
+
+
+@st.cache_data(ttl=300, show_spinner="Listing wafers...")
+def _tool_wafers(name: str, root: str, spec_json: str) -> list[str]:
+    """A tool's wafers, newest first. Cached: the optical tree is on OneDrive."""
+    return list_wafers(ToolLayout(name=name, root=Path(root), spec=json.loads(spec_json)))
+
+
+picked = None
+tool, tool_changed = render_tool_select(
+    OPTICAL, state["folder"], key="qc_tool", fallback=load_last_tool()
+)
+if tool_changed:
+    try:
+        save_last_tool(tool.name)
+    except OSError:
+        pass  # a lost preference is not a reason to stop the page
+    # The shown tool is read back from the loaded folder, so a sample from the
+    # previous tool would pull the dropdown straight back to it. Switching tool
+    # is starting over: drop the sample, and the dropdown falls back to the
+    # tool just saved.
+    state["folder"] = None
+    state["scan"] = None
+    reset_results(state)
+    st.rerun()
+
+if tool is not None:
+    wafers = _tool_wafers(tool.name, str(tool.root), json.dumps(tool.spec, sort_keys=True))
+    current_wafer = Path(state["folder"]).name if state["folder"] else None
+    options = wafers if current_wafer in wafers else [""] + wafers
+    wafer = st.selectbox(
+        "Wafer",
+        options,
+        index=options.index(current_wafer) if current_wafer in options else 0,
+        key=f"qc_wafer__{tool.name}__{current_wafer}",
+        help="Every wafer with optical data under this tool, newest first.",
+    )
+    if wafer and wafer != current_wafer:
+        optical = find_wafer(tool, wafer).optical
+        if optical is not None and optical.is_dir():
+            picked = str(optical)
+        elif optical is not None:
+            st.warning(f"{wafer} has only `{optical.name}`, not a sample folder.")
+        else:
+            st.warning(f"No optical folder found for {wafer}.")
+
 col_pick, col_path = st.columns([1, 3])
 with col_pick:
     pick_clicked = st.button("Select Sample Folder", width="stretch")
@@ -141,18 +192,19 @@ with col_path:
     st.caption(state["folder"] or "No folder selected yet.")
 
 if pick_clicked:
+    browse_from = state["folder"] or (str(tool.subfolder(OPTICAL) or "") if tool else "")
     try:
-        picked = prompt_folder_path(default_dir=state["folder"] or "")
+        picked = prompt_folder_path(default_dir=browse_from)
     except Exception as e:
         st.error(f"Failed to open folder browser: {e}")
         picked = None
 
-    if picked:
-        state["folder"] = picked
-        state["scan"] = scan_sample_folder(picked)
-        state["magnification"] = default_magnification(state["scan"])
-        reset_results(state)
-        st.rerun()
+if picked:
+    state["folder"] = picked
+    state["scan"] = scan_sample_folder(picked)
+    state["magnification"] = default_magnification(state["scan"])
+    reset_results(state)
+    st.rerun()
 
 scan = state["scan"]
 

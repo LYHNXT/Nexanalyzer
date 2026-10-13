@@ -22,7 +22,32 @@
         ],
         "tag_index": "DATALOG/runcard_tags.json"
       },
-      "exclude": ["BACKUP"]
+      "exclude": [
+        "BACKUP"
+      ]
+    },
+    "VB1P01": {
+      "optical": {
+        "subfolder": "OPTICAL",
+        "patterns": [
+          "OPTICAL/2*/{wafer}"
+        ]
+      },
+      "runcard": {
+        "subfolder": "RUNCARD/LYH",
+        "patterns": [
+          "RUNCARD/LYH/{wafer}.csv",
+          "RUNCARD/JK/{wafer}_JK.csv"
+        ]
+      },
+      "datalog": {
+        "subfolder": "DATALOG",
+        "patterns": [
+          "DATALOG/*/*~{wafer}.csv"
+        ],
+        "tag_index": "DATALOG/runcard_tags.json"
+      },
+      "exclude": []
     }
   }
 }

@@ -37,7 +37,7 @@ technique and went stale the moment a page grew an OM image.
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: six, in three groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready to publish to the wafer's OneNote page; sign-in and upload are not wired up yet). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
+- **Pages**: seven, in four groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready to publish to the wafer's OneNote page; sign-in and upload are not wired up yet). Under **Setup** — **Tools** (`pages/7_Tools.py`: records where each tool folder is on this PC in the gitignored `data/tool_roots.json`, beside the committed `data/tool_layouts.json` that says which subfolder holds datalogs, runcards and optical data; Datalog, Runcard, QC Report and OneNote then offer a **Tool** dropdown). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -63,7 +63,9 @@ nexanalyzer/
 │   ├── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
 │   ├── 4_Datalog.py                # Datalog page: run browser, PV/SV charts, violations,
 │   │                               # tagging and bulk rename
-│   └── 5_Runcard.py                # Runcard page: one recipe's reconstructed profile
+│   ├── 5_Runcard.py                # Runcard page: one recipe's reconstructed profile
+│   ├── 6_OneNote.py                # OneNote page: publish a wafer's results
+│   └── 7_Tools.py                  # Tools page: each tool's folder on this PC, and its layout
 ├── core/                           # Platform. Knows nothing about peaks or spectra.
 │   ├── paths.py                    # PROJECT_ROOT / DATA_DIR, anchored on this file
 │   ├── version.py                  # APP_NAME, __version__, REPO_URL (single source of truth)
@@ -72,7 +74,11 @@ nexanalyzer/
 │   │   │                           # output filename construction
 │   │   ├── folder_picker.py        # Native folder- and file-picker dialogs
 │   │   │                           # (isolated subprocess)
-│   │   └── report_settings.py      # Persisted default-material setting
+│   │   ├── report_settings.py      # Persisted default-material setting
+│   │   ├── tool_layout.py          # data/tool_layouts.json: where a tool folder keeps each artifact
+│   │   └── tool_roots.py           # data/tool_roots.json: where each tool folder is on this PC
+│   ├── ui/
+│   │   └── tool_select.py          # The "Tool" dropdown the folder-reading pages share
 │   ├── report/
 │   │   ├── models.py               # SampleScan, PeakStat, OpticalClassStat — the row/scan
 │   │   │                           # contracts a module fills in for the report renderer
@@ -110,7 +116,6 @@ nexanalyzer/
 │   │   └── viz/profile.py          # The profile figure (Plotly; the ancestor drew SVG)
 │   ├── onenote/                    # Publishing a wafer's results to its OneNote page
 │   │   ├── io/prefix_store.py      # data/material_prefixes.json (+ gitignored .local overlay)
-│   │   ├── io/tool_layout.py       # data/tool_layouts.json: where a tool folder keeps each artifact
 │   │   ├── processing/artifacts.py # What each page has ready to publish, as bytes
 │   │   └── ui/onenote_state.py     # Isolated session-state namespace for the OneNote page
 │   ├── optical/                    # Optical microscopy: contrast-based layer classification
@@ -160,7 +165,8 @@ nexanalyzer/
 ├── data/
 │   ├── materials.json              # Shared material preset store (committed)
 │   ├── material_prefixes.json      # Wafer-prefix -> material table (committed; .local overlay gitignored)
-│   ├── tool_layouts.json           # Per-tool artifact layout for the OneNote page (committed)
+│   ├── tool_layouts.json           # Per-tool subfolder layout, shared (committed)
+│   ├── tool_roots.json             # Each tool folder's location on this PC (gitignored)
 │   ├── report_settings.json        # Per-installation preference (gitignored)
 │   ├── datalog.json                # Datalog page's remembered folder (gitignored)
 │   ├── runcard.json                # Runcard page's remembered folder (gitignored)
