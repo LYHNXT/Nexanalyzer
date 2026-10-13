@@ -11,7 +11,9 @@ Nothing here touches the network. It reads state and hands back bytes, so the
 page can show exactly what would be uploaded before any sign-in happens.
 """
 
+import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 #: The three artifact kinds, used as log keys and as section headings.
@@ -19,15 +21,17 @@ QC_REPORT = "QC Report"
 RUNCARD = "Runcard"
 DATALOG = "Datalog"
 
-#: The QC Report's seven figures, in the order they are shown on the page and
+#: The QC Report's eight figures, in the order they are shown on the page and
 #: written to disk. Same ordering rationale as `_ARTIFACTS` in
 #: pages/2_QC_Report.py: alphabetical order would put Summary last and
 #: interleave the two techniques, so a reader would meet them in an order
-#: nobody chose. All seven go inline.
+#: nobody chose. All eight go inline. Keep in step with `_ARTIFACTS`: the
+#: domain-size grid was added there in v5.16.0 and missed here until v5.18.0.
 _QC_FIGURES = (
     ("Summary", "summary_png"),
     ("OM", "om_png"),
     ("OM diagnostic", "om_diagnostic_png"),
+    ("Domain size", "domain_grid_png"),
     ("Raman", "raman_grid_png"),
     ("Raman stats", "raman_stats_png"),
     ("PL", "pl_grid_png"),
@@ -68,8 +72,40 @@ class Payload:
         return not (self.images or self.attachments or self.tables)
 
 
+def _same_path(a, b) -> bool:
+    if not a or not b:
+        return False
+    try:
+        a, b = Path(a).resolve(), Path(b).resolve()
+    except OSError:
+        pass
+    # normcase: the same folder picked once by dialog and once from the tool
+    # layout can differ in case on Windows.
+    return os.path.normcase(str(a)) == os.path.normcase(str(b))
+
+
+def qc_report_built_for(state: dict, optical_folder) -> bool:
+    """Whether the QC Report's current folder is this wafer's optical folder.
+
+    The QC Report state outlives a wafer change on this page — it is another
+    page's namespace — so without this check a report built for one wafer was
+    offered as "ready" under every wafer picked after it.
+    """
+    return _same_path(state.get("folder"), optical_folder)
+
+
+def runcard_figures_for(state: dict, runcard_path) -> list:
+    """The Runcard page's drawn charts that are this wafer's recipe.
+
+    `figures` is keyed by recipe path and holds whatever is ticked on the
+    Runcard page, for any wafer; only the one this wafer resolves to counts.
+    """
+    figures = state.get("figures") or {}
+    return [path for path in figures if _same_path(path, runcard_path)]
+
+
 def qc_report_payload(state: dict, wafer_id: str) -> Optional[Payload]:
-    """The QC Report's seven figures inline, plus the workbook attached.
+    """The QC Report's eight figures inline, plus the workbook attached.
 
     Returns None when the report has not been built — the figures are derived
     keys that every input change drops, so "not built yet" is the normal
@@ -102,8 +138,11 @@ def qc_report_payload(state: dict, wafer_id: str) -> Optional[Payload]:
     )
 
 
-def runcard_payload(state: dict, wafer_id: str, run_id: str) -> Optional[Payload]:
+def runcard_payload(state: dict, wafer_id: str, path: str) -> Optional[Payload]:
     """One ticked recipe's profile chart, rendered to PNG.
+
+    Looked up by recipe *path*, which is what the Runcard page keys `figures`
+    on — looking it up by run id, as this did before v5.18.0, never matched.
 
     The Runcard page holds live Plotly figures rather than bytes, so this is
     where the render happens — via the same `export_figure_png` the page's own
@@ -112,12 +151,14 @@ def runcard_payload(state: dict, wafer_id: str, run_id: str) -> Optional[Payload
     not needed to render the rest of this page.
     """
     figures = state.get("figures") or {}
-    figure = figures.get(run_id)
+    figure = figures.get(path)
     if figure is None:
         return None
 
     from core.io.export import export_figure_png
+    from modules.runcard.io.parser import derive_run_id
 
+    run_id = derive_run_id(path)
     png = export_figure_png(figure, width=1200, height=700, scale=2.0)
 
     return Payload(

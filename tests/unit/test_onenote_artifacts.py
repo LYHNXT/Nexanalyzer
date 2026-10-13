@@ -32,14 +32,14 @@ def test_an_unbuilt_report_offers_nothing():
     assert artifacts.qc_report_payload(_qc_state(), "HADH51") is None
 
 
-def test_all_seven_figures_go_inline():
+def test_all_eight_figures_go_inline():
     state = _qc_state(**{
         key: b"png" for _, key in artifacts._QC_FIGURES
     })
 
     payload = artifacts.qc_report_payload(state, "HADH51")
 
-    assert len(payload.images) == 7
+    assert len(payload.images) == 8
     assert payload.kind == artifacts.QC_REPORT
 
 
@@ -55,7 +55,7 @@ def test_figures_keep_the_page_s_own_order():
     captions = [image.caption for image in artifacts.qc_report_payload(state, "X").images]
 
     assert captions == [
-        "Summary", "OM", "OM diagnostic",
+        "Summary", "OM", "OM diagnostic", "Domain size",
         "Raman", "Raman stats", "PL", "PL stats",
     ]
 
@@ -116,3 +116,34 @@ def test_is_empty_reports_a_payload_with_nothing_in_it():
     assert not artifacts.Payload(
         kind="X", wafer_id="Y", images=(artifacts.Image("c", b"d"),)
     ).is_empty
+
+
+def test_qc_figures_match_the_qc_report_page():
+    """The domain-size grid joined the QC Report at v5.16.0 and was missing here."""
+    import re
+    from core.paths import PROJECT_ROOT
+
+    page = (PROJECT_ROOT / "pages" / "2_QC_Report.py").read_text(encoding="utf-8")
+    page = page[page.index("_ARTIFACTS = ("):]
+    page = page[:page.index("\n)\n")]
+    page_keys = re.findall(r'\(\d+, "[^"]+", "(\w+_png)"\)', page)
+
+    assert page_keys == [key for _, key in artifacts._QC_FIGURES]
+
+
+def test_a_report_built_for_another_wafer_is_not_ready(tmp_path):
+    mine, other = tmp_path / "HADH51", tmp_path / "HADH50"
+
+    assert artifacts.qc_report_built_for({"folder": str(mine)}, mine)
+    assert not artifacts.qc_report_built_for({"folder": str(other)}, mine)
+    assert not artifacts.qc_report_built_for({"folder": None}, mine)
+    assert not artifacts.qc_report_built_for({"folder": str(mine)}, None)
+
+
+def test_only_this_wafer_s_recipe_counts(tmp_path):
+    mine, other = tmp_path / "HADH51.csv", tmp_path / "HADH50.csv"
+    state = {"figures": {str(mine): object(), str(other): object()}}
+
+    assert artifacts.runcard_figures_for(state, mine) == [str(mine)]
+    assert artifacts.runcard_figures_for(state, None) == []
+    assert artifacts.runcard_figures_for({"figures": None}, mine) == []

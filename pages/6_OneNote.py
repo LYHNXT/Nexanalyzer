@@ -38,6 +38,7 @@ than a toast — `st.error` vanishes on the next rerun, and a rerun is one
 widget click away.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import streamlit as st
@@ -49,11 +50,12 @@ from core.io.report_settings import save_default_material
 from core.ui.tool_select import render_tool_select
 from modules.datalog.ui.datalog_state import get_datalog_state
 from modules.datalog.ui.datalog_state import reset_results as reset_datalog_results
-from modules.onenote.io import prefix_store
-from modules.onenote.processing import artifacts
+from modules.onenote.io import graph_client, prefix_store
+from modules.onenote.processing import artifacts, page_html
 from modules.onenote.ui.onenote_state import (
     failed_uploads,
     get_onenote_state,
+    record_upload,
     reset_results,
 )
 from modules.optical.ui.qc_report_state import get_qc_report_state
@@ -315,8 +317,18 @@ st.subheader("3. What's ready")
 if not wafer_id:
     st.stop()
 
-qc_payload = artifacts.qc_report_payload(qc_state, wafer_id)
-runcard_run_ids = sorted((runcard_state.get("figures") or {}).keys())
+optical = wafer_paths.path_for(tool_layout.OPTICAL) if wafer_paths else None
+wafer_runcard = wafer_paths.path_for(tool_layout.RUNCARD) if wafer_paths else None
+
+# Only what was built *for this wafer* counts. The other pages' state outlives
+# a wafer change here, so before v5.18.0 a report built for one wafer, or any
+# ticked recipe, read as ready under every wafer picked after it.
+qc_payload = (
+    artifacts.qc_report_payload(qc_state, wafer_id)
+    if artifacts.qc_report_built_for(qc_state, optical)
+    else None
+)
+runcard_paths = artifacts.runcard_figures_for(runcard_state, wafer_runcard)
 
 # Each column offers to carry this wafer to the page that builds its artifact,
 # rather than telling the operator to go there and find it again. The wafer is
@@ -332,8 +344,11 @@ with col_qc:
             f"{len(qc_payload.attachments)} attached"
         )
     else:
-        st.caption("Not built yet.")
-        optical = wafer_paths.path_for(tool_layout.OPTICAL) if wafer_paths else None
+        other = qc_state.get("folder")
+        if other and any(qc_state.get(key) for _, key in artifacts._QC_FIGURES):
+            st.caption(f"Not built for {wafer_id} — the QC Report holds `{Path(other).name}`.")
+        else:
+            st.caption("Not built yet.")
         if optical is not None and optical.is_dir():
             if st.button(f"Build for {wafer_id} →", key="onenote_goto_qc"):
                 # `scan_sample_folder` skips subdirectories by design, so it
@@ -352,10 +367,13 @@ with col_qc:
 
 with col_rc:
     st.markdown(f"**{artifacts.RUNCARD}**")
-    if runcard_run_ids:
-        st.caption(f"{len(runcard_run_ids)} chart(s) drawn")
+    if runcard_paths:
+        st.caption(f"Chart drawn — `{Path(runcard_paths[0]).name}`")
     else:
-        st.caption("No chart drawn yet.")
+        st.caption(
+            "No chart drawn yet." if wafer_runcard is not None
+            else "Not linked — no runcard found for this wafer."
+        )
         if layout is not None:
             runcard_folder = layout.subfolder(tool_layout.RUNCARD)
             if runcard_folder is not None and runcard_folder.is_dir():
@@ -370,7 +388,9 @@ with col_rc:
 
 with col_dl:
     st.markdown(f"**{artifacts.DATALOG}**")
-    st.caption("Chart and violations, from the Datalog page.")
+    # The Datalog page keeps no chart in session state, so there is nothing
+    # here to report as ready — say so rather than imply it is checked.
+    st.caption("Not tracked yet — the Datalog page doesn't hand its chart over.")
     if layout is not None:
         datalog_folder = layout.subfolder(tool_layout.DATALOG)
         if datalog_folder is not None and datalog_folder.is_dir():
@@ -388,10 +408,98 @@ with col_dl:
 
 st.subheader("4. Publish")
 
-st.info(
-    "Sign-in and upload are not wired up yet — this page currently shows what "
-    "*would* be published. The material check above is live."
-)
+config = graph_client.load_config()
+
+if not config.configured:
+    st.warning(
+        "OneNote isn't configured. Fill `client_id` and `tenant_id` in "
+        "`data/onenote.json` with the Nexstrom app registration (delegated "
+        "permission `Notes.ReadWrite.All`, public client flows enabled)."
+    )
+else:
+    auth = graph_client.Auth(config)
+    token = auth.token_silent()
+
+    if token is None:
+        flow = state.get("device_flow")
+        if flow is None:
+            if st.button("Sign in to OneNote"):
+                try:
+                    state["device_flow"] = auth.start_device_flow()
+                except Exception as e:
+                    st.error(f"Could not start sign-in: {e}")
+                st.rerun()
+        else:
+            st.info(
+                f"Open {flow['verification_uri']} and enter code "
+                f"**{flow['user_code']}**, then press *I've signed in*."
+            )
+            col_done, col_cancel = st.columns(2)
+            if col_done.button("I've signed in", type="primary"):
+                with st.spinner("Waiting for Microsoft sign-in…"):
+                    try:
+                        auth.finish_device_flow(flow)
+                    except Exception as e:
+                        st.error(f"Sign-in failed: {e}")
+                state["device_flow"] = None
+                st.rerun()
+            if col_cancel.button("Cancel"):
+                state["device_flow"] = None
+                st.rerun()
+    else:
+        col_who, col_out = st.columns([3, 1])
+        col_who.caption(
+            f"Signed in as **{auth.account_name()}** — publishing to "
+            f"*{config.notebook}* › *{layout.name if layout else '?'}* › *{wafer_id}*."
+        )
+        if col_out.button("Sign out"):
+            auth.sign_out()
+            st.rerun()
+
+        # What can go, one tick per artifact. Datalog is absent: nothing is
+        # handed over by its page yet (see "What's ready").
+        choices = []
+        if qc_payload:
+            choices.append((artifacts.QC_REPORT, lambda: qc_payload))
+        for path in runcard_paths:
+            choices.append(
+                (artifacts.RUNCARD, lambda p=path: artifacts.runcard_payload(runcard_state, wafer_id, p))
+            )
+
+        if not choices:
+            st.caption("Nothing is ready for this wafer yet — build it above first.")
+        else:
+            picked = [
+                (kind, make) for kind, make in choices
+                if st.checkbox(kind, value=True, key=f"onenote_pub_{kind}")
+            ]
+            check = state.get("material_check")
+            mismatch = check is not None and check.verdict == prefix_store.MISMATCH
+            if st.button("📤 Publish", type="primary", disabled=not picked or layout is None):
+                client = graph_client.OneNoteClient(token, site=config.site)
+                date = datetime.now().strftime("%Y-%m-%d %H:%M")
+                for kind, make in picked:
+                    try:
+                        payload = make()
+                        if payload is None:
+                            raise RuntimeError("nothing to publish")
+                        # The material verdict goes onto the QC section, where
+                        # the figures it qualifies are; a mismatch flagged only
+                        # in the app is lost the moment the page is shared.
+                        note = check.summary() if check is not None and kind == artifacts.QC_REPORT else ""
+                        if mismatch and note:
+                            note = "⚠️ " + note
+                        body, parts = page_html.section_html(payload, date, note)
+                        outcome = graph_client.publish_section(
+                            client, config.notebook, layout.name, wafer_id, body, parts
+                        )
+                        record_upload(state, kind, wafer_id, "ok", f"{outcome} {date}")
+                        st.success(f"{kind}: {outcome} on `{wafer_id}`.")
+                    except Exception as e:
+                        # Recorded, not raised: an upload failure must never
+                        # block analysis; the list below keeps it visible.
+                        record_upload(state, kind, wafer_id, "failed", f"{date}: {e}")
+                        st.error(f"{kind}: {e}")
 
 # --- Failed uploads ---------------------------------------------------------
 # Kept out of `reset_results` deliberately: the log records what happened, and

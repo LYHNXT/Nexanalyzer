@@ -5,6 +5,47 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.18.0] - 2026-10-13
+
+### Added
+
+- **OneNote Publish works.** Step 4 signs in with Microsoft (device code:
+  open the link, type the code) and uploads the ticked artifacts.
+  - Pages go to the notebook named in `data/onenote.json`, in a section named
+    for the tool (e.g. `HA1P01`), on a page titled with the wafer ID. The
+    notebook, section and page are created on first use; later uploads append
+    a dated section to the wafer's page.
+  - The QC Report uploads its eight figures inline and its workbook as an
+    attachment, and carries the material-check verdict. The Runcard uploads
+    this wafer's profile chart.
+  - Failures are listed under *Not uploaded* and never block the app.
+  - Needs a one-time setup: put the Nexstrom app registration's `client_id`
+    and `tenant_id` in `data/onenote.json` (delegated `Notes.ReadWrite.All`,
+    public client flows on). Set `site` to `<host>:/sites/<path>` for a
+    SharePoint team notebook; leave it empty for your own.
+  - The sign-in token is cached under `%LOCALAPPDATA%/NexAnalyzer`, not in
+    the repo.
+- New dependencies: `msal`, `requests`.
+
+### Fixed
+
+- **OneNote "What's ready" now reflects the picked wafer.**
+  - The QC Report counts as ready only when it was built from this wafer's
+    optical folder. Before, a report built for one wafer showed as ready for
+    every wafer picked after it. When the QC Report holds another wafer, the
+    page names that wafer.
+  - The Runcard column counts only this wafer's recipe chart, not every chart
+    ticked on the Runcard page, and says *not linked* when the wafer has no
+    runcard.
+  - The QC Report's domain-size grid (added in v5.16.0) is now included, so the
+    count is eight figures, not seven.
+  - The Datalog column says it is not tracked yet: the Datalog page keeps no
+    chart in session state for this page to read.
+- `artifacts.runcard_payload()` looked charts up by run id, but the Runcard
+  page keys them by recipe path, so it never found one. It now takes the path.
+
+No fitted or reported numbers change.
+
 ## [5.17.0] - 2026-10-13
 
 ### Added

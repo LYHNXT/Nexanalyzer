@@ -32,6 +32,9 @@ def initialize_onenote_state() -> None:
             # The upload log outlives every selection; see the module
             # docstring. list[dict]: artifact, wafer_id, status, detail.
             "log": [],
+            # MSAL's pending device-code flow between "Sign in" and "I've
+            # signed in"; kept across wafer changes so a sign-in survives one.
+            "device_flow": None,
             # Everything below is derived and must appear in one of the
             # artifact tuples; see _SELECTIONS.
             "material_check": None,   # prefix_store.MaterialCheck
@@ -49,7 +52,7 @@ def get_onenote_state() -> dict:
 #: past events rather than something derived from the current selection, and
 #: so must survive every reset. Everything else is derived and gets dropped
 #: by `reset_results`.
-_SELECTIONS = ("tool_folder", "wafer_id", "log")
+_SELECTIONS = ("tool_folder", "wafer_id", "log", "device_flow")
 
 #: Derived from the wafer ID and the selected material together, so any
 #: change to either invalidates them. Both are cheap — a dict lookup and one
