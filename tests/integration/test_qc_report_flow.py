@@ -451,6 +451,9 @@ class TestAdaptiveThreshold:
         at.session_state["qc_report"] = _initial_state(
             folder=str(tmp_path), scan=scan_sample_folder(str(tmp_path)),
             magnification="50x", material="WSe2", reference_layer="2L",
+            # The operator's choice, so the layer suggestion -- which these
+            # synthetic frames would otherwise drive -- cannot move it.
+            layer_source="operator",
         )
         at.run()
         next(b for b in at.button if "Generate QC Report" in b.label).click().run()
@@ -510,6 +513,93 @@ class TestAdaptiveThreshold:
         assert not at.exception, [e.value for e in at.exception]
         assert at.session_state["qc_report"]["optical_threshold_pair"] is None
         assert at.session_state["qc_report"]["om_png"] is not None
+
+
+class TestLayerSuggestion:
+    """Section 3 pre-fills the layer from the frames' colour, never overrides
+    the operator, and stops the page when the colour is ambiguous."""
+
+    # The WSe2 calibration's class colours (layer_suggest), and one on its
+    # decision boundary: B/G where the score is zero for R/G 0.95, no band.
+    _MONOLAYER = (0.978, 0.965)
+    _UNSURE = (1.019, 0.95)
+
+    @staticmethod
+    def _write_film(path, blue_green, red_green, seed):
+        from PIL import Image
+
+        rng = np.random.default_rng(seed)
+        green = 200.0 + rng.normal(0, 1.0, (240, 320))
+        rgb = np.stack([green * red_green, green, green * blue_green], axis=-1)
+        Image.fromarray(np.clip(rgb, 0, 255).round().astype(np.uint8)).save(path)
+
+    def _app(self, tmp_path, colour, **state):
+        for point in range(1, 10):
+            self._write_film(tmp_path / f"50x_{point}.png", *colour, seed=point)
+        at = AppTest.from_file(PAGE, default_timeout=180)
+        at.session_state["qc_report"] = _initial_state(
+            folder=str(tmp_path), scan=scan_sample_folder(str(tmp_path)),
+            magnification="50x", material="WSe2", **state,
+        )
+        at.run()
+        return at
+
+    @staticmethod
+    def _captions(at):
+        return " ".join(c.value for c in at.caption)
+
+    def test_a_confident_suggestion_prefills_the_layer(self, tmp_path):
+        at = self._app(tmp_path, self._MONOLAYER)
+        state = at.session_state["qc_report"]
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert state["reference_layer"] == "1L"
+        assert state["layer_source"] == "suggestion"
+        assert "Suggested **1L**" in self._captions(at)
+        assert any("Generate QC Report" in b.label for b in at.button)
+
+    def test_an_unsure_suggestion_leaves_the_layer_empty_and_stops(self, tmp_path):
+        at = self._app(tmp_path, self._UNSURE)
+        state = at.session_state["qc_report"]
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert state["reference_layer"] is None
+        assert "not sure" in self._captions(at)
+        assert any("Choose 1L or 2L" in w.value for w in at.warning)
+        assert not any("Generate QC Report" in b.label for b in at.button)
+
+    def test_choosing_after_an_unsure_suggestion_continues(self, tmp_path):
+        at = self._app(tmp_path, self._UNSURE)
+
+        next(s for s in at.selectbox if "film being measured" in s.label).select("2L").run()
+        state = at.session_state["qc_report"]
+
+        assert state["reference_layer"] == "2L"
+        assert state["layer_source"] == "operator"
+        assert any("Generate QC Report" in b.label for b in at.button)
+
+    def test_the_operator_choice_is_never_overwritten(self, tmp_path):
+        at = self._app(tmp_path, self._MONOLAYER,
+                       reference_layer="2L", layer_source="operator")
+        state = at.session_state["qc_report"]
+
+        assert state["reference_layer"] == "2L"
+        assert "You chose **2L** instead" in self._captions(at)
+
+    def test_an_uncalibrated_material_keeps_the_2L_default(self, tmp_path):
+        for point in range(1, 10):
+            self._write_film(tmp_path / f"50x_{point}.png", *self._MONOLAYER, seed=point)
+        at = AppTest.from_file(PAGE, default_timeout=180)
+        at.session_state["qc_report"] = _initial_state(
+            folder=str(tmp_path), scan=scan_sample_folder(str(tmp_path)),
+            magnification="50x", material="Silicon",
+        )
+        at.run()
+        state = at.session_state["qc_report"]
+
+        assert state["reference_layer"] == "2L"
+        assert state["layer_suggestion"] is None
+        assert "Suggested" not in self._captions(at)
 
 
 class TestInventory:

@@ -27,7 +27,18 @@ def initialize_qc_report_state() -> None:
             "scan": None,
             "magnification": None,
             "material": None,
+            # None only while a confident suggestion is missing and the
+            # operator has not chosen -- the page stops until they do.
             "reference_layer": "2L",
+            # Who set reference_layer: "operator" (never overwritten), or
+            # "suggestion" / None (re-suggested when the folder, magnification
+            # or material changes). See layer_suggest.
+            "layer_source": None,
+            # layer_suggest.LayerSuggestion for layer_context, or None when the
+            # material has no calibration or there were no frames.
+            "layer_suggestion": None,
+            # (folder, magnification, material) the suggestion was made for.
+            "layer_context": None,
             # True relabels the reference class "Substrate" and the brighter
             # class as the named film -- see contrast.class_labels().
             "low_coverage": False,
@@ -83,8 +94,11 @@ def get_qc_report_state() -> dict:
 #: from them and gets dropped by `reset_results`; a derived key missing from
 #: the tuples below outlives the run that produced it, which is how a verdict
 #: naming the previous material comes to sit under the new one's results.
+#: The layer suggestion lives here too: it is an input to the run, not a
+#: product of it, and its own `layer_context` decides when it goes stale.
 _SELECTIONS = (
     "folder", "scan", "magnification", "material", "reference_layer",
+    "layer_source", "layer_suggestion", "layer_context",
     "low_coverage", "measure_domain_size", "domain_target", "split_size_populations",
 )
 

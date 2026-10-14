@@ -5,6 +5,34 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.20.0] - 2026-10-14
+
+### Added
+
+- **The QC Report suggests the layer.** Section 3 now reads the frames'
+  colour and pre-fills *The film being measured* with 1L or 2L, with the
+  confidence and the evidence in a caption beneath it. Until now the layer was
+  always the operator's guess, defaulting to 2L, and a wrong guess relabels
+  every class by one layer with nothing on screen to show it.
+  - WSe2 only. Any other material keeps the plain 2L default.
+  - It is a suggestion. A layer you pick is never overwritten; the caption
+    says when your choice disagrees with the colour. A new folder clears your
+    pick; a new magnification or material re-suggests unless you picked.
+  - When the colour is ambiguous (confidence below 0.6) the selector is left
+    empty and the page stops until you choose, instead of quietly running 2L.
+  - Evidence: B/G and R/G at the film mode, plus the share of the frame 7-14 %
+    darker than the film, where monolayer sits inside a bilayer film. Absolute
+    brightness is not used: the camera auto-exposes.
+  - Calibrated on 2,423 frames from 296 wafers labelled by PL (strong PL = 1L)
+    and tool (VA/VB1P01 = 1L, HA1P01 from 2026-09 = 2L). Cross-validated by
+    wafer: 94 % agree with their label; 84 % clear the confidence floor and
+    96 % of those agree; 6 of the 7 HA wafers with strong PL are called 1L.
+    Weakest at 100x (79 %), where most disagreements are early-September HA
+    wafers labelled 2L by date whose Raman also looks monolayer-like.
+  - New module `modules/optical/processing/layer_suggest.py`.
+- No existing number moves: segmentation, thresholds and every table are
+  unchanged for a given layer.
+
 ## [5.19.0] - 2026-10-14
 
 ### Changed

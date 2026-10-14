@@ -95,6 +95,11 @@ from modules.optical.processing.contrast import (
     layer_word,
 )
 from modules.optical.processing.domain_size import TARGETS, domain_size_stat, measure_domains
+from modules.optical.processing.layer_suggest import (
+    CALIBRATIONS as LAYER_CALIBRATIONS,
+    CONFIDENCE_FLOOR,
+    suggest_layer,
+)
 from modules.optical.ui.qc_report_state import (
     get_qc_report_state,
     reset_optical_results,
@@ -159,6 +164,36 @@ state = get_qc_report_state()
 st.subheader("1. Sample Folder")
 
 
+@st.cache_data(show_spinner=False, max_entries=64)
+def _suggest_layer(paths: tuple[str, ...], stamps: tuple[float, ...], material: str):
+    """layer_suggest.suggest_layer, cached per frame set. `stamps` (mtimes) is
+    only part of the key, so a frame rewritten in place is read again."""
+    return suggest_layer(paths, material)
+
+
+def _layer_suggestion_caption(suggestion, chosen) -> str:
+    """One line saying what the colour suggests, why, and whether the
+    current choice agrees with it."""
+    f = suggestion.features
+    evidence = (
+        f"B/G {f.blue_green:.3f}, R/G {f.red_green:.3f}, {f.band_pct:.1f} % of "
+        f"the frame 7–14 % darker than the film; {suggestion.n_frames} frame(s)"
+    )
+    if suggestion.layer is None:
+        return (
+            f"Suggestion: **not sure** — leans {suggestion.likely} at confidence "
+            f"{suggestion.confidence:.2f}, below the {CONFIDENCE_FLOOR:.1f} floor "
+            f"({evidence})."
+        )
+    line = (
+        f"Suggested **{suggestion.layer}** from the film's colour, confidence "
+        f"{suggestion.confidence:.2f} ({evidence})."
+    )
+    if chosen is not None and chosen != suggestion.layer:
+        line += f" You chose **{chosen}** instead."
+    return line
+
+
 @st.cache_data(ttl=300, show_spinner="Listing wafers...")
 def _tool_wafers(name: str, root: str, spec_json: str) -> list[str]:
     """A tool's wafers, newest first. Cached: the optical tree is on OneDrive."""
@@ -221,6 +256,9 @@ if picked:
     state["folder"] = picked
     state["scan"] = scan_sample_folder(picked)
     state["magnification"] = default_magnification(state["scan"])
+    # An operator's layer choice was for the previous folder.
+    state["layer_source"] = None
+    state["layer_context"] = None
     reset_results(state)
     st.rerun()
 
@@ -257,17 +295,69 @@ if scan is not None:
 
     # ---------------------------------------------------------------- Layer
     st.subheader("3. Layer")
+    # Suggest a layer from the frames' colour whenever the frames or the
+    # material change (layer_suggest). The material is resolved the way
+    # section 4 resolves it, since that selector renders below this one.
+    # An operator's choice is never overwritten; a confident suggestion
+    # pre-fills the selector; an unsure one leaves it empty and the page
+    # stops below until a layer is chosen. A material with no calibration
+    # keeps the plain 2L default.
+    material_now = state["material"] or load_default_material()
+    layer_paths = tuple(
+        str(path) for point, path in sorted(
+            scan.image_files.get(state["magnification"] or "", {}).items()
+        ) if 1 <= point <= 9
+    )
+    layer_context = (state["folder"], state["magnification"], material_now)
+    if state.get("layer_context") != layer_context:
+        state["layer_context"] = layer_context
+        suggestion = None
+        if layer_paths and material_now in LAYER_CALIBRATIONS:
+            with st.spinner("Reading the film's colour to suggest a layer..."):
+                try:
+                    suggestion = _suggest_layer(
+                        layer_paths,
+                        tuple(os.path.getmtime(p) for p in layer_paths),
+                        material_now,
+                    )
+                except Exception as e:  # a suggestion is never worth stopping the page
+                    st.caption(f"Layer suggestion unavailable: {e}")
+        state["layer_suggestion"] = suggestion
+        if state.get("layer_source") != "operator":
+            if suggestion is not None:
+                new_layer, state["layer_source"] = suggestion.layer, "suggestion"
+            elif state.get("layer_source") == "suggestion":
+                new_layer, state["layer_source"] = "2L", None
+            else:
+                new_layer = state["reference_layer"]
+            if new_layer != state["reference_layer"]:
+                state["reference_layer"] = new_layer
+                reset_optical_results(state)
+
+    current_layer = state["reference_layer"]
     reference = st.selectbox(
         "The film being measured",
         options=REFERENCE_CHOICES,
-        index=REFERENCE_CHOICES.index(state.get("reference_layer", "2L")),
+        index=REFERENCE_CHOICES.index(current_layer) if current_layer in REFERENCE_CHOICES else None,
+        placeholder="Choose 1L or 2L",
         # layer_word() is presentation only; "1L"/"2L" is what gets stored and
         # what keys the preset's optical block.
         format_func=lambda r: f"{r} — {layer_word(r).lower()} film",
     )
-    if reference != state.get("reference_layer"):
+    if reference is not None and reference != current_layer:
         state["reference_layer"] = reference
+        state["layer_source"] = "operator"
         reset_optical_results(state)
+
+    if state.get("layer_suggestion") is not None:
+        st.caption(_layer_suggestion_caption(state["layer_suggestion"], reference))
+    if reference is None:
+        st.warning(
+            "The colour doesn't say clearly which layer this film is. Choose 1L "
+            "or 2L above to continue — a wrong choice relabels every class by "
+            "one layer and selects a different tuning block."
+        )
+        st.stop()
 
     # classify() always treats the frame's most common pixel value as "the
     # reference" -- reference (above) never reaches the threshold math, it
@@ -326,6 +416,9 @@ if scan is not None:
             state["material"] = material_selection
             save_default_material(material_selection)
             reset_results(state)
+            # Section 3 rendered above with the old material; rerun so its
+            # layer suggestion is made for this one.
+            st.rerun()
 
         selected = presets.get(state["material"])
         raman_preset = selected if (selected and selected.block_for("Raman")) else None
