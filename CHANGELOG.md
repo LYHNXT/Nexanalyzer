@@ -5,6 +5,26 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.19.0] - 2026-10-14
+
+### Changed
+
+- **WSe2's bilayer (2L) contrast pair is now -9.0 / +4.5 %, up from
+  -6.0 / +4.25 %.** Every WSe2 wafer segmented on 2L moves: the Bilayer share
+  rises and both Below 2L and Above 2L fall, since both cuts sit further from
+  the film mode. Stored QC results from before this version are not comparable
+  with new ones on these columns. The 1L pair (-6.0 / +4.2 %) is unchanged.
+  - Measured on 884 labelled frames before the change: the 1L<->2L green step
+    is about 10 %, so in a 2L frame monolayer regions sit near -9 to -10 %.
+    A -9 % cut lies on that population rather than between the layers, so
+    some monolayer will now read as Bilayer.
+- **WSe2 1L domain marker spacing is 8 px, down from 80** (8 is the code
+  default). Watershed markers may now sit ten times closer, so 1L domain
+  counts rise and domain sizes fall. Layer coverage percentages do not move.
+- The WSe2 preset description names both layers' pairs.
+- The two QC Report integration tests that restated the WSe2 2L pair now read
+  it from the preset.
+
 ## [5.18.0] - 2026-10-13
 
 ### Added

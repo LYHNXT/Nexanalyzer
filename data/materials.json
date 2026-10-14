@@ -117,7 +117,7 @@
     {
       "material_name": "WSe2",
       "enabled": true,
-      "description": "WSe2 Raman / WSe2 PL peaks. The optical block carries the -6.0/+4.25 contrast pair, and every wafer is segmented on it -- one ruler, so two wafers' coverage numbers can be compared.",
+      "description": "WSe2 Raman / WSe2 PL peaks. The optical block carries the 2L contrast pair -9.0/+4.5 (1L: -6.0/+4.2), and every wafer is segmented on it -- one ruler, so two wafers' coverage numbers can be compared.",
       "raman": {
         "x_range_enabled": true,
         "x_min": -5.0,
@@ -233,14 +233,14 @@
           "abs_threshold_below": 6.0,
           "abs_threshold_above": 4.2,
           "marker_margin_sigma": 0.5,
-          "marker_min_distance": 80,
+          "marker_min_distance": 8,
           "mask_closing_radius": 0
         },
         "2L": {
           "nsigma": 4.0,
           "minpx": 3,
-          "abs_threshold_below": 6.0,
-          "abs_threshold_above": 4.25
+          "abs_threshold_below": 9.0,
+          "abs_threshold_above": 4.5
         }
       }
     },

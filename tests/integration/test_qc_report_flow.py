@@ -28,6 +28,7 @@ from streamlit.testing.v1 import AppTest
 import core.io.om_calibration as om_calibration_module
 from core.paths import PROJECT_ROOT
 from modules.optical.ui import qc_report_state as state_module
+from modules.spectra.io.preset_store import load_presets
 from modules.spectra.processing.sample_scanner import scan_sample_folder
 
 PAGE = str(PROJECT_ROOT / "pages" / "2_QC_Report.py")
@@ -455,12 +456,19 @@ class TestAdaptiveThreshold:
         next(b for b in at.button if "Generate QC Report" in b.label).click().run()
         return at
 
+    @staticmethod
+    def _preset_pair():
+        """The committed WSe2 2L pair, read rather than restated, so a preset
+        retune moves the expectation with it instead of failing here."""
+        params = load_presets()["WSe2"].optical_for("2L")
+        return params.abs_threshold_below, params.abs_threshold_above
+
     def test_the_run_keeps_the_preset_pair(self, tmp_path):
         at = self._wse2_app(tmp_path)
 
         assert not at.exception, [e.value for e in at.exception]
         pair = at.session_state["qc_report"]["optical_threshold_pair"]
-        assert pair == (6.0, 4.25), "the preset pair should segment the wafer"
+        assert pair == self._preset_pair(), "the preset pair should segment the wafer"
 
     def test_the_preset_pair_is_what_actually_segmented(self, tmp_path):
         """One ruler for every wafer: the cuts on the frames must be the
@@ -483,8 +491,9 @@ class TestAdaptiveThreshold:
         rows = list(wb["OM_Stats"].iter_rows(min_row=1, values_only=True))
         header, first = rows[0], rows[1]
 
-        assert first[header.index("Threshold_Below_pct")] == pytest.approx(6.0)
-        assert first[header.index("Threshold_Above_pct")] == pytest.approx(4.25)
+        below, above = self._preset_pair()
+        assert first[header.index("Threshold_Below_pct")] == pytest.approx(below)
+        assert first[header.index("Threshold_Above_pct")] == pytest.approx(above)
 
     def test_a_preset_without_a_pair_has_no_cut_to_name(self, tmp_path):
         """Silicon is nsigma-only, so there is no contrast pair to record."""
