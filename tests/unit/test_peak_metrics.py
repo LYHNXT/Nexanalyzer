@@ -514,3 +514,32 @@ class TestPerPointOutlierRemoval:
 
         assert stat.n == 3
         assert stat.center_mean == pytest.approx((520.0 + 521.0 + 530.0) / 3)
+
+
+class TestRatiosUseOnlyMeasuredPeaks:
+    """v5.23.0: a ratio point needs both peaks measured -- not on a fit limit, and
+    at least MEASURED_SNR times the fit's residual noise."""
+
+    def _fit(self, c, lb, noise=1.0, c_on_limit=False):
+        peaks = [_peak("C", 17.0, c, 3.0), _peak("LB", 30.0, lb, 3.0)]
+        peaks[0].on_limit = c_on_limit
+        fit = _fit_result(peaks)
+        fit.residuals = np.full(10, noise)
+        return fit
+
+    def test_a_peak_on_a_fit_limit_forms_no_ratio(self):
+        from modules.spectra.processing.peak_metrics import compute_peak_intensity_ratio
+
+        fits = [self._fit(20.0, 10.0), self._fit(40.0, 10.0, c_on_limit=True)]
+        assert compute_peak_intensity_ratio(fits, "C", "LB") == (2.0, 0.0, 1)
+
+    def test_a_peak_inside_the_noise_forms_no_ratio(self):
+        from modules.spectra.processing.peak_metrics import compute_peak_intensity_ratio
+
+        fits = [self._fit(20.0, 10.0, noise=1.0), self._fit(20.0, 2.0, noise=1.0)]
+        assert compute_peak_intensity_ratio(fits, "C", "LB")[2] == 1
+
+    def test_nothing_measured_gives_no_ratio(self):
+        from modules.spectra.processing.peak_metrics import compute_peak_intensity_ratio
+
+        assert compute_peak_intensity_ratio([self._fit(20.0, 2.0)], "C", "LB") is None

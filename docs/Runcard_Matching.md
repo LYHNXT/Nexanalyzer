@@ -113,7 +113,13 @@ Costs are in units of "about one differing step":
 
 The asymmetry — structure costs more than values — keeps an edited recipe
 closer to its own older version than to a different recipe. An aborted run is
-not charged for the card's blocks after its last one.
+not charged for the card's blocks after its last one, nor for its last wait
+being *shorter* than the card's (the stop cut it short) nor for its heater SV
+there. That final log block lines up with whichever card block the run was
+stopped in — usually a middle one — so "last" means the log's last block, not
+the pair of last blocks; until v5.23.0 it meant the pair, and the forgiveness
+never fired for a run stopped mid-card (HADH79 cost 0.58 for "wait: log 43 s,
+card 180 s"; now 0). A last wait *longer* than the card's is still charged.
 
 The first version compared the two as time series. It could not tell HADH70's
 card, whose only difference from the log was the first purge wait (60 s on the
@@ -160,9 +166,12 @@ within 0.3 of one of them is that recipe, and gets its normalised name
 
 ### 5. What the log cannot show
 
-- Only MFC-3 (O2) and MFC-8 (H2Se) ever log a 0.01 sccm setpoint; on the other
-  MFCs a card's 0.01 is below resolution and logs as 0, so the replay rounds it
-  down.
+- A card's 0.01 sccm is below some MFCs' resolution and logs as 0. Which MFCs
+  is read off each log (`RunSteps.coarse`): a channel never logged strictly
+  between 0 and 0.05 sccm in that run has the card's 0.01 replayed as 0. It
+  was a fixed list (MFC-3 and MFC-8 fine, the rest coarse) until v5.21.0;
+  from 2026-10 the controller logs MFC-8's 0.01 as 0 as well, and the fixed
+  list charged every October growth run a flat 2.0 for its two MFC-8 steps.
 - Every run ends with MFC-4 and MFC-6 at 500 sccm (vent and refill), and the
   next run often begins with an operator switching them off before the first
   command. A change to 0 from ≥ 300 sccm in the first 120 s is taken as the

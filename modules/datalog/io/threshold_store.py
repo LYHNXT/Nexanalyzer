@@ -100,3 +100,44 @@ def save_thresholds(root_folder: str, thresholds: dict) -> None:
     merged = _with_defaults(_read_json_for_update(path, {}))
     merged.update(thresholds)
     _write_json(path, merged)
+
+
+def merge_overrides(stored: dict, shown_channels, on_screen: dict) -> dict:
+    """
+    The overrides to save: `stored`, updated only for the channels on screen.
+
+    The tolerance editor lists the pairs **the open run** carries. Writing its
+    rows back wholesale deleted every override saved for a channel this run
+    lacks -- open a run without ``MFC-7`` and press Save, and ``MFC-7``'s
+    tolerance was gone from the folder. So:
+
+    - a channel in `shown_channels` takes its on-screen value from `on_screen`,
+      or is removed when it is not there (the operator set it back to the
+      global default, which is how an override is cleared);
+    - a channel not in `shown_channels` keeps whatever `stored` says.
+
+    Pure, and returns a new dict; `stored` is not modified.
+    """
+    shown = set(shown_channels)
+    merged = {name: value for name, value in stored.items() if name not in shown}
+    merged.update({name: value for name, value in on_screen.items() if name in shown})
+    return merged
+
+
+def save_tolerances(root_folder: str, global_default_pct: float, shown_channels,
+                    on_screen: dict) -> None:
+    """
+    Persist the tolerance editor: the global default, and `merge_overrides`'
+    overrides against the file **as it is on disk now**.
+
+    One strict read for both merges -- the top-level one `save_thresholds`
+    does, and the per-channel one above -- so a locked or damaged file raises
+    `SidecarUnreadable` instead of being read as "no overrides" and losing
+    them. The on-disk format is unchanged.
+    """
+    path = get_thresholds_path(root_folder)
+    merged = _with_defaults(_read_json_for_update(path, {}))
+    stored = merged["overrides"] if isinstance(merged["overrides"], dict) else {}
+    merged["global_default_pct"] = global_default_pct
+    merged["overrides"] = merge_overrides(stored, shown_channels, on_screen)
+    _write_json(path, merged)

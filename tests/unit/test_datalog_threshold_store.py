@@ -13,7 +13,9 @@ from modules.datalog.io.threshold_store import (
     THRESHOLDS_FILENAME,
     get_thresholds_path,
     load_thresholds,
+    merge_overrides,
     save_thresholds,
+    save_tolerances,
 )
 
 
@@ -121,5 +123,52 @@ class TestASaveNeverWipesTheFileItCouldNotRead:
 
         with pytest.raises(SidecarUnreadable):
             save_thresholds(str(tmp_path), {"global_default_pct": 4.0})
+
+        assert (tmp_path / THRESHOLDS_FILENAME).read_text(encoding="utf-8") == damaged
+
+
+class TestTheToleranceEditorOnlyRewritesTheChannelsItShows:
+    def test_an_override_for_a_channel_this_run_lacks_survives(self):
+        stored = {"MFC-7": 10.0, "Heater": 2.0}
+        assert merge_overrides(stored, ["Heater", "MFC-1"], {"Heater": 3.0}) == {
+            "MFC-7": 10.0, "Heater": 3.0,
+        }
+
+    def test_a_shown_channel_set_back_to_the_global_is_cleared(self):
+        assert merge_overrides({"Heater": 2.0, "MFC-7": 10.0}, ["Heater"], {}) == {"MFC-7": 10.0}
+
+    def test_a_new_override_is_added(self):
+        assert merge_overrides({}, ["MFC-1"], {"MFC-1": 8.0}) == {"MFC-1": 8.0}
+
+    def test_stored_is_not_modified(self):
+        stored = {"Heater": 2.0}
+        merge_overrides(stored, ["Heater"], {})
+        assert stored == {"Heater": 2.0}
+
+    def test_save_keeps_absent_channels_and_timing_keys_on_disk(self, tmp_path):
+        _write_sidecar(tmp_path, {
+            "global_default_pct": 5.0,
+            "overrides": {"MFC-7": 10.0, "Heater": 2.0},
+            "timing_tolerance_pct": 12.0,
+        })
+
+        save_tolerances(str(tmp_path), 4.0, ["Heater", "MFC-1"], {"MFC-1": 8.0})
+
+        on_disk = json.loads((tmp_path / THRESHOLDS_FILENAME).read_text(encoding="utf-8"))
+        assert on_disk["global_default_pct"] == 4.0
+        assert on_disk["overrides"] == {"MFC-7": 10.0, "MFC-1": 8.0}
+        assert on_disk["timing_tolerance_pct"] == 12.0
+
+    def test_save_into_an_empty_folder(self, tmp_path):
+        save_tolerances(str(tmp_path), 5.0, ["Heater"], {"Heater": 2.0})
+        assert load_thresholds(str(tmp_path))["overrides"] == {"Heater": 2.0}
+
+    def test_save_never_wipes_a_file_it_could_not_read(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("modules.datalog.io.tag_store._UPDATE_READ_RETRY_S", 0)
+        damaged = '{"overrides": {"MFC-7": 9.0}, "timing_tolerance_pct": 12'
+        (tmp_path / THRESHOLDS_FILENAME).write_text(damaged, encoding="utf-8")
+
+        with pytest.raises(SidecarUnreadable):
+            save_tolerances(str(tmp_path), 4.0, ["Heater"], {})
 
         assert (tmp_path / THRESHOLDS_FILENAME).read_text(encoding="utf-8") == damaged

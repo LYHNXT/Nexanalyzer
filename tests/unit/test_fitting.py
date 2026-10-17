@@ -413,3 +413,91 @@ class TestNoParameterStartsOnItsBound:
         for name, p in seen["params"].items():
             if p.vary:
                 assert p.min < p.value < p.max, name
+
+
+class TestConvergenceIsReportedHonestly:
+    """A fit that stops on its iteration budget is kept, but flagged.
+
+    lmfit gives the same "Tolerance seems to be too small" message to a fit
+    that ran out of `max_nfev` and to one that converged past its tolerance,
+    which is how a truncated fit used to pass as a finished one with every
+    uncertainty printed as 0.0.
+    """
+
+    def test_a_converged_fit_says_so_and_stayed_inside_its_budget(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((1000.0, 1000.0, 50.0),))
+        result = fit_voigt_peaks(
+            x, y, [PeakDefinition(center=990.0, intensity=1.0, width_fwhm=60.0)], mode="Raman",
+        )
+
+        assert result.success and result.converged
+        # One variable set: center, amplitude, vfwhm, gmix -> budget 2000 * 5.
+        assert result.max_nfev == 2000 * 5
+        assert 0 < result.nfev < result.max_nfev
+
+    def test_a_fit_that_runs_out_of_iterations_is_kept_but_not_converged(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((1000.0, 1000.0, 50.0),))
+        result = fit_voigt_peaks(
+            x, y, [PeakDefinition(center=990.0, intensity=1.0, width_fwhm=60.0)],
+            mode="Raman", max_iterations=1,
+        )
+
+        assert result.success, result.error_message
+        assert not result.converged
+        assert result.nfev >= result.max_nfev == 5
+        assert len(result.fitted_peaks) == 1
+
+    def test_an_unestimated_uncertainty_is_nan_not_zero(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((1000.0, 1000.0, 50.0),))
+        result = fit_voigt_peaks(
+            x, y, [PeakDefinition(center=990.0, intensity=1.0, width_fwhm=60.0)],
+            mode="Raman", max_iterations=1,
+        )
+
+        peak = result.fitted_peaks[0]
+        assert all(np.isnan(v) for v in (peak.center_stderr, peak.area_stderr, peak.width_stderr))
+
+    def test_the_budget_scales_with_the_number_of_variables(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(
+            n_points=300, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)),
+        )
+        result = fit_voigt_peaks(
+            x, y,
+            [PeakDefinition(center=790.0, intensity=1.0, width_fwhm=45.0),
+             PeakDefinition(center=1310.0, intensity=1.0, width_fwhm=65.0)],
+            mode="Raman", max_iterations=100,
+        )
+
+        # Two peaks, four variables each: 100 iterations cost at most 100 * 9.
+        assert result.max_nfev == 100 * 9
+
+
+class TestMultipleStarts:
+    """v5.23.0: `starts` fits from the preset plus perturbed starts and keeps the best."""
+
+    def _peaks(self):
+        return [PeakDefinition(center=790.0, intensity=1.0, width_fwhm=45.0),
+                PeakDefinition(center=1310.0, intensity=1.0, width_fwhm=65.0)]
+
+    def test_one_start_is_the_single_fit_from_before(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)))
+        a = fit_voigt_peaks(x, y, self._peaks(), mode="Raman")
+        b = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", starts=1)
+
+        assert a.chi_squared == b.chi_squared and a.nfev == b.nfev
+
+    def test_more_starts_never_end_worse_and_budgets_add_up(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)), noise_std=5.0)
+        one = fit_voigt_peaks(x, y, self._peaks(), mode="Raman")
+        three = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", starts=3)
+
+        assert three.chi_squared <= one.chi_squared + 1e-9
+        assert three.max_nfev == 3 * one.max_nfev
+        assert three.nfev >= one.nfev
+
+    def test_extra_starts_are_reproducible(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=300, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)), noise_std=5.0)
+        a = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", starts=3)
+        b = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", starts=3)
+
+        assert a.chi_squared == b.chi_squared

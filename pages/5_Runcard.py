@@ -59,7 +59,7 @@ from modules.runcard.processing.growth_window import (
     get_species,
     species_value_at_growth_mid,
 )
-from modules.runcard.processing.stats import profile_stats
+from modules.runcard.processing.stats import profile_stats, tube_series_for
 from modules.runcard.ui.runcard_state import (
     chartable_selection,
     get_runcard_state,
@@ -425,6 +425,14 @@ if chartable:
         run_id = derive_run_id(path)
         st.markdown(f"#### {run_id}")
         _render_metrics(profile_stats(profile))
+        if tube_series_for(run_id) is None:
+            # The reference prints the same note. Without it a run id that
+            # names no series is drawn with HA's inner/outer plumbing and
+            # nothing on screen says the tube rows are a guess.
+            st.caption(
+                f"Tube rows assume HA plumbing (MFC 1+3+4 inner / 6+7+8 outer): "
+                f"'{run_id}' names no known reactor series."
+            )
         try:
             if path not in figures:
                 figures[path] = build_profile_figure(run_id, profile)

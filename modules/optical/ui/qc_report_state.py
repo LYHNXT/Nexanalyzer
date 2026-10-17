@@ -72,7 +72,8 @@ def initialize_qc_report_state() -> None:
             "raman_stats_png": None,      # Figure 5, the quality panels
             "raman_errors": None,         # list[(point, message)] from fitting
             "raman_dropped": None,        # count gated out by R_SQUARED_MIN
-            "raman_fitted": None,         # count that converged, gate aside
+            "raman_fitted": None,         # count that fitted, gate aside
+            "raman_unconverged": None,    # of those, how many stopped on max_iterations
             "raman_fingerprint": None,
             "pl_stats": None,
             "pl_grid_png": None,          # Figure 6
@@ -80,6 +81,7 @@ def initialize_qc_report_state() -> None:
             "pl_errors": None,
             "pl_dropped": None,
             "pl_fitted": None,
+            "pl_unconverged": None,
             "pl_fingerprint": None,
         }
 
@@ -116,11 +118,11 @@ _OPTICAL_ARTIFACTS = (
 )
 _RAMAN_ARTIFACTS = (
     "raman_stats", "raman_ratios", "raman_grid_png", "raman_stats_png",
-    "raman_errors", "raman_dropped", "raman_fitted", "raman_fingerprint",
+    "raman_errors", "raman_dropped", "raman_fitted", "raman_unconverged", "raman_fingerprint",
 )
 _PL_ARTIFACTS = (
     "pl_stats", "pl_grid_png", "pl_stats_png",
-    "pl_errors", "pl_dropped", "pl_fitted", "pl_fingerprint",
+    "pl_errors", "pl_dropped", "pl_fitted", "pl_unconverged", "pl_fingerprint",
 )
 
 

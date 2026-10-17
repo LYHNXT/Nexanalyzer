@@ -609,17 +609,21 @@ def _add_domain_table(fig, stat: Optional[DomainSizeStat],
 
 def _add_om_grid(fig, om_image_bytes: Dict[int, bytes],
                  magnification_label: Optional[str]) -> None:
-    """The nine raw microscope frames, row-major, point 1 top-left.
+    """The raw microscope frames, row-major, point 1 top-left: nine in a 3x3 grid,
+    or as many 3-wide rows as the highest point needs (a ten-point wafer adds a
+    fourth row holding P10, which the page used to drop without a word).
 
     Raw frames, not the segmented overlays: this page says "here is the
     sample", and the OM analysis figure saved beside it says "here is what
     segmentation did to it". Drawing the overlay twice would spend the
     overview's whole left half restating the next image.
     """
+    n_points = max([9, *om_image_bytes.keys()])
+    n_rows = -(-n_points // 3)
     cell_w = (_GRID_W - 2 * _GRID_GUTTER) / 3
-    cell_h = (_GRID_H - 2 * _GRID_GUTTER) / 3
+    cell_h = (_GRID_H - (n_rows - 1) * _GRID_GUTTER) / n_rows
 
-    for point in range(1, 10):
+    for point in range(1, n_points + 1):
         row, col = divmod(point - 1, 3)
         cell_left = _CONTENT_LEFT + col * (cell_w + _GRID_GUTTER)
         cell_top = _CONTENT_TOP + row * (cell_h + _GRID_GUTTER)

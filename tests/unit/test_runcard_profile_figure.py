@@ -21,7 +21,7 @@ from modules.runcard.viz.profile import (
 )
 from tests.datalog_fixtures import RUNCARD_FULL, RUNCARD_SHORT
 
-#: The final ramp completes after the heater went off, so there is no window.
+#: The ramp is issued as the heater goes off, so it never acts and there is no window.
 _NO_WINDOW = "MFC/PC,PC-1,400\nWait,Sec,10\nHeater Ramp,900,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
 #: An instantaneous setpoint poke: two commands on one channel with no Wait
@@ -568,6 +568,24 @@ class TestEveryNumberIsPrintedNotOnlyHovered:
         fig = build_profile_figure("VAC", profile)
 
         assert list(_bar(fig, "RTV P").text) == ["vac"]
+
+    def test_a_zero_setpoint_is_drawn_in_the_references_words(self, tmp_path):
+        # PC-2 = 0 is a bar reading "0", RTV = 0 is "vac", Spin = 0 is "0 rpm",
+        # each held to the end of the run. Before v5.23.0 the zero ended the
+        # row, or -- for an RTV commanded only to 0 -- removed it.
+        profile = _profile(
+            tmp_path,
+            "MFC/PC,PC-2,140\nStage Rot,10,--\nWait,Sec,30\n"
+            "MFC/PC,PC-2,0\nRTV Pressure Ctrl,100 Torr,0\nStage Rot,0,--\nWait,Sec,30\n",
+        )
+
+        fig = build_profile_figure("ZERO", profile)
+
+        assert list(_bar(fig, "PC-2").text) == ["140", "0"]
+        assert list(_bar(fig, "RTV P").text) == ["vac"]
+        assert list(_bar(fig, "Spin").text) == ["10 rpm", "0 rpm"]
+        # The hover keeps the true number, so "vac" can be read as what it was.
+        assert _bar(fig, "RTV P").customdata[0][2] == 0.0
 
     def test_the_idle_purge_flow_is_drawn_and_marked(self, tmp_path):
         # H2Se idling at exactly 0.01 sccm is a line the recipe is addressing.

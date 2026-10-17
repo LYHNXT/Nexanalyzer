@@ -140,7 +140,12 @@ def make_mask(a: np.ndarray, margin: Optional[float] = None):
         ap = ndi.binary_fill_holes(ap)
         ap = ndi.binary_opening(ap, iterations=3)
         m = CIRC_MARGIN if margin is None else margin
-        valid = ndi.binary_erosion(ap, iterations=int(min(H, W) * m))
+        iterations = int(min(H, W) * m)
+        # scipy reads iterations < 1 as "erode until nothing changes", which
+        # empties the aperture: a margin of 0 (allowed by OpticalParams) used
+        # to crash every circular frame with "zero-size array". 0 iterations
+        # means no margin, so the aperture itself is the analysed region.
+        valid = ndi.binary_erosion(ap, iterations=iterations) if iterations >= 1 else ap.copy()
         return ap, valid, "circular"
     ap = np.ones((H, W), bool)
     m = RECT_MARGIN if margin is None else margin

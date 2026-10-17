@@ -21,6 +21,10 @@ from core.report.models import SampleScan
 from .parser import RAMAN_PREFIXES, PL_PREFIXES
 
 _NAME_RE = re.compile(r"^(?P<prefix>.+)[-_](?P<point>\d+)$")
+#: A map export names its technique with a "MAPPING" infix: RM_MAPPING_3.txt,
+#: PL_MAPPING_3.txt (v5.23.0). Stripped before the prefix is matched, so those
+#: count as Raman / PL point 3 instead of being ignored.
+_MAPPING_RE = re.compile(r"[-_]MAPPING$", re.IGNORECASE)
 _IMAGE_EXTENSIONS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
 
 
@@ -51,6 +55,8 @@ def scan_sample_folder(folder: str) -> SampleScan:
             continue
 
         prefix = match.group("prefix")
+        if ext.lower() == ".txt":
+            prefix = _MAPPING_RE.sub("", prefix)
         point = int(match.group("point"))
         full_path = str(entry_path.resolve())
 

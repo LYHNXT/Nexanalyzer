@@ -347,3 +347,10 @@ class TestDomainSheet:
         )
         ws = _build(domain_stat=stat)["Domain_Size"]
         assert _column(ws, "Density_per_100um2") == [pytest.approx(2960.0), pytest.approx(35.9)]
+
+
+class TestSpectrumColumn:
+    def test_each_row_names_its_spectrum_so_map_columns_can_be_told_apart(self):
+        ws = _build(techniques=[TechniqueResults("Raman", [(1, _spectrum())], None)])["Raman"]
+
+        assert _column(ws, "Spectrum") == ["Raman_1"]

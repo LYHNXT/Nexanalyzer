@@ -96,8 +96,9 @@ from modules.optical.processing.contrast import (
 )
 from modules.optical.processing.domain_size import TARGETS, domain_size_stat, measure_domains
 from modules.optical.processing.layer_suggest import (
-    CALIBRATIONS as LAYER_CALIBRATIONS,
     CONFIDENCE_FLOOR,
+    NOISE_GATE_PCT as LAYER_NOISE_GATE,
+    calibration_for,
     suggest_layer,
 )
 from modules.optical.ui.qc_report_state import (
@@ -164,6 +165,43 @@ state = get_qc_report_state()
 st.subheader("1. Sample Folder")
 
 
+#: CLAUDE.md: a fixed-contrast threshold is meaningful only when it clears about
+#: twice the frame's own noise (sigma_noise / mode); below that the cut sits
+#: inside the reference distribution and the class percentages are noise.
+_THRESHOLD_NOISE_RATIO = 2.0
+
+
+def _warn_threshold_inside_noise(frames, om_kwargs) -> None:
+    """Name the frames whose fixed threshold is inside their own noise (v5.23.0)."""
+    pair = om_kwargs.get("abs_threshold")
+    if pair is None or not frames:
+        return
+    below, above = pair if isinstance(pair, (tuple, list)) else (pair, pair)
+    bad = []
+    for f in frames:
+        noise_pct = 100.0 * f.sigma_noise / f.mode if f.mode else float("inf")
+        ratio = min(below, above) / noise_pct if noise_pct > 0 else float("inf")
+        if ratio < _THRESHOLD_NOISE_RATIO:
+            bad.append(f"P{f.point} ({ratio:.1f}x)")
+    if bad:
+        st.warning(
+            f"**{len(bad)} frame(s) are too noisy for the fixed threshold:** "
+            + ", ".join(bad)
+            + f". The threshold should clear about {_THRESHOLD_NOISE_RATIO:.0f}x the frame's "
+            "noise; below that the class percentages for these frames are noise, not film."
+        )
+
+
+def _single_optical_layer(material: str):
+    """The one layer a material's optical block names, or None (none, or both)."""
+    try:
+        preset = load_presets().get(material)
+    except Exception:
+        return None
+    layers = sorted((preset.optical or {}).keys()) if preset else []
+    return layers[0] if len(layers) == 1 else None
+
+
 @st.cache_data(show_spinner=False, max_entries=64)
 def _suggest_layer(paths: tuple[str, ...], stamps: tuple[float, ...], material: str):
     """layer_suggest.suggest_layer, cached per frame set. `stamps` (mtimes) is
@@ -179,6 +217,12 @@ def _layer_suggestion_caption(suggestion, chosen) -> str:
         f"B/G {f.blue_green:.3f}, R/G {f.red_green:.3f}, {f.band_pct:.1f} % of "
         f"the frame 7–14 % darker than the film; {suggestion.n_frames} frame(s)"
     )
+    if suggestion.too_noisy:
+        return (
+            f"Suggestion: **none** — the frames are too noisy to read the film's colour "
+            f"(noise {f.noise_pct:.1f} % of the film level, limit {LAYER_NOISE_GATE:.0f} %; "
+            f"it leans {suggestion.likely}). Choose the layer."
+        )
     if suggestion.layer is None:
         return (
             f"Suggestion: **not sure** — leans {suggestion.likely} at confidence "
@@ -306,13 +350,13 @@ if scan is not None:
     layer_paths = tuple(
         str(path) for point, path in sorted(
             scan.image_files.get(state["magnification"] or "", {}).items()
-        ) if 1 <= point <= 9
+        ) if point >= 1
     )
     layer_context = (state["folder"], state["magnification"], material_now)
     if state.get("layer_context") != layer_context:
         state["layer_context"] = layer_context
         suggestion = None
-        if layer_paths and material_now in LAYER_CALIBRATIONS:
+        if layer_paths and calibration_for(material_now) is not None:
             with st.spinner("Reading the film's colour to suggest a layer..."):
                 try:
                     suggestion = _suggest_layer(
@@ -324,9 +368,14 @@ if scan is not None:
                     st.caption(f"Layer suggestion unavailable: {e}")
         state["layer_suggestion"] = suggestion
         if state.get("layer_source") != "operator":
-            if suggestion is not None:
+            # A material whose optical block names a single layer (MoS2_QC: 1L
+            # only, monolayer by process) has nothing to choose: use it.
+            only_layer = _single_optical_layer(material_now)
+            if only_layer is not None and calibration_for(material_now) is None:
+                new_layer, state["layer_source"] = only_layer, "preset"
+            elif suggestion is not None:
                 new_layer, state["layer_source"] = suggestion.layer, "suggestion"
-            elif state.get("layer_source") == "suggestion":
+            elif state.get("layer_source") in ("suggestion", "preset"):
                 new_layer, state["layer_source"] = "2L", None
             else:
                 new_layer = state["reference_layer"]
@@ -448,18 +497,26 @@ if scan is not None:
         # rates it as costing as much as segmentation itself, so it is opt-in
         # rather than always-on, and remembered like the material choice above.
         default_measure_domain_size = load_measure_domain_size()
-        measure_domain_size = st.checkbox(
-            "Measure domain size (adds a watershed segmentation pass, "
-            "roughly doubling optical analysis time)",
-            value=(
-                state["measure_domain_size"]
-                if state["measure_domain_size"] is not None
-                else default_measure_domain_size
-            ),
-        )
+        domain_size_allowed = not (optical is not None and optical.domain_size_enabled is False)
+        if domain_size_allowed:
+            measure_domain_size = st.checkbox(
+                "Measure domain size (adds a watershed segmentation pass, "
+                "roughly doubling optical analysis time)",
+                value=(
+                    state["measure_domain_size"]
+                    if state["measure_domain_size"] is not None
+                    else default_measure_domain_size
+                ),
+            )
+        else:
+            # The preset says this film has no domains (continuous by
+            # process); don't offer a measurement of nothing.
+            measure_domain_size = False
+            st.caption(f"Domain size is off for **{state['material']}** (its optical preset).")
         if measure_domain_size != state["measure_domain_size"]:
             state["measure_domain_size"] = measure_domain_size
-            save_measure_domain_size(measure_domain_size)
+            if domain_size_allowed:
+                save_measure_domain_size(measure_domain_size)
             reset_optical_results(state)
 
         # Which of classify()'s three classes counts as "a domain" -- the
@@ -557,7 +614,10 @@ if scan is not None:
         om_paths = {
             point: path
             for point, path in scan.image_files.get(state["magnification"] or "", {}).items()
-            if 1 <= point <= 9
+            # Every grid point, P10 included: a ten-point wafer used to lose its
+            # tenth frame from segmentation, the figures and the layer
+            # suggestion without a word (om_grid lays out 2-3-3-2 for ten).
+            if point >= 1
         }
 
         # Said before the run, not after: a folder whose PL files are named
@@ -703,6 +763,7 @@ if scan is not None:
                                 st.warning(f"Could not segment point {point}: {e}")
                             progress.tick("optical_segmentation", done, len(om_paths))
                         state["frames"] = frames
+                        _warn_threshold_inside_noise(frames, om_kwargs)
 
                         # `build_om_grid_figure` raises on an empty list, and a
                         # figure of nine blanks would claim a segmentation that
@@ -754,6 +815,10 @@ if scan is not None:
                                             optical.mask_closing_radius if optical else None
                                         ),
                                         detect_size_populations=state["split_size_populations"],
+                                        min_domain_um=(
+                                            optical.min_domain_um_for(state["magnification"])
+                                            if optical else None
+                                        ),
                                         **om_kwargs,
                                     ))
                                 except Exception as e:
@@ -905,6 +970,16 @@ if scan is not None:
                     state["raman_dropped"] = len(batch_result.raman_spectra) - len(raman_pairs)
                     state["pl_fitted"] = len(batch_result.pl_spectra)
                     state["pl_dropped"] = len(batch_result.pl_spectra) - len(pl_pairs)
+                    # Fits that stopped on the preset's max_iterations are kept
+                    # (their peaks are the best found) but counted, so the
+                    # Results section can say how many of the numbers below
+                    # are not an optimum. See FitResult.converged.
+                    state["raman_unconverged"] = sum(
+                        1 for _, s in batch_result.raman_spectra if not s.fit_result.converged
+                    )
+                    state["pl_unconverged"] = sum(
+                        1 for _, s in batch_result.pl_spectra if not s.fit_result.converged
+                    )
 
                     if batch_result.raman_spectra:
                         raman_columns = _build_fit_columns(
@@ -958,8 +1033,11 @@ if scan is not None:
                         # point of each processed spectrum, no fit involved —
                         # then the fitted peaks. The same "Raw" row the on-screen
                         # table and the master CSV already show.
-                        # The PL quality figure's near-zero rule, so the table's
-                        # n and the figure's points count the same peaks.
+                        # The PL quality figure's near-zero rule. The figure
+                        # also drops widths under 5 nm and the widest 5 % per
+                        # peak (inherited cleaning, PL_CLEANING), which this
+                        # table does not, so the figure shows fewer points than
+                        # the table's n; its title says so.
                         pl_stats = aggregate_fit_results(
                             pl_pairs, relative_intensity_floor=NEAR_ZERO_FRACTION
                         ) if pl_pairs else []
@@ -1092,6 +1170,27 @@ def _render_gate_verdict(technique: str, dropped_key: str, fitted_key: str,
         )
 
 
+def _render_convergence_note(technique: str, unconverged_key: str, fitted_key: str) -> None:
+    """Say how many of one technique's fits stopped on the preset's iteration budget.
+
+    Those fits are in every table and figure -- their peaks are the best the
+    optimiser found -- but they are not an optimum and carry no uncertainties,
+    and until v5.21.0 nothing distinguished them from a finished fit. The
+    workbook's `Converged` column carries the same flag per row.
+    """
+    unconverged = state.get(unconverged_key) or 0
+    if not unconverged:
+        return
+    fitted = state.get(fitted_key) or 0
+    st.warning(
+        f"**{technique}:** {unconverged} of {fitted} fits stopped at the preset's "
+        f"max_iterations before converging. Their numbers are included but are "
+        f"the best found so far, not an optimum, with no uncertainties. The "
+        f"workbook's `Converged` column marks them; raise max_iterations in the "
+        f"**{state.get('material')}** preset to finish them."
+    )
+
+
 _HAS_RESULTS = any(state.get(key) for _, _, key in _ARTIFACTS) or state.get("raman_dropped")
 
 if _HAS_RESULTS:
@@ -1180,6 +1279,8 @@ if _HAS_RESULTS:
 
     _render_gate_verdict("Raman", "raman_dropped", "raman_fitted", "raman_stats_png")
     _render_gate_verdict("PL", "pl_dropped", "pl_fitted", "pl_stats_png")
+    _render_convergence_note("Raman", "raman_unconverged", "raman_fitted")
+    _render_convergence_note("PL", "pl_unconverged", "pl_fitted")
 
     errors = (state.get("raman_errors") or []) + (state.get("pl_errors") or [])
     if errors:

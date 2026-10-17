@@ -130,6 +130,35 @@ class TestWhatTheLogCannotShow:
         assert not run.ended
         assert rm.content_cost(run, _card()) == 0
 
+    def test_an_aborted_run_is_not_charged_for_the_hold_it_was_stopped_in(self):
+        # Stopped 40 s into the 120 s hold. The log's last block lines up with
+        # a *middle* card block, and its wait is short only because of the
+        # abort. Before v5.23.0 the forgiveness keyed on the card's last block
+        # too, so this cost 0.538 with "wait: log 39 s, card 120 s".
+        run = _steps(recipe_datalog(MATCH_STEPS[:4] + [("Wait", 40, {})]))
+
+        assert not run.ended
+        assert rm.content_cost(run, _card()) == 0
+        assert rm.differences(run, _card()) == []
+
+    def test_an_aborted_run_whose_last_hold_overran_the_card_is_still_charged(self):
+        # The forgiveness is for a wait cut *short*; a hold 200 s longer than
+        # the card's is a different recipe whether or not the run then ended.
+        run = _steps(recipe_datalog(MATCH_STEPS[:4] + [("Wait", 320, {})]))
+
+        assert not run.ended
+        assert rm.content_cost(run, _card()) > 0
+        assert any("wait: log" in d for d in rm.differences(run, _card()))
+
+    def test_a_short_last_hold_on_a_run_that_ended_is_still_a_difference(self):
+        # Only an aborted run is forgiven; a completed run with a short final
+        # hold ran a different card.
+        steps = _replace_step(8, ("Wait", 40, {}))
+        run = _steps(recipe_datalog(steps))
+
+        assert run.ended
+        assert rm.content_cost(run, _card()) > 0
+
 
 class TestSuggestRuncards:
     def test_a_growth_card_goes_to_one_run_and_a_common_recipe_to_any_number(self):
@@ -244,3 +273,40 @@ class TestNames:
     def test_an_explorer_copy_is_recognised(self):
         assert rm.is_copy_name("HADH84 - 複製")
         assert not rm.is_copy_name("HADH84")
+
+
+class TestSubResolutionSetpointsFollowTheLog:
+    """Which MFCs log a 0.01 sccm setpoint is read off each log, not fixed.
+
+    From 2026-10 HA1P01 logs MFC-8's 0.01 as 0 (it logged it through
+    September). With MFC-8 hard-coded as a channel that shows 0.01, every
+    October card's two MFC-8 0.01 steps cost 1.0 each: a flat 2.0 on every
+    growth run, which is the "medium" ceiling.
+    """
+
+    def _october_log(self):
+        # The same recipe, logged by a controller that writes MFC-8's 0.01 as 0.
+        return _steps(recipe_datalog(_replace_step(
+            1, ("MFC/PC", 1, {"MFC-8": 0, "MFC-1": 50, "MFC-3": 0.01}),
+        )))
+
+    def test_a_card_0_01_on_an_mfc_this_log_never_shows_below_resolution_costs_nothing(self):
+        run = self._october_log()
+
+        assert "MFC-8" in run.coarse and "MFC-3" not in run.coarse
+        assert rm.content_cost(run, _card()) == 0
+        assert not any("MFC-8" in d for d in rm.differences(run, _card()))
+
+    def test_an_mfc_the_log_does_show_at_0_01_still_holds_the_card_to_it(self):
+        run = _steps(recipe_datalog())   # MFC-8 logs its 0.01, as through September
+
+        assert "MFC-8" not in run.coarse
+        card = _card(_edit("MFC/PC,MFC-8 H2Se,0.01", "MFC/PC,MFC-8 H2Se,0"))
+        assert rm.content_cost(run, card) > 0
+
+    def test_a_caller_without_a_log_gets_the_fixed_list(self):
+        run = _steps(recipe_datalog())
+        with_default, _ = rm.card_blocks(_card().commands, run.initial)
+        with_log, _ = rm.card_blocks(_card().commands, run.initial, run.coarse)
+
+        assert with_default == with_log   # the September log agrees with the old list

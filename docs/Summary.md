@@ -348,6 +348,10 @@ Layers are stored as `"1L"`/`"2L"` and rendered through `contrast.layer_word()`.
 so the numbers live in one place and a material with no optical block runs the
 vendored algorithm untouched.
 
+A technique block may also carry **fit windows** (v5.22.0): x ranges, each
+with its own baseline and fit, joined into one spectrum and one `FitResult` for
+display. See `FitWindow` in `modules/spectra/models/preset.py`.
+
 `preset_store.migrate_legacy()` is a pure function (dicts in, dicts out) that
 raises rather than guessing on a half-migrated file. The committed store is
 already v2; the loader shim exists only for a local uncommitted v1 edit.

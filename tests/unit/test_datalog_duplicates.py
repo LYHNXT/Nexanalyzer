@@ -7,6 +7,7 @@ import pytest
 
 from modules.datalog.io.duplicates import (
     CleanupResult,
+    CopyNoLongerIdentical,
     DuplicatePlan,
     digest_of,
     find_duplicates,
@@ -14,6 +15,7 @@ from modules.datalog.io.duplicates import (
     remove_duplicates,
     send_to_recycle_bin,
     stale_copies,
+    verify_still_identical,
     without_duplicates,
 )
 from modules.datalog.io.scanner import scan_folder
@@ -278,3 +280,58 @@ class TestSendToRecycleBin:
     def test_missing_path_is_refused(self, tmp_path):
         with pytest.raises(OSError, match="Not a file"):
             send_to_recycle_bin(str(tmp_path / "gone.csv"))
+
+
+class TestRemovalReverifiesTheCopy:
+    """The preview's verdict can be minutes old; the bytes are checked again at removal."""
+
+    def test_a_copy_that_changed_since_the_preview_is_skipped_not_removed(self, tmp_path):
+        raw, canonical = _write_pair(tmp_path)
+        plan = find_duplicates(str(tmp_path), scan_folder(str(tmp_path)))[0]
+        # The copier rewrote it with different (here: truncated) content.
+        Path(raw).write_text(drop_rows(DATALOG_SHORT, "2026/08/06 17:33:40", 3),
+                             encoding="utf-8", newline="")
+
+        result = remove_duplicates(str(tmp_path), [plan])
+
+        assert result.removed == []
+        assert [p for p, _ in result.skipped] == [raw]
+        assert "left in place" in result.skipped[0][1]
+        assert _names(tmp_path) == sorted([_RAW, _CANONICAL])
+
+    def test_a_same_size_rewrite_is_caught_by_the_hash(self, tmp_path):
+        # Same length, one byte different: the size check passes, and the
+        # cached digest could be keyed on an unchanged (mtime, size).
+        raw, canonical = _write_pair(tmp_path)
+        plan = DuplicatePlan(path=raw, keeper=canonical)
+        Path(raw).write_text(DATALOG_SHORT.replace(",LYH,", ",LYX,", 1), encoding="utf-8", newline="")
+
+        with pytest.raises(CopyNoLongerIdentical, match="changed content"):
+            remove_duplicate(str(tmp_path), plan)
+        assert Path(raw).exists()
+
+    def test_a_copy_whose_keeper_vanished_is_not_removed(self, tmp_path):
+        # The copy may now be the only one.
+        raw, canonical = _write_pair(tmp_path)
+        plan = DuplicatePlan(path=raw, keeper=canonical)
+        Path(canonical).unlink()
+
+        with pytest.raises(CopyNoLongerIdentical, match="keeper has been removed"):
+            remove_duplicate(str(tmp_path), plan)
+        assert Path(raw).exists()
+
+    def test_the_check_does_not_touch_the_sidecar(self, tmp_path):
+        raw, canonical = _write_pair(tmp_path)
+        (tmp_path / RUNCARD_TAGS_FILENAME).write_text(json.dumps({_RAW: "VBBE00"}), encoding="utf-8")
+        Path(raw).write_text(DATALOG_SHORT + "x", encoding="utf-8", newline="")
+
+        remove_duplicates(str(tmp_path), [DuplicatePlan(path=raw, keeper=canonical)])
+
+        stored = json.loads((tmp_path / RUNCARD_TAGS_FILENAME).read_text(encoding="utf-8"))
+        assert stored == {_RAW: "VBBE00"}
+
+    def test_an_unchanged_copy_still_goes(self, tmp_path):
+        raw, canonical = _write_pair(tmp_path)
+        verify_still_identical(DuplicatePlan(path=raw, keeper=canonical))
+        remove_duplicate(str(tmp_path), DuplicatePlan(path=raw, keeper=canonical))
+        assert _names(tmp_path) == [_CANONICAL]

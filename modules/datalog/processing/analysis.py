@@ -43,6 +43,28 @@ rows are reported as NaN rather than 0 or inf, which is what stops the
 violations table filling up with "every idle MFC is out of tolerance".
 """
 
+#: Per-channel |SV| below which the violations table does not evaluate a pair,
+#: keyed by pair name, in the channel's own logged units. Anything not listed
+#: falls back to `SV_ZERO_EPSILON`. Deliberately a constant here, not a field
+#: in ``thresholds.json``, whose format is shared with datalog_monitor.
+#:
+#: - **MFC-1..8: 0.05 sccm.** A card's 0.01 sccm is below the controller's
+#:   resolution: the MFC reads 0.06-0.10 against it (HADI49's MFC-3 flagged
+#:   930 % for 300 s), so the percentage is the flow meter's floor, not a fault.
+#:   The same threshold `runcard_match._SUB_RESOLUTION_SCCM` uses to call a
+#:   logged setpoint sub-resolution; a test keeps the two equal.
+#: - **P1..P3: 1.0** (the pressure controllers, as logged). The value
+#:   `runcard_match._FLOOR` already treats as "about zero" for these channels;
+#:   no recipe sets a pressure that low on purpose, and a percentage of a
+#:   near-zero pressure setpoint is noise.
+#:
+#: The heaters (``Heater``, ``P1_H``..``P3_H``, in °C) need no floor beyond the
+#: epsilon: they are either off at 0 or commanded tens of degrees and up.
+SV_FLOOR: Dict[str, float] = {
+    **{f"MFC-{i}": 0.05 for i in range(1, 9)},
+    **{f"P{i}": 1.0 for i in range(1, 4)},
+}
+
 
 def get_tolerance_pct(thresholds: dict, pair_name: str) -> float:
     """
@@ -130,6 +152,63 @@ def compute_deviation_pct(df: pd.DataFrame, pv_col: str, sv_col: str) -> pd.Seri
     deviation[valid] = (pv[valid] - sv[valid]) / sv[valid] * 100
     deviation[~valid] = float("nan")
     return deviation
+
+
+def _first_change_label(series: pd.Series):
+    """Label of the first row whose value differs from row 0's, or None if none does.
+
+    The end of the *leading block* -- the stretch a run inherits from whatever
+    ran on the controller before it. ``NaN != x`` is True, so a NaN row (or a
+    NaN row 0) counts as a change and ends the block, never extends it.
+    Shared by `find_final_plateau_start` and `stale_lead_in_mask` so the two
+    agree on where a run's own commands begin.
+    """
+    if series.empty:
+        return None
+    changed = series != series.iloc[0]
+    if not changed.any():
+        return None
+    # .to_numpy(): the mask came from this same series, so position is meant.
+    return series.index[changed.to_numpy()][0]
+
+
+def stale_lead_in_mask(sv: pd.Series) -> pd.Series:
+    """True on the leading rows where a setpoint is still the previous run's.
+
+    A run's log opens with every SV at whatever the controller last held: the
+    heater at the previous growth's 900 °C with the chamber at 31 °C, P1 at the
+    previous run's 500 against a line at 146. Nothing in *this* run commanded
+    those, so a deviation from them is not a finding -- on HADI49 the heater
+    alone reported 844 s at 96.6 % before the recipe's first ramp.
+
+    The lead-in is the leading block of row 0's value, **only when the SV
+    later changes** -- the same leading block `find_final_plateau_start`
+    excludes from its target search. A setpoint that never changes over the
+    run is the run's setpoint as far as the log can tell, and stays evaluated:
+    there is no command to say where the inherited value stops. The cost,
+    stated knowingly: if a run genuinely holds an inherited value before it
+    changes it, deviations during that hold are not reported.
+    """
+    lead_in = pd.Series(False, index=sv.index)
+    end = _first_change_label(sv)
+    if end is not None:
+        lead_in.iloc[: sv.index.get_loc(end)] = True
+    return lead_in
+
+
+def evaluable_rows(df: pd.DataFrame, pair_name: str, sv_col: str) -> pd.Series:
+    """True where a pair's deviation is a finding the violations table should judge.
+
+    Two exclusions on top of `compute_deviation_pct`'s idle-channel guard: the
+    inherited lead-in (`stale_lead_in_mask`) and a setpoint below the
+    channel's `SV_FLOOR`. Both are about whether the setpoint means anything,
+    never about how far the PV strayed -- the tolerance test itself is
+    unchanged.
+    """
+    sv = df[sv_col]
+    floor = SV_FLOOR.get(pair_name, SV_ZERO_EPSILON)
+    # NaN >= floor is False, so a missing setpoint is not evaluated either.
+    return (sv.abs() >= floor) & ~stale_lead_in_mask(sv)
 
 
 def find_violation_mask(deviation_pct: pd.Series, tolerance_pct: float) -> pd.Series:
@@ -257,14 +336,9 @@ def find_final_plateau_start(df: pd.DataFrame, column: str) -> Optional[pd.Times
     series = df[column]
     if series.empty:
         return None
-    first_value = series.iloc[0]
-    changed = series != first_value
-    # .to_numpy() because this indexes an Index with the mask *positionally*.
-    # The mask came from this same series, so position is what is meant; saying
-    # so explicitly stops a future index change from turning it into a
-    # label lookup that quietly returns the wrong row.
-    if changed.any():
-        search_series = series.loc[series.index[changed.to_numpy()][0]:]
+    first_change = _first_change_label(series)
+    if first_change is not None:
+        search_series = series.loc[first_change:]
     else:
         search_series = series
     target = search_series.max()
@@ -306,6 +380,10 @@ def compute_all_violations(
         a duplicate in its page and required the two to be edited together,
         which is not a mechanism.
 
+    A pair is judged only on `evaluable_rows`: the stale lead-in a run
+    inherits and a setpoint below the channel's `SV_FLOOR` are blanked to NaN
+    in the deviation series, exactly as an idle channel's are.
+
     Returns
     -------
     (violations_df, masks)
@@ -325,6 +403,10 @@ def compute_all_violations(
             continue
         tolerance_pct = get_tolerance_pct(thresholds, pair_name)
         deviation_pct = compute_deviation_pct(df, pv_col, sv_col)
+        # Rows whose setpoint means nothing -- inherited from the previous run,
+        # or below the channel's resolution -- are NaN, like an idle channel's:
+        # not flagged, and not drawn as deviating on the chart either.
+        deviation_pct[~evaluable_rows(df, pair_name, sv_col)] = float("nan")
         mask = find_violation_mask(deviation_pct, tolerance_pct)
         masks[pair_name] = (mask, deviation_pct)
         all_segments.extend(find_violation_segments(df, pair_name, mask, deviation_pct))

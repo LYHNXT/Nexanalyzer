@@ -85,6 +85,10 @@ def fit_summary(filename: str) -> dict:
         "mode": spectrum.mode,
         "r_squared": fit.r_squared,
         "chi_squared": fit.chi_squared,
+        # Recorded so the golden fit is known to be a finished fit. Before
+        # v5.21.0 the Raman record was a fit that had stopped on its budget
+        # (every stderr 0), and nothing in the record could show it.
+        "converged": fit.converged,
         "peaks": peaks,
     }
 
@@ -106,6 +110,7 @@ def test_fit_matches_golden_record(filename):
     actual = fit_summary(filename)
 
     assert actual["mode"] == expected["mode"]
+    assert actual["converged"] == expected["converged"], "convergence changed"
     assert set(actual["peaks"]) == set(expected["peaks"]), "peak labels changed"
 
     drift = []

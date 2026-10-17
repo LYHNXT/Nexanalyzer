@@ -245,6 +245,10 @@ class FittedPeak:
     component_curve: np.ndarray
     color: str = "#1f77b4"  # Default color
     width_fwhm_v1: Optional[float] = None
+    #: True when the fit left this peak's centre on its range edge or its width
+    #: on its ceiling (v5.23.0): its numbers are where the bound stopped them,
+    #: not a measurement, and ratios leave it out (peak_metrics.peak_is_measured).
+    on_limit: bool = False
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
@@ -258,7 +262,8 @@ class FittedPeak:
             "width_stderr": self.width_stderr,
             "shape": self.shape,
             "component_curve": self.component_curve.tolist() if self.component_curve is not None else None,
-            "color": self.color
+            "color": self.color,
+            "on_limit": self.on_limit,
         }
 
     @classmethod
@@ -275,7 +280,8 @@ class FittedPeak:
             width_stderr=data["width_stderr"],
             shape=data["shape"],
             component_curve=component_curve,
-            color=data.get("color", "#1f77b4")  # Default color if not present
+            color=data.get("color", "#1f77b4"),  # Default color if not present
+            on_limit=bool(data.get("on_limit", False)),
         )
 
 
@@ -303,6 +309,22 @@ class FitResult:
         Fitting time in seconds.
     error_message : str
         Empty if success=True, else actionable suggestion.
+    converged : bool
+        False when the optimiser stopped because it ran out of its evaluation
+        budget rather than because the fit stopped improving (v5.21.0). The
+        peaks are still the best found and `success` is still True, but every
+        number is wherever the search happened to be when the budget ran out
+        and no uncertainty can be estimated -- lmfit reports the same
+        "Tolerance seems to be too small" message for both, which is how a
+        truncated fit used to pass as a finished one. Every reporting surface
+        shows this flag beside the fit.
+    nfev : Optional[int]
+        Function evaluations the optimiser used; None for a result built
+        outside `fitting.fit_voigt_peaks`.
+    max_nfev : Optional[int]
+        The evaluation budget it had: the preset's `max_iterations` times
+        (variables + 1), lmfit's own scaling. `nfev == max_nfev` is what
+        `converged=False` means.
     """
 
     success: bool
@@ -313,6 +335,9 @@ class FitResult:
     r_squared: float
     convergence_time: float
     error_message: str = ""
+    converged: bool = True
+    nfev: Optional[int] = None
+    max_nfev: Optional[int] = None
 
     def __post_init__(self):
         """Validate attributes."""
@@ -351,7 +376,10 @@ class FitResult:
             "chi_squared": self.chi_squared,
             "r_squared": self.r_squared,
             "convergence_time": self.convergence_time,
-            "error_message": self.error_message
+            "error_message": self.error_message,
+            "converged": self.converged,
+            "nfev": self.nfev,
+            "max_nfev": self.max_nfev,
         }
 
     @classmethod
@@ -365,5 +393,10 @@ class FitResult:
             chi_squared=data["chi_squared"],
             r_squared=data["r_squared"],
             convergence_time=data["convergence_time"],
-            error_message=data.get("error_message", "")
+            error_message=data.get("error_message", ""),
+            # Saved before v5.21.0: the flag did not exist, so the fit is
+            # taken at its word rather than retroactively doubted.
+            converged=data.get("converged", True),
+            nfev=data.get("nfev"),
+            max_nfev=data.get("max_nfev"),
         )

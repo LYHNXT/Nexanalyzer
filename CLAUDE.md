@@ -10,7 +10,7 @@ Architecture, data model and the reasoning behind them live in
 ## Commands
 
 ```bash
-pytest                  # 577 tests; pythonpath and testpaths come from pyproject.toml
+pytest                  # ~1,560 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
@@ -80,6 +80,22 @@ The full reasoning is in the
   half of `width_max`) capped Lorentzian peaks at ~0.52 x `width_max` — WSe2's
   E2g+A1g piled up at 6.21 until v5.14.0. A "on its limit" check reads
   `vfwhm@max`, not `gamma@max`.
+- **A fit that ran out of iterations is not a converged fit, and lmfit will not
+  tell you.** lmfit prints "Tolerance seems to be too small" for MINPACK ier 5
+  *and* for its own max_nfev abort (ier -1), the same words it uses for a fit
+  that cannot improve further (ier 6/7/8). `fit_voigt_peaks` tells them apart by
+  `ier` and `nfev`, keeps the truncated fit with `FitResult.converged = False`,
+  and every surface shows that flag. A stderr lmfit could not estimate is NaN,
+  never 0.0. The preset's `max_iterations` is passed as
+  `max_nfev = max_iterations * (variables + 1)` -- iterations, as its name says
+  and as lmfit's own default scales it; passing it straight through gave an
+  8-peak fit 1/33 of its budget and a fifth of real WSe2 spectra stopped on it.
+- **A ratio is formed only from measured peaks.** `peak_metrics.peak_is_measured`
+  (not `FittedPeak.on_limit`, and at least 3x the fit's residual noise) gates
+  both `compute_peak_intensity_ratio` and the quality figure's ratio panels; a
+  new ratio surface must use it too, or the table and figure disagree. Multiple
+  starts (`TechniquePreset.fit_starts`) are opt-in per preset so the golden fit,
+  whose frozen preset uses one start, never moves with them.
 - **The preset owns position and width; the data owns intensity.** `fit_voigt_peaks()`
   auto-estimates the initial intensity from the spectrum at fit time, because
   intensity depends on measurement conditions while center/FWHM are material
@@ -90,6 +106,15 @@ The full reasoning is in the
   thing that writes those two, so bounds set anywhere else are overwritten with
   the mode default — which is what cost WSe₂ five of its seven tolerances before
   v4.0.0.
+- **Fit windows are separate fits, joined only for display.** A block with
+  `fit_windows` baselines and fits each window on its own (peaks go to the
+  window owning their centre, `x_min <= x < x_max`, last window inclusive) and
+  `auto_workflow._fit_in_windows` stitches the results into one
+  `processed_data` / `background` / `FitResult`, component curves zero outside
+  their window. Downstream code must keep assuming nothing beyond "one
+  spectrum, one fit" -- that is what lets the QC Report and ratios work
+  unchanged. A per-window baseline under a broad feature (WSe2's LA hump)
+  reads lower than a whole-spectrum one; choose window edges on flat ground.
 - **A preset is keyed by material alone; technique comes from the filename.**
   `MaterialPreset` holds `raman` / `pl` `TechniquePreset` blocks and an
   `optical` dict of `OpticalParams` keyed by layer. Resolve with

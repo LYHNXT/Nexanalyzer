@@ -27,9 +27,14 @@ import pandas as pd
 from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
 
 # Columns shared by both CSVs, in order.
+# `Converged` (v5.21.0) is False for a fit that stopped on its iteration budget;
+# its numbers are then the best found, not an optimum, and its *_Stderr cells
+# are empty because no covariance exists. Stderr cells are also empty for a
+# converged fit lmfit could not estimate uncertainties for (a parameter on a
+# bound, a peak fitted to zero): empty means unknown, never zero.
 _PEAK_COLUMNS = [
     "Peak_Label", "Center", "Center_Stderr", "Intensity", "Intensity_Stderr",
-    "FWHM", "FWHM_Stderr", "Shape", "R_Squared", "Chi_Squared",
+    "FWHM", "FWHM_Stderr", "Shape", "R_Squared", "Chi_Squared", "Converged",
 ]
 
 
@@ -49,6 +54,7 @@ def _peak_row(filename: str, spectrum, peak) -> dict:
         "Shape": peak.shape,
         "R_Squared": spectrum.fit_result.r_squared,
         "Chi_Squared": spectrum.fit_result.chi_squared,
+        "Converged": spectrum.fit_result.converged,
     }
 
 
@@ -79,6 +85,7 @@ def _raw_row(filename: str, spectrum) -> dict:
         "Shape": "",
         "R_Squared": "",
         "Chi_Squared": "",
+        "Converged": "",
         "Convergence_Time_s": "",
     }
     return row

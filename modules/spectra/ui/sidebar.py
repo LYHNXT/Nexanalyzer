@@ -342,6 +342,7 @@ def render_sidebar():
                     total = len(file_items)
                     success_count = 0
                     failed_files = []
+                    unconverged_files = []
 
 
                     if total == 0:
@@ -367,6 +368,8 @@ def render_sidebar():
                             if result["success"]:
                                 success_count += 1
                                 _remember_fit_preset(spectrum, preset)
+                                if not result["fit_result"].converged:
+                                    unconverged_files.append(filename)
                             else:
                                 failed_files.append(
                                     (filename, result.get("error_message") or "Unknown error")
@@ -397,6 +400,18 @@ def render_sidebar():
                         with st.expander(f"{len(failed_files)} file(s) failed", expanded=True):
                             for fname, err in failed_files:
                                 st.error(f"**{fname}**: {err}")
+                    if unconverged_files:
+                        # Fitted, kept, but not finished: the preset's
+                        # max_iterations ran out first. Named so the operator
+                        # can raise the budget rather than trust a number
+                        # that is wherever the search happened to stop.
+                        st.warning(
+                            f"{len(unconverged_files)} file(s) stopped at the preset's "
+                            f"max_iterations before converging: "
+                            + ", ".join(unconverged_files)
+                            + ". Their numbers are the best found, not an optimum, "
+                            "with no uncertainties. Raise max_iterations in the preset."
+                        )
 
                     set_view_options({'show_fit': True, 'show_components': True,
                                       'show_on_background': True})
@@ -602,6 +617,14 @@ def render_sidebar():
                                     ),
                                     show_residuals=st.session_state.get(
                                         "show_residuals", True
+                                    ),
+                                    # ...including Peaks on Background, which
+                                    # the batch path used to leave out while
+                                    # Quick Export honoured it.
+                                    background=(
+                                        spectrum.background
+                                        if st.session_state.get("show_on_background", True)
+                                        else None
                                     ),
                                 )
                                 png_bytes = export_figure_png(

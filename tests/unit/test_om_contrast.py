@@ -390,3 +390,19 @@ class TestAbsoluteThreshold:
                                abs_threshold=4.25)
         assert loose.threshold_high == pytest.approx(strict.threshold_high)
         assert loose.percentages == strict.percentages
+
+
+class TestZeroMarginOnACircularFrame:
+    def test_a_zero_margin_analyses_the_whole_aperture_instead_of_crashing(self):
+        import numpy as np
+        from modules.optical.processing.contrast import make_mask
+
+        H = W = 200
+        yy, xx = np.mgrid[0:H, 0:W]
+        inside = np.hypot(yy - H / 2, xx - W / 2) < 80
+        a = np.where(inside[..., None], 180.0, 5.0) * np.ones((H, W, 3))
+        ap, valid, kind = make_mask(a, margin=0.0)
+
+        if kind == "circular":
+            assert valid.sum() == ap.sum() > 0
+        assert valid.any()

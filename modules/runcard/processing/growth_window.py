@@ -6,11 +6,24 @@ Pure arithmetic — no Streamlit, no file access. It takes the `RuncardCommand`
 rows `io.parser` produced and gives back what every surface on the Runcard page
 reads.
 
-**Exactly two commands advance the clock: `Wait` and `Check Status`.**
-Everything else is instantaneous. A `Heater Ramp` records its declared duration
-on its tuple and moves the running temperature, but the clock does not move
-with it — the recipe author is expected to follow every ramp with a matching
-`Wait`, and in every example file they do.
+**Exactly three commands advance the clock: `Wait`, `Check Status` and the
+`Pulse` family.** Everything else is instantaneous. A `Heater Ramp` records its
+declared duration on its tuple and moves the running temperature, but the clock
+does not move with it — the recipe author is expected to follow every ramp with
+a matching `Wait`, and in every example file they do.
+
+`Pulse H2Se,72,5` (and `Pulse`, `Pulse O2`) is the growth step of every recipe
+written since mid-2025: N pulses of a gas, each on for the half-period and off
+for the same. The vendored reference predates the command and ignores it, which
+collapsed the growth window of 44 real recipes to a single instant — a
+"Growth (0 min @ 890 °C)" caption on a 13-minute growth. Its cost is in the
+recipe (`N * 2 * half_period`), plus a measured per-pulse switching overhead;
+see `pulse_duration_seconds`. This is the one place `modules/runcard` extends
+the reference's vocabulary rather than restating it.
+
+`Check PC-1`/`Check PC-2` and `Stage Pos` are, like `Pumping`, holds of a
+length the recipe does not state (measured median 9 s and 30 s, max 189 s and
+80 s). They cost the clock nothing, for the reason given for pumping below.
 
 **`Pumping` and `Pumping Forward` are recorded but never advance the clock, and
 that is forced, not an oversight.** Their single parameter is a *target
@@ -46,10 +59,22 @@ from ..io.parser import RuncardCommand
 CHECK_STATUS_SECONDS = 10
 """Seconds one `Check Status` costs the clock, regardless of its params.
 
-Zero occurrences across all 40 example runcards. It is carried from the CLI
-this was ported from, where it was the inline literal `t += 10`, because a
-recipe using it would otherwise reconstruct short by 10 s per occurrence with
-nothing to say so."""
+Carried from the CLI this was ported from, where it was the inline literal
+`t += 10`. Zero occurrences in the 40 example runcards it was validated on;
+1,170 of the 2,349 real HA1P01/VB1P01 cards use it, one to three times each,
+and the datalogs show the action itself lasting a median 1 s (max 32 s). The
+10 s is kept because the reference says 10 s."""
+
+PULSE_SWITCH_OVERHEAD_SEC = 1.5
+"""Seconds one pulse costs beyond its commanded on-plus-off time.
+
+Measured, not nominal: on HA1P01 datalogs a `Pulse H2Se,72,5` block spans
+834 s for 72 MFC-8 on-edges (11.6 s per pulse against the commanded 10),
+`Pulse H2Se,12,5` 139 s for 12 (11.6 s), and `Pulse,6,30` 367 s for 6
+(61.2 s against 60). The controller spends about a second and a half per
+pulse switching, consistently across pulse counts and periods, so it is
+added per pulse rather than left out: without it a 72-pulse growth
+reconstructs 14 % short."""
 
 ROOM_TEMP_C = 25.0
 """Where every reconstructed trace starts and where the cooldown asymptotes.
@@ -76,7 +101,7 @@ COOLDOWN_TAU_SEC = 1500
 """Time constant of the synthesized exponential cooldown, in seconds (25 min).
 
 The runcard says nothing about cooling — it only says the heater went off — so
-the tail after `Heater Soak` is a model, not data. 25 min is the reference
+the tail after `Heater Soak,0` is a model, not data. 25 min is the reference
 renderer's own figure; this port briefly used 40 min, carried from an older
 ancestor, which stretched every cooldown tail by two thirds."""
 
@@ -150,8 +175,12 @@ class GrowthWindow:
 
     `peak_temp_c` being a real number is **not** evidence that a window exists.
     It is a `max()` over a trace that always has at least one vertex, so it is
-    populated even for a recipe whose final ramp completes after the heater
-    went off — which has no window at all. Test `start_s`, never `peak_temp_c`.
+    populated even for a recipe that never heated — 25 °C, below the ambient
+    floor, and no window at all. Test `start_s`, never `peak_temp_c`.
+
+    A heater cut part-way up a ramp peaks at the temperature it had reached
+    when it was cut, at the instant it was cut, so its window is zero-length
+    and sits on heater-off — the same edges the reference draws.
     """
 
     start_s: Optional[float]
@@ -224,6 +253,44 @@ def wait_duration_seconds(cmd: RuncardCommand) -> float:
     return duration * 60 if unit.lower().startswith("min") else duration
 
 
+def pulse_duration_seconds(cmd: RuncardCommand) -> float:
+    """Seconds one `Pulse*` command holds the clock.
+
+    `params[0]` is the pulse count and `params[1]` the half-period in seconds:
+    the gas is on for `params[1]`, off for `params[1]`, `params[0]` times.
+    `Pulse H2Se,72,5` is 72 x (5 + 5) s plus 72 x `PULSE_SWITCH_OVERHEAD_SEC`.
+    Verified against the datalogs' MFC-8 toggling (see that constant).
+
+    Raises `IndexError` on fewer than two params and `ValueError` on a
+    non-numeric one, like `wait_duration_seconds`; `build_timeline` treats such
+    a row as contributing nothing rather than refusing the recipe.
+    """
+    count, half_period = float(cmd.params[0]), float(cmd.params[1])
+    return count * (2.0 * half_period + PULSE_SWITCH_OVERHEAD_SEC)
+
+
+def soak_setpoint(cmd: RuncardCommand) -> float:
+    """The temperature a `Heater Soak` steps the heater to; `0.0` means heater-off.
+
+    `params[0]` is a setpoint in °C. `Heater Soak,0,--` (and `Heater Soak,0,600`)
+    turns the heater off. `Heater Soak,600,--` does not: the HA1P01 datalogs
+    show the heater SV stepping to 600 and holding there, and on the
+    `NSHA1N012506029`-`036` cards the recipe then ramps back up to 900 for a
+    second growth before a final `Heater Soak,0`. Reading that first soak as
+    heater-off -- what the vendored reference does -- decayed the trace from
+    900 °C while the datalog held 600, then drew the second 900 °C plateau on
+    top of a cooled-down heater.
+
+    A missing or non-numeric `params[0]` reads as `0.0`, i.e. off: that is what
+    every `Heater Soak` meant before this distinction was drawn, so an odd row
+    keeps its old meaning rather than refusing the recipe.
+    """
+    try:
+        return float(cmd.params[0])
+    except (IndexError, TypeError, ValueError):
+        return 0.0
+
+
 def build_timeline(commands: List[RuncardCommand]) -> Timeline:
     """Replay `commands` onto the recipe clock.
 
@@ -260,10 +327,15 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
     channel number is every digit left after deleting the literal word
     `Accumulation` — a name with no digits in it yields the channel `"PC-"`.
 
-    Only the **first** `Heater Soak` sets `heater_off_t`; later ones are
+    Only the **first** zero `Heater Soak` sets `heater_off_t`; later ones are
     ignored entirely. `HADH00` and `HADG37` each carry two (`Heater Soak,0,--`
     then `Heater Soak,0,600`), and the `600` in the second is not a duration
     the clock consumes — the `Wait,Sec,600` after it does that.
+
+    A **nonzero** `Heater Soak` is not heater-off at all: it is an
+    instantaneous setpoint step, recorded in `heater_ramps` with a zero
+    duration (see `soak_setpoint`). This is a deliberate departure from the
+    vendored reference, which treats every first soak as off.
     """
     t = 0.0
     heater_ramps: List[Ramp] = []
@@ -283,6 +355,14 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
             t += wait_duration_seconds(cmd)
         elif name == "Check Status":
             t += CHECK_STATUS_SECONDS
+        elif name.startswith("Pulse"):
+            # `Pulse`, `Pulse H2Se`, `Pulse O2`: the pulsed growth step. The
+            # gas's own MFC is toggled by the controller, not by MFC/PC rows,
+            # so nothing lands in mfc_events for it; only the clock moves.
+            try:
+                t += pulse_duration_seconds(cmd)
+            except (IndexError, TypeError, ValueError):
+                pass
         elif name == "Heater Ramp":
             tgt, dur = float(cmd.params[0]), float(cmd.params[1])
             heater_ramps.append((t, cur_temp, tgt, dur))
@@ -296,10 +376,18 @@ def build_timeline(commands: List[RuncardCommand]) -> Timeline:
             p2_ramps.append((t, cur_p2, tgt, dur))
             cur_p2 = tgt
         elif name == "Heater Soak":
-            # Despite the name this marks the heater going **off**: it is where
-            # the synthesized cooldown starts and the hard right edge of the
-            # growth window.
-            if heater_off_t is None:
+            # Two commands under one name, told apart by params[0]. A zero
+            # (`Heater Soak,0,--`) is heater **off**: where the synthesized
+            # cooldown starts and the hard right edge of the growth window. A
+            # nonzero one (`Heater Soak,600,--`) steps the setpoint to that
+            # temperature and the heater keeps controlling -- see
+            # `soak_setpoint`. It is laid down as a zero-duration ramp, so the
+            # trace steps there and a later ramp starts from it.
+            setpoint = soak_setpoint(cmd)
+            if setpoint:
+                heater_ramps.append((t, cur_temp, setpoint, 0.0))
+                cur_temp = setpoint
+            elif heater_off_t is None:
                 heater_off_t = t
         elif name == "MFC/PC":
             channel, val = cmd.params[0], float(cmd.params[1])
@@ -360,12 +448,26 @@ def build_temp_trace(ramps: List[Ramp], off_t: Optional[float], total: float) ->
     which is the same number in a well-formed recipe and the honest one in a
     malformed one.
 
-    The cooldown starts from `pts[-1][1]`, **the last ramp's target** — taken
-    after every ramp is laid down, so if `off_t` somehow precedes the last ramp
-    the decay still starts from that later target rather than from the
-    temperature at `off_t`. First cooldown vertex at `off_t + 60`, last exactly
-    at `total`, so the final step is short whenever `total - off_t` is not a
-    multiple of 60.
+    **Nothing the heater was told after it went off reaches the trace.** A ramp
+    issued at or after `off_t` is dropped, and a ramp still running at `off_t`
+    is cut there, with a vertex at the temperature it had reached by then —
+    linearly interpolated, as the figure draws the ramp. The cooldown decays
+    from that vertex. This is what the reference's evaluator does for a ramp
+    issued after heater-off (it reads only keypoints `<= heater_off_t`); for a
+    ramp still running it instead pins the ramp's *target* at `off_t`, as if
+    the ramp had finished the instant the heater was cut, and this module
+    deliberately does not (see docs/reference/README.md). Before v5.23.0 every
+    ramp was laid down whole and the decay started from the last one's target:
+    the 34 HA1N01 cards with a ramp after their (then heater-off) nonzero soak
+    drew a trace that ran backwards through time and read 900 °C where the
+    cooldown said 746 °C, and `NSVA1P012512040`, cut 56 % of the way up a
+    ramp to 850 °C, reported an 850 °C peak it never reached (about 564 °C).
+    Those 34 now read their soak as a setpoint step (`soak_setpoint`), so no
+    real card currently issues a ramp after heater-off; the clip is kept so
+    one that does cannot run the trace backwards again.
+
+    First cooldown vertex at `off_t + 60`, last exactly at `total`, so the
+    final step is short whenever `total - off_t` is not a multiple of 60.
 
     **With no `Heater Soak` there is no cooldown and no extension to `total`**:
     the trace simply ends at the final ramp vertex, which may be far short of
@@ -373,17 +475,28 @@ def build_temp_trace(ramps: List[Ramp], off_t: Optional[float], total: float) ->
     extends, is deliberate — a heater with no off command has no modelled decay
     to draw, and drawing a flat hold out to `total` would assert one.
 
-    Vertices are never sorted or clamped. A ramp whose declared duration runs
-    past the next ramp's start emits x-coordinates that go backwards, and every
-    consumer here iterates in **list order**, not time order. Real runcards
-    pair each ramp with a matching `Wait` so it does not arise; adding a sort
-    would change results for files that have never produced one.
+    Vertices are never sorted. Before heater-off, a ramp whose declared
+    duration runs past the next ramp's start still emits x-coordinates that go
+    backwards, and every consumer here iterates in **list order**, not time
+    order. Real runcards pair each ramp with a matching `Wait` so it does not
+    arise; adding a sort would change results for files that have never
+    produced one.
     """
     pts: List[TracePoint] = [(0.0, ROOM_TEMP_C)]
     for ts, _t0, t1, dur in ramps:
+        if off_t is not None and ts >= off_t:
+            # Issued once the heater was already off: it never acted.
+            continue
         if pts[-1][0] < ts:
             pts.append((ts, pts[-1][1]))
-        pts.append((ts + dur, t1))
+        end = ts + dur
+        if off_t is not None and end > off_t:
+            # Still climbing (or falling) when the heater was cut. `end > off_t
+            # > ts` means `dur > 0`, so the fraction is well defined.
+            start_temp = pts[-1][1]
+            pts.append((off_t, start_temp + (t1 - start_temp) * (off_t - ts) / dur))
+        else:
+            pts.append((end, t1))
     if off_t is not None:
         last_t = pts[-1][1]
         if pts[-1][0] < off_t:
@@ -482,10 +595,11 @@ def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[floa
     candidates = [t for t in (heater_off_t, ramp_down_t) if t is not None]
     end_s = min(candidates) if candidates else temp_trace[-1][0]
 
-    # An end before the start is not a short window, it is no window: it means
-    # the final ramp was still climbing when the heater went off, so the recipe
-    # never held at its own peak. `peak_temp_c` still reports that ramp's
-    # target, which is why callers must test `start_s` and never the peak.
+    # An end before the start is not a short window, it is no window. A
+    # `build_temp_trace` result no longer produces one -- it stops every ramp
+    # at heater-off, so the peak is never first reached after it -- but this
+    # function takes any trace, and an inverted window must never reach a
+    # caller as a negative duration.
     if end_s < start_s:
         return GrowthWindow(start_s=None, end_s=None, peak_temp_c=peak)
 

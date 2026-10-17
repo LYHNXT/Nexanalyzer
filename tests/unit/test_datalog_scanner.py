@@ -123,6 +123,27 @@ class TestLoadRun:
 
         assert df["Widget Torque"].iloc[0] == pytest.approx(4.5)
 
+    def test_a_stray_non_utf8_byte_costs_a_character_not_the_run(self, tmp_path):
+        # The lister and the runcard reader both replace bad bytes, so a file
+        # like this was listed and then could not be opened.
+        raw = DATALOG_SHORT.encode("utf-8").replace(b",LYH,Wait,", b",LY\xe9,Wait,", 1)
+        path = tmp_path / "latin1_byte.csv"
+        path.write_bytes(raw)
+
+        df = load_run(str(path))
+
+        assert len(df) == 36
+        assert "\ufffd" in "".join(df["Auto Action"].astype(str))
+
+    def test_a_bom_does_not_corrupt_the_time_header(self, tmp_path):
+        path = tmp_path / "bom.csv"
+        path.write_bytes(b"\xef\xbb\xbf" + DATALOG_SHORT.encode("utf-8"))
+
+        df = load_run(str(path))
+
+        assert df.columns[0] == "Time"
+        assert df["Time"].iloc[0] == pd.Timestamp("2026-08-06 17:33:12")
+
 
 class TestGetRunMetadata:
     def test_reads_the_four_list_view_scalars(self, tmp_path):
@@ -152,6 +173,36 @@ class TestGetRunMetadata:
 
         assert meta.end_time == meta.start_time
         assert meta.row_count == 37
+
+    def test_an_empty_final_row_falls_back_to_the_start_time_not_nat(self, tmp_path):
+        # `pd.to_datetime("")` is NaT without raising, and NaT is truthy, so it
+        # used to survive the `or start_time` fallback -- and the page then
+        # crashed on NaT.total_seconds() and NaT.strftime().
+        text = DATALOG_SHORT + ",,,,,,,,,,,\n"
+
+        meta = get_run_metadata(write_datalog(tmp_path, text, name="empty_last_row.csv"))
+
+        assert meta.end_time == meta.start_time
+        assert not pd.isna(meta.end_time)
+        int((meta.end_time - meta.start_time).total_seconds())   # what the page does
+        meta.end_time.strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_an_empty_first_time_field_rejects_the_file_like_any_bad_stamp(self, tmp_path):
+        rows = _rows(DATALOG_SHORT)
+        rows[0] = "," + rows[0].split(",", 1)[1]
+
+        meta = get_run_metadata(write_datalog(tmp_path, _rebuild(rows), name="empty_first.csv"))
+
+        assert meta is None
+
+    def test_scan_folder_survives_an_empty_final_row(self, tmp_path):
+        write_datalog(tmp_path, DATALOG_SHORT + ",,,,,,,,,,,\n", name="empty_last_row.csv")
+        write_datalog(tmp_path, _shift_to_next_day(DATALOG_SHORT), name="next_day.csv")
+
+        runs = scan_folder(str(tmp_path))
+
+        assert not any(pd.isna(r.end_time) or pd.isna(r.start_time) for r in runs)
+        assert _names([r.path for r in runs]) == ["next_day.csv", "empty_last_row.csv"]
 
     @pytest.mark.parametrize("name,text", [
         ("empty_file", ""),

@@ -87,6 +87,11 @@ def _digest(path: str, mtime: float, size: int) -> str:
     on every 60-second tick, and an uncached hash would re-read the same
     megabytes once a minute for as long as the page is open.
     """
+    return _sha256_of_file(path)
+
+
+def _sha256_of_file(path: str) -> str:
+    """SHA-256 of one file, read from disk now -- never from a cache."""
     digest = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(_HASH_CHUNK_BYTES), b""):
@@ -268,9 +273,61 @@ def send_to_recycle_bin(path: str) -> None:
         raise OSError(f'Moving "{target.name}" to the Recycle Bin was aborted.')
 
 
+class CopyNoLongerIdentical(OSError):
+    """The planned copy no longer matches its keeper byte for byte; nothing was removed.
+
+    An `OSError`, so `remove_duplicates` reports it as a skip with this text
+    beside the filename, the way it reports a file locked open in Excel.
+    """
+
+    def __init__(self, plan: DuplicatePlan, why: str):
+        self.plan = plan
+        super().__init__(
+            f'"{Path(plan.path).name}" was left in place: {why} since the preview, '
+            f'so it is no longer known to be a copy of "{Path(plan.keeper).name}".'
+        )
+
+
+def verify_still_identical(plan: DuplicatePlan) -> None:
+    """
+    Re-check, from disk and uncached, that `plan.path` still repeats `plan.keeper`.
+
+    The plan was decided when the preview was drawn, and the copier and the
+    controller both write into this folder in the seconds before the operator
+    confirms. Size first, because it is a `stat`; then SHA-256 of both files,
+    read now rather than through `digest_of`'s cache, which is keyed on mtime
+    and size and so cannot see a same-size rewrite within one mtime tick.
+
+    A missing *copy* is left for `send_to_recycle_bin` to refuse, so the skip
+    reason stays its "Not a file". A missing *keeper* is a refusal here: the
+    copy may now be the only one.
+
+    Raises
+    ------
+    CopyNoLongerIdentical
+        The keeper is gone, or either file's size or content changed. Nothing
+        is touched.
+    OSError
+        Either file could not be read.
+    """
+    if not Path(plan.path).is_file():
+        return
+    if not Path(plan.keeper).is_file():
+        raise CopyNoLongerIdentical(plan, "its keeper has been removed")
+    if Path(plan.path).stat().st_size != Path(plan.keeper).stat().st_size:
+        raise CopyNoLongerIdentical(plan, "it or its keeper changed size")
+    if _sha256_of_file(plan.path) != _sha256_of_file(plan.keeper):
+        raise CopyNoLongerIdentical(plan, "it or its keeper changed content")
+
+
 def remove_duplicate(root_folder: str, plan: DuplicatePlan) -> None:
     """
     Recycle one stale copy, then drop the tag entry it may still hold.
+
+    **Re-verified immediately before removal** (`verify_still_identical`):
+    the two files are compared again, size and SHA-256, and a pair that no
+    longer matches raises `CopyNoLongerIdentical` with nothing removed. Before
+    v5.23.0 the deletion trusted the preview's verdict, however old it was.
 
     Order matters, and it is the opposite of `renamer.apply_rename`'s. There the
     file must end up where the tag says it is, so the rename rolls back if the
@@ -280,6 +337,7 @@ def remove_duplicate(root_folder: str, plan: DuplicatePlan) -> None:
     this can half-apply is a stale key naming a file that no longer exists —
     which `get_runcard_tag` already ignores, and which the next sweep drops.
     """
+    verify_still_identical(plan)
     send_to_recycle_bin(plan.path)
     # `clear_runcard_tag`, not `set_runcard_tag(..., "")`: the two agree on the
     # result, but only the first declines to write when there was no entry, and

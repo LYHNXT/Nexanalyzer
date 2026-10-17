@@ -142,6 +142,46 @@ class TestPlanning:
 
         assert [p.collision for p in plans] == [False, False]
 
+    def test_a_hidden_stale_copy_is_not_planned(self, tmp_path):
+        # The copier's byte-identical `06173312.csv` beside the renamed run is
+        # hidden by `duplicates`. Renaming it to `2026-08-06_173312.csv` would
+        # give both files their own canonical name, so neither would be stale
+        # any more: the hidden copy would reappear and cleanup could never
+        # remove it.
+        write_datalog(tmp_path, name="2026-08-06_173312~VBBE00.csv")
+        write_datalog(tmp_path, name="06173312.csv")
+
+        plans = plan_renames(str(tmp_path))
+
+        assert [Path(p.path).name for p in plans] == ["2026-08-06_173312~VBBE00.csv"]
+        assert not any(p.will_change for p in plans)
+
+    def test_a_sweep_leaves_the_stale_copy_for_cleanup(self, tmp_path):
+        from modules.datalog.io.duplicates import find_duplicates
+        from modules.datalog.io.scanner import scan_folder
+
+        write_datalog(tmp_path, name="2026-08-06_173312~VBBE00.csv")
+        write_datalog(tmp_path, name="06173312.csv")
+
+        execute_sweep(str(tmp_path), [p for p in plan_renames(str(tmp_path)) if p.will_change])
+
+        assert _names(tmp_path) == ["06173312.csv", "2026-08-06_173312~VBBE00.csv"]
+        assert [Path(p.path).name for p in find_duplicates(str(tmp_path), scan_folder(str(tmp_path)))] == [
+            "06173312.csv"
+        ]
+
+    def test_a_near_duplicate_is_still_planned(self, tmp_path):
+        # Different bytes are not hidden, so they are not exempt either.
+        from tests.datalog_fixtures import DATALOG_SHORT, drop_rows
+
+        write_datalog(tmp_path, name="2026-08-06_173312~VBBE00.csv")
+        write_datalog(tmp_path, text=drop_rows(DATALOG_SHORT, "2026/08/06 17:33:40", 3),
+                      name="06173312.csv")
+
+        names = sorted(Path(p.path).name for p in plan_renames(str(tmp_path)))
+
+        assert names == ["06173312.csv", "2026-08-06_173312~VBBE00.csv"]
+
 
 class TestApplyRename:
     def test_the_file_moves_and_its_tag_entry_follows(self, tmp_path):

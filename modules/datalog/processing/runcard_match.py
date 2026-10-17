@@ -93,9 +93,20 @@ _FLOOR = {**{ch: 0.01 for ch in MFC_CHANNELS}, **{ch: 1.0 for ch in PC_CHANNELS}
 #: often starts by switching them off by hand before its first command. That is
 #: not a recipe step; see `run_steps`.
 _VENT_CHANNELS = ("MFC-4", "MFC-6")
-#: Only MFC-3 (O2) and MFC-8 (H2Se) ever log a 0.01 sccm setpoint. On the other
-#: MFCs a card's 0.01 is below the controller's resolution and logs as 0.
+#: MFCs whose 0.01 sccm setpoint the controller logs as 0 -- below resolution,
+#: so a card's 0.01 is rounded to 0 on replay (`card_blocks`). This tuple is
+#: only the fallback for a caller with no log in hand: `run_steps` derives the
+#: set from each log (`RunSteps.coarse`), because the set is not fixed. Through
+#: 2026-09 MFC-3 (O2) and MFC-8 (H2Se) logged their 0.01; from 2026-10 the
+#: controller logs MFC-8's as 0 too (0 of 103 October logs show it, 101 of 137
+#: September ones did). With MFC-8 hard-coded as fine, every October card's two
+#: MFC-8 0.01 steps cost 1.0 each -- a flat 2.0 on every growth run, the
+#: "medium" ceiling, with the real differences buried under it (v5.21.0).
 _COARSE_CHANNELS = ("MFC-1", "MFC-2", "MFC-4", "MFC-5", "MFC-6", "MFC-7")
+
+#: A logged setpoint strictly inside (0, this) is a sub-resolution value the
+#: controller *can* log for that channel; a channel never seen there is coarse.
+_SUB_RESOLUTION_SCCM = 0.05
 
 _MFC_PARAM_RE = re.compile(r"^(MFC-\d)")
 _GAUGE_RE = re.compile(r"\s*(\d+)")
@@ -119,7 +130,13 @@ class Block:
 
 @dataclass(frozen=True)
 class RunSteps:
-    """One logged run, reduced to what a runcard can be compared against."""
+    """One logged run, reduced to what a runcard can be compared against.
+
+    ``coarse`` names the MFCs this log never shows at a sub-resolution
+    setpoint, so a card's 0.01 on them is replayed as 0 (see
+    `_COARSE_CHANNELS`). Read off the log rather than fixed, because which
+    channels log their 0.01 has changed under the matcher once already.
+    """
 
     blocks: Tuple[Block, ...]
     initial: Mapping[str, Optional[float]]
@@ -127,6 +144,7 @@ class RunSteps:
     total: float
     start: pd.Timestamp
     end: pd.Timestamp
+    coarse: Tuple[str, ...] = _COARSE_CHANNELS
 
 
 @dataclass(frozen=True)
@@ -250,6 +268,16 @@ def run_steps(df: pd.DataFrame) -> Optional[RunSteps]:
 
     initial = {ch: _num(vals[0]) for ch, vals in cols.items()}
     initial[GAUGE] = _gauge(gauge[0])
+    # An MFC that never logs a value in (0, 0.05) sccm in this run cannot show a
+    # card's 0.01; the replay rounds such setpoints to 0 for it. Judged per
+    # log because the controller's behaviour changed between September and
+    # October 2026 (MFC-8), and a fixed list was wrong for a month.
+    coarse = tuple(
+        ch for ch, vals in cols.items()
+        if ch in MFC_CHANNELS and not any(
+            v is not None and 0 < v < _SUB_RESOLUTION_SCCM for v in (_num(x) for x in vals[:m])
+        )
+    )
     prev = dict(initial)
     events = []   # (clock, row, channel, value)
     in_pulse = False
@@ -304,7 +332,7 @@ def run_steps(df: pd.DataFrame) -> Optional[RunSteps]:
     initial["HEAT_SV"] = hsv[0]
     initial["HEAT_PV"] = _num(hpv)
     return RunSteps(blocks=tuple(blocks), initial=initial, ended=ended, total=total,
-                    start=pd.Timestamp(tt[0]), end=pd.Timestamp(tt[-1]))
+                    start=pd.Timestamp(tt[0]), end=pd.Timestamp(tt[-1]), coarse=coarse)
 
 
 # ------------------------------------------------------------------ runcard side
@@ -342,20 +370,26 @@ def _eval_segments(segments, tq, stale):
 
 
 def card_blocks(commands: Sequence[Tuple[str, str, str]],
-                initial: Mapping[str, Optional[float]]) -> Tuple[Tuple[Block, ...], float]:
+                initial: Mapping[str, Optional[float]],
+                coarse: Optional[Sequence[str]] = None) -> Tuple[Tuple[Block, ...], float]:
     """Replay a card's commands from the log's starting state. Returns (blocks, total).
 
     Starting from the log's own state is what makes a command that sets a
     channel to the value it already has a no-op on both sides; replaying from
     zero would charge every such command as a step the log never shows.
+
+    `coarse` is the log's `RunSteps.coarse`: the MFCs on which a sub-resolution
+    setpoint is replayed as 0. Defaults to the fixed `_COARSE_CHANNELS` for a
+    caller without a log.
     """
     state = {k: v for k, v in initial.items() if not k.startswith("HEAT")}
+    coarse_channels = _COARSE_CHANNELS if coarse is None else tuple(coarse)
     t = 0.0
     events = []
     ramps = []
 
     def set_value(ch, v):
-        if ch in _COARSE_CHANNELS and abs(v) < 0.05:
+        if ch in coarse_channels and abs(v) < _SUB_RESOLUTION_SCCM:
             v = 0.0
         cur = state.get(ch)
         if cur is None or abs(cur - v) > 1e-9:
@@ -465,6 +499,15 @@ def _merge(b1: Block, b2: Block) -> Block:
     return Block(t=b1.t, changes=changes, wait=b1.wait + b2.wait, heater=b2.heater)
 
 
+def _is_last(i: int, j: int, n: int, m: int, aborted: bool) -> bool:
+    """Whether a move ending at (i, j) pairs the log's final block with its card counterpart.
+
+    A run that ended must also be at the card's end; an aborted one need not --
+    its final block is wherever the run was stopped.
+    """
+    return i == n and (aborted or j == m)
+
+
 def align(log: Sequence[Block], card: Sequence[Block], aborted: bool = False, want_path: bool = False):
     """Cost of explaining `log` by `card`, and optionally the alignment behind it.
 
@@ -472,6 +515,14 @@ def align(log: Sequence[Block], card: Sequence[Block], aborted: bool = False, wa
     card blocks read as one log block (or the reverse) -- the last two because
     a set that is a no-op on one side splits or joins blocks. An aborted run
     stops early, so card blocks after the log's last one cost nothing.
+
+    "Last" (the halved / forgiven wait and heater on the final pair) is
+    `_is_last`: for a run that ended it is the final log block against the
+    final card block, but an aborted run's final log block lines up with a
+    *middle* card block, and its wait was cut short by the abort. Keying it on
+    ``j == m`` as well meant the forgiveness never applied: a run stopped 40 s
+    into a 120 s hold was charged the 80 s it never got to wait (v5.23.0). The
+    merge moves pass the same flag, because they can end the path too.
     """
     n, m = len(log), len(card)
     inf = float("inf")
@@ -484,7 +535,7 @@ def align(log: Sequence[Block], card: Sequence[Block], aborted: bool = False, wa
                 continue
             best, arg = inf, None
             if i and j:
-                c = D[i - 1][j - 1] + _cost_sub(log[i - 1], card[j - 1], i == n and j == m, aborted)
+                c = D[i - 1][j - 1] + _cost_sub(log[i - 1], card[j - 1], _is_last(i, j, n, m, aborted), aborted)
                 if c < best:
                     best, arg = c, ("sub", i - 1, j - 1)
             if i:
@@ -496,11 +547,13 @@ def align(log: Sequence[Block], card: Sequence[Block], aborted: bool = False, wa
                 if c < best:
                     best, arg = c, ("card-only", i, j - 1)
             if i and j >= 2:
-                c = D[i - 1][j - 2] + _cost_sub(log[i - 1], _merge(card[j - 2], card[j - 1])) + MERGE_COST
+                c = D[i - 1][j - 2] + MERGE_COST + _cost_sub(
+                    log[i - 1], _merge(card[j - 2], card[j - 1]), _is_last(i, j, n, m, aborted), aborted)
                 if c < best:
                     best, arg = c, ("merge-card", i - 1, j - 2)
             if i >= 2 and j:
-                c = D[i - 2][j - 1] + _cost_sub(_merge(log[i - 2], log[i - 1]), card[j - 1]) + MERGE_COST
+                c = D[i - 2][j - 1] + MERGE_COST + _cost_sub(
+                    _merge(log[i - 2], log[i - 1]), card[j - 1], _is_last(i, j, n, m, aborted), aborted)
                 if c < best:
                     best, arg = c, ("merge-log", i - 2, j - 1)
             D[i][j] = best
@@ -522,7 +575,7 @@ def explain(log: Sequence[Block], card: Sequence[Block], path, aborted: bool = F
     for op, i, j in path:
         if op == "sub":
             a, b = log[i - 1], card[j - 1]
-            last = i == len(log) and j == len(card)
+            last = _is_last(i, j, len(log), len(card), aborted)
             for k in sorted(set(a.changes) | set(b.changes)):
                 x, y = a.changes.get(k), b.changes.get(k)
                 if _cost_channel(k, x, y) > 0:
@@ -544,14 +597,14 @@ def explain(log: Sequence[Block], card: Sequence[Block], path, aborted: bool = F
 
 def content_cost(run: RunSteps, card: Runcard) -> float:
     """How far `card` is from explaining `run`: about one per differing step, 0 for a replay."""
-    blocks, _total = card_blocks(card.commands, run.initial)
+    blocks, _total = card_blocks(card.commands, run.initial, run.coarse)
     if not blocks:
         return float("inf")
     return align(run.blocks, blocks, aborted=not run.ended)[0]
 
 
 def differences(run: RunSteps, card: Runcard) -> List[str]:
-    blocks, _total = card_blocks(card.commands, run.initial)
+    blocks, _total = card_blocks(card.commands, run.initial, run.coarse)
     _cost, path = align(run.blocks, blocks, aborted=not run.ended, want_path=True)
     return explain(run.blocks, blocks, path, aborted=not run.ended)
 

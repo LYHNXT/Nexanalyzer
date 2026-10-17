@@ -49,6 +49,11 @@ def voigt_fwhm(sigma: float, gamma: float) -> float:
 
 
 START_MARGIN = 0.01
+
+START_PERTURBATION = 0.25
+"""How far an extra start (fit_voigt_peaks `starts` > 1) moves each starting value,
+as a fraction of its bounded range: the perturbation used to measure how often
+the preset's start misses the best fit on 91 real WSe2 spectra."""
 """How far inside its bounds a starting value is placed, as a fraction of the
 bounded range.
 
@@ -93,7 +98,8 @@ def fit_voigt_peaks(
     y: np.ndarray,
     peak_table: List[PeakDefinition],
     mode: str = "Raman",
-    max_iterations: int = 2000
+    max_iterations: int = 2000,
+    starts: int = 1,
 ) -> FitResult:
     """
     Fit multiple Voigt profiles to spectrum data.
@@ -108,11 +114,33 @@ def fit_voigt_peaks(
         User-defined peak guesses with bounds.
     mode : str, default="Raman"
         "Raman" or "PL" (affects auto-bounds if not manually set).
+    max_iterations : int, default=2000
+        Levenberg-Marquardt iterations the fit may spend. Passed to lmfit as
+        `max_nfev = max_iterations * (variables + 1)` per start, which is lmfit's own
+        default scaling: one iteration costs a function evaluation per
+        variable for the finite-difference Jacobian plus one for the step.
+        Until v5.21.0 the number went straight in as `max_nfev`, so an
+        8-peak WSe2 fit (32 variables) got 1/33 of the budget its preset
+        named, and a fifth of real spectra stopped on it.
+
+    starts : int, default=1
+        How many starting points to fit from (v5.23.0). Start 1 is the preset's
+        own guesses; each further start moves every starting value by up to
+        +-`START_PERTURBATION` of its bounded range (seeded, so a refit gives
+        the same answer), and the fit with the lowest chi-squared is kept,
+        a converged fit beating one that ran out of budget. Levenberg-Marquardt
+        walks to the nearest minimum: on 91 real WSe2 spectra the preset's
+        start reached the best main-band fit only 62 % of the time even with
+        non-overlapping centre ranges, and the misses included E2g+A1g pinned
+        at its width limit with 2LA taller. 1 keeps the single fit every
+        preset had before.
 
     Returns
     -------
     FitResult
         Fitting results with fitted_peaks, quality metrics, and error handling.
+        `converged` is False when the budget ran out first -- see FitResult.
+        `nfev` / `max_nfev` add up over all starts.
 
     Raises
     ------
@@ -164,111 +192,146 @@ def fit_voigt_peaks(
     for peak in peak_table:
         peak.calculate_auto_bounds(mode, x_range, y_max, spectral_resolution)
 
-    # Build composite model (sum of Voigt models)
-    composite_model = None
-    params = Parameters()
+    def _build(rng):
+        """The composite model and its parameters, started from the preset (rng
+        None) or from a perturbed point inside the same bounds."""
+        def _start(value, lo, hi):
+            if rng is not None and hi > lo:
+                value = value + rng.uniform(-START_PERTURBATION, START_PERTURBATION) * (hi - lo)
+            return _inside(value, lo, hi)
 
-    for i, peak in enumerate(peak_table):
-        prefix = f"p{i}_"
-        voigt = VoigtModel(prefix=prefix)
+        # Build composite model (sum of Voigt models)
+        composite_model = None
+        params = Parameters()
 
-        if composite_model is None:
-            composite_model = voigt
-        else:
-            composite_model += voigt
+        for i, peak in enumerate(peak_table):
+            prefix = f"p{i}_"
+            voigt = VoigtModel(prefix=prefix)
 
-        # Convert FWHM to sigma/gamma using shape parameter
-        # Shape: 0 = pure Gaussian, 1 = pure Lorentzian, 0.5 = equal contribution
-        # The split is linear in shape across the whole range; this used to be
-        # written as an if/else on shape < 0.5 whose two arms were identical,
-        # which read as though the halves were treated differently.
-        shape = peak.shape
-        frac_gaussian = 1.0 - shape
-        frac_lorentzian = shape
+            if composite_model is None:
+                composite_model = voigt
+            else:
+                composite_model += voigt
 
-        # The fit varies the Voigt FWHM itself, bounded to [width_min,
-        # width_max], and the Gaussian share of it; sigma and gamma follow by
-        # expression (see VOIGT_* below). Bounding sigma and gamma separately
-        # -- each to half of width_max -- capped a Lorentzian-shaped peak at
-        # ~0.52 x width_max: WSe2's E2g+A1g piled up at 6.21 cm-1.
-        # The shape split only sets the starting Gaussian share.
-        f_g0 = peak.width_fwhm * frac_gaussian
-        f_l0 = peak.width_fwhm * frac_lorentzian
-        f_v0 = 0.5346 * f_l0 + np.sqrt(0.2166 * f_l0 * f_l0 + f_g0 * f_g0)
-        fwhm_guess = _inside(peak.width_fwhm, peak.width_min, peak.width_max)
-        fg_min = peak.width_min / 2.0
-        g0 = fg_min / fwhm_guess
-        gmix_guess = _inside((f_g0 / f_v0 - g0) / (1.0 - g0), 0.0, 1.0)
+            # Convert FWHM to sigma/gamma using shape parameter
+            # Shape: 0 = pure Gaussian, 1 = pure Lorentzian, 0.5 = equal contribution
+            # The split is linear in shape across the whole range; this used to be
+            # written as an if/else on shape < 0.5 whose two arms were identical,
+            # which read as though the halves were treated differently.
+            shape = peak.shape
+            frac_gaussian = 1.0 - shape
+            frac_lorentzian = shape
 
-        # The starting center must lie inside its own bounds, which it doesn't
-        # when the preset places the peak outside the spectrum's range and
-        # calculate_auto_bounds has pinned it to the edge (then it is fixed,
-        # and the margin collapses to the pinned value).
-        center_guess = _inside(peak.center, peak.center_min, peak.center_max)
+            # The fit varies the Voigt FWHM itself, bounded to [width_min,
+            # width_max], and the Gaussian share of it; sigma and gamma follow by
+            # expression (see VOIGT_* below). Bounding sigma and gamma separately
+            # -- each to half of width_max -- capped a Lorentzian-shaped peak at
+            # ~0.52 x width_max: WSe2's E2g+A1g piled up at 6.21 cm-1.
+            # The shape split only sets the starting Gaussian share.
+            f_g0 = peak.width_fwhm * frac_gaussian
+            f_l0 = peak.width_fwhm * frac_lorentzian
+            f_v0 = 0.5346 * f_l0 + np.sqrt(0.2166 * f_l0 * f_l0 + f_g0 * f_g0)
+            fwhm_guess = _start(peak.width_fwhm, peak.width_min, peak.width_max)
+            fg_min = peak.width_min / 2.0
+            g0 = fg_min / fwhm_guess
+            gmix_guess = _start((f_g0 / f_v0 - g0) / (1.0 - g0), 0.0, 1.0)
 
-        # Auto-estimate the peak intensity from the data at center_guess.
-        # Position + FWHM come from the preset (material properties); intensity
-        # depends on measurement conditions, so we always init from the data.
-        idx = int(np.argmin(np.abs(x - center_guess)))
-        intensity_guess = max(float(y[idx]), 1e-6)
-        fwhm_eff = peak.width_fwhm
-        # lmfit's "amplitude" is the area, so both the guess and the ceiling
-        # convert from intensity: area = intensity x FWHM x 1.064 for a Voigt.
-        area_max = peak.intensity_max * fwhm_eff * 1.064
-        area_guess = _inside(intensity_guess * fwhm_eff * 1.064, 0.0, area_max)
+            # The starting center must lie inside its own bounds, which it doesn't
+            # when the preset places the peak outside the spectrum's range and
+            # calculate_auto_bounds has pinned it to the edge (then it is fixed,
+            # and the margin collapses to the pinned value).
+            center_guess = _start(peak.center, peak.center_min, peak.center_max)
 
-        # Add parameters with bounds
-        if peak.center_min == peak.center_max:
-            # calculate_auto_bounds pinned it: the preset places this peak
-            # outside the spectrum, so the edge is the only position open to
-            # it. lmfit rejects min == max, so say "fixed" rather than passing
-            # a degenerate range -- and note it swaps min/max silently when
-            # they arrive inverted, which is how an off-range peak used to come
-            # back at a position belonging to neither bound.
-            params.add(f"{prefix}center", value=center_guess, vary=False)
-        else:
-            params.add(f"{prefix}center", value=center_guess,
-                       min=peak.center_min, max=peak.center_max)
-        params.add(f"{prefix}amplitude", value=area_guess,
-                   min=0, max=area_max)
-        params.add(f"{prefix}vfwhm", value=fwhm_guess,
-                   min=peak.width_min, max=peak.width_max)
-        params.add(f"{prefix}gmix", value=gmix_guess, min=0.0, max=1.0)
-        params.add(f"{prefix}gfrac", expr=_GFRAC_EXPR.format(p=prefix, fg_min=float(fg_min)))
-        params.add(f"{prefix}sigma", expr=_SIGMA_EXPR.format(p=prefix))
-        params.add(f"{prefix}gamma", expr=_GAMMA_EXPR.format(p=prefix))
+            # Auto-estimate the peak intensity from the data at center_guess.
+            # Position + FWHM come from the preset (material properties); intensity
+            # depends on measurement conditions, so we always init from the data.
+            idx = int(np.argmin(np.abs(x - center_guess)))
+            intensity_guess = max(float(y[idx]), 1e-6)
+            fwhm_eff = peak.width_fwhm
+            # lmfit's "amplitude" is the area, so both the guess and the ceiling
+            # convert from intensity: area = intensity x FWHM x 1.064 for a Voigt.
+            area_max = peak.intensity_max * fwhm_eff * 1.064
+            area_guess = _start(intensity_guess * fwhm_eff * 1.064, 0.0, area_max)
 
-    # Fit using Levenberg-Marquardt with increased tolerance
+            # Add parameters with bounds
+            if peak.center_min == peak.center_max:
+                # calculate_auto_bounds pinned it: the preset places this peak
+                # outside the spectrum, so the edge is the only position open to
+                # it. lmfit rejects min == max, so say "fixed" rather than passing
+                # a degenerate range -- and note it swaps min/max silently when
+                # they arrive inverted, which is how an off-range peak used to come
+                # back at a position belonging to neither bound.
+                params.add(f"{prefix}center", value=center_guess, vary=False)
+            else:
+                params.add(f"{prefix}center", value=center_guess,
+                           min=peak.center_min, max=peak.center_max)
+            params.add(f"{prefix}amplitude", value=area_guess,
+                       min=0, max=area_max)
+            params.add(f"{prefix}vfwhm", value=fwhm_guess,
+                       min=peak.width_min, max=peak.width_max)
+            params.add(f"{prefix}gmix", value=gmix_guess, min=0.0, max=1.0)
+            params.add(f"{prefix}gfrac", expr=_GFRAC_EXPR.format(p=prefix, fg_min=float(fg_min)))
+            params.add(f"{prefix}sigma", expr=_SIGMA_EXPR.format(p=prefix))
+            params.add(f"{prefix}gamma", expr=_GAMMA_EXPR.format(p=prefix))
+
+        return composite_model, params
+
+    # Fit using Levenberg-Marquardt with increased tolerance, from each start
     start_time = time.time()
+    best = None            # (rank, result, converged)
+    total_nfev = 0
+    total_max_nfev = 0
+    last_error = None
 
-    try:
-        result = composite_model.fit(
-            y, params, x=x,
-            method='leastsq',
-            max_nfev=max_iterations,
-            fit_kws={'ftol': 1e-6, 'xtol': 1e-6}  # Increased tolerance for stability
-        )
-        convergence_time = time.time() - start_time
+    for k in range(max(1, int(starts))):
+        composite_model, params = _build(None if k == 0 else np.random.default_rng(k))
 
-        # Accept fit even if error bars couldn't be estimated (common with tight fits)
-        # result.success may be False if uncertainties couldn't be calculated, but fit is still valid
-        if not result.success and "Tolerance seems to be too small" not in str(result.message):
-            return FitResult(
-                success=False,
-                fitted_peaks=[],
-                total_fit_curve=np.zeros_like(y),
-                residuals=y.copy(),
-                chi_squared=np.sum(y**2),
-                r_squared=0.0,
-                convergence_time=convergence_time,
-                error_message=(
-                    f"Fitting failed to converge ({result.message}). "
-                    f"Try adjusting initial guesses or reducing number of peaks."
-                )
+        # Iterations, not evaluations: see the max_iterations note above.
+        n_vary = sum(1 for p in params.values() if p.vary)
+        max_nfev = int(max_iterations) * (n_vary + 1)
+        total_max_nfev += max_nfev
+
+        try:
+            result = composite_model.fit(
+                y, params, x=x,
+                method='leastsq',
+                max_nfev=max_nfev,
+                fit_kws={'ftol': 1e-6, 'xtol': 1e-6}  # Increased tolerance for stability
             )
+        except Exception as e:
+            last_error = f"Fitting error: {str(e)}"
+            continue
+        total_nfev += int(result.nfev)
 
-    except Exception as e:
-        convergence_time = time.time() - start_time
+        # lmfit's `success` is MINPACK ier in {1,2,3,4}. Three other outcomes
+        # are still a usable fit and are told apart here by `ier`, because
+        # lmfit gives the *same* message -- "Tolerance seems to be too small"
+        # -- to all of them, and matching on it used to wave a truncated fit
+        # through as a finished one:
+        #   ier 6/7/8  ftol/xtol/gtol unachievable: no further improvement is
+        #              possible, i.e. converged to machine precision;
+        #   ier 5      MINPACK ran out of maxfev;
+        #   ier -1     lmfit's own abort on reaching max_nfev.
+        # The last two are the budget running out: the peaks are the best
+        # found so far, not an optimum, and no covariance exists. They are
+        # returned with converged=False rather than refused, since a fit that
+        # is 99% there is more useful flagged than discarded -- but flagged.
+        ier = getattr(result, "ier", None)
+        exhausted = ier in (-1, 5) or result.nfev >= max_nfev
+        converged = not exhausted and (bool(result.success) or ier in (6, 7, 8))
+        if not result.success and not exhausted and ier not in (6, 7, 8):
+            last_error = (
+                f"Fitting failed to converge ({result.message}). "
+                f"Try adjusting initial guesses or reducing number of peaks."
+            )
+            continue
+        # A converged fit beats one that ran out of budget; then lower chi-squared.
+        rank = (0 if converged else 1, float(result.chisqr))
+        if best is None or rank < best[0]:
+            best = (rank, result, converged)
+
+    convergence_time = time.time() - start_time
+    if best is None:
         return FitResult(
             success=False,
             fitted_peaks=[],
@@ -277,8 +340,9 @@ def fit_voigt_peaks(
             chi_squared=np.sum(y**2),
             r_squared=0.0,
             convergence_time=convergence_time,
-            error_message=f"Fitting error: {str(e)}"
+            error_message=last_error or "Fitting failed.",
         )
+    _rank, result, converged = best
 
     # Extract fitted parameters
     fitted_peaks = []
@@ -291,10 +355,15 @@ def fit_voigt_peaks(
         return param.value if hasattr(param, 'value') else float(param)
 
     def get_param_stderr(param):
-        """Extract stderr from Parameter object (returns 0.0 if unavailable)."""
-        if hasattr(param, 'stderr'):
-            return param.stderr or 0.0
-        return 0.0
+        """Extract stderr from Parameter object; NaN when lmfit could not estimate one.
+
+        None means the covariance could not be computed -- a parameter on a
+        bound, a peak fitted to zero, or a fit that ran out of budget. That
+        used to be reported as 0.0, which every CSV and workbook printed as a
+        perfectly determined value. NaN lands as an empty cell instead.
+        """
+        stderr = getattr(param, 'stderr', None)
+        return float(stderr) if stderr is not None else float('nan')
 
     for i, peak in enumerate(peak_table):
         prefix = f"p{i}_"
@@ -345,6 +414,14 @@ def fit_voigt_peaks(
             }
         )
 
+        # On a limit: centre on its range edge (when it was free to move) or the
+        # Voigt FWHM on its ceiling -- CLAUDE.md's "vfwhm@max" test.
+        def _at(prm, side):
+            lim = prm.max if side == "max" else prm.min
+            return prm.vary and lim is not None and np.isfinite(lim) and abs(prm.value - lim) <= 1e-6 * max(1.0, abs(lim))
+        c_prm, w_prm = result.params[f"{prefix}center"], result.params[f"{prefix}vfwhm"]
+        on_limit = bool(_at(c_prm, "min") or _at(c_prm, "max") or _at(w_prm, "max"))
+
         fitted_peaks.append(FittedPeak(
             label=peak.label,
             center=center_fit,
@@ -357,6 +434,7 @@ def fit_voigt_peaks(
             component_curve=component_curve,
             color=peak.color,  # Copy color from PeakDefinition
             width_fwhm_v1=width_fwhm_v1_fit,
+            on_limit=on_limit,
         ))
 
     # Calculate quality metrics
@@ -376,7 +454,10 @@ def fit_voigt_peaks(
         chi_squared=chi_squared,
         r_squared=r_squared,
         convergence_time=convergence_time,
-        error_message=""
+        error_message="",
+        converged=converged,
+        nfev=total_nfev,
+        max_nfev=total_max_nfev,
     )
 
 

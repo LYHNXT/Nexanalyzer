@@ -26,8 +26,9 @@ from tests.datalog_fixtures import RUNCARD_FULL, RUNCARD_SHORT
 #: See test_runcard_growth_window: a run with a real window (mid = 20 s).
 _GROWTH_TAIL = "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
-#: The final ramp completes after the heater went off, so there is no window --
-#: and every value read at the midpoint has to say so.
+#: The ramp is issued as the heater goes off, so it never acts and there is no
+#: window -- and every value read at the midpoint has to say so. The peak is
+#: room temperature (it read the ramp's 900 before v5.23.0).
 _NO_WINDOW = "MFC/PC,PC-1,400\nWait,Sec,10\nHeater Ramp,900,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
 
@@ -129,6 +130,53 @@ class TestBuildBarRows:
         assert _row(rows, "PC-1").unit == "Torr"
         assert _row(rows, "Spin").unit == "rpm"
         assert _row(rows, "RTV P").unit == "Torr"
+
+    def test_a_zero_pressure_setpoint_holds_to_the_end_of_the_run(self, tmp_path):
+        """`MFC/PC,PC-2,0` is a setpoint, not the end of the row.
+
+        The reference draws every commanded PC setpoint, zero included, held
+        until the next command or the end of the run. Before v5.23.0 the zero
+        floor that gas rows use was applied here too, so PC-2's row simply
+        stopped at the 0 -- on 324 of 2,349 real cards (PC-1, PC-2, Spin).
+        """
+        profile = _profile(tmp_path, "MFC/PC,PC-2,140\nWait,Sec,10\nMFC/PC,PC-2,0\nWait,Sec,20\n")
+
+        segments = _row(build_bar_rows(profile.timeline), "PC-2").segments
+
+        assert [(s.start_s, s.end_s, s.value) for s in segments] == [(0.0, 10.0, 140.0), (10.0, 30.0, 0.0)]
+
+    def test_an_rtv_commanded_only_to_zero_still_has_its_row(self, tmp_path):
+        # `RTV Pressure Ctrl,100 Torr,0` is the valve held at vacuum -- the
+        # figure prints it as "vac" -- not a valve the recipe never set.
+        profile = _profile(tmp_path, "RTV Pressure Ctrl,100 Torr,0\nWait,Sec,10\n")
+
+        segments = _row(build_bar_rows(profile.timeline), "RTV P").segments
+
+        assert [(s.start_s, s.end_s, s.value) for s in segments] == [(0.0, 10.0, 0.0)]
+
+    def test_a_stopped_stage_is_drawn_at_zero(self, tmp_path):
+        profile = _profile(tmp_path, "Stage Rot,10,--\nWait,Sec,10\nStage Rot,0,--\nWait,Sec,5\n")
+
+        segments = _row(build_bar_rows(profile.timeline), "Spin").segments
+
+        assert [(s.start_s, s.end_s, s.value) for s in segments] == [(0.0, 10.0, 10.0), (10.0, 15.0, 0.0)]
+
+    def test_a_setpoint_replaced_at_the_same_instant_is_not_drawn(self, tmp_path):
+        # Only a zero-*length* segment is dropped, as the reference does.
+        profile = _profile(tmp_path, "MFC/PC,PC-1,400\nMFC/PC,PC-1,300\nWait,Sec,10\n")
+
+        segments = _row(build_bar_rows(profile.timeline), "PC-1").segments
+
+        assert [(s.start_s, s.end_s, s.value) for s in segments] == [(0.0, 10.0, 300.0)]
+
+    def test_a_gas_line_closed_to_zero_still_ends_its_row(self, tmp_path):
+        # The zero setpoint rule is for the controllers, the valve and the
+        # stage. A gas row keeps its floor: an MFC at 0 is shut, not flowing.
+        profile = _profile(tmp_path, "MFC/PC,MFC-3 O2,5\nWait,Sec,10\nMFC/PC,MFC-3 O2,0\nWait,Sec,20\n")
+
+        segments = _row(build_bar_rows(profile.timeline), "MFC-3 O2").segments
+
+        assert [(s.start_s, s.end_s, s.value) for s in segments] == [(0.0, 10.0, 5.0)]
 
     def test_the_valve_row_is_labelled_rtv_p_in_torr(self, tmp_path):
         # params[1] of RTV Pressure Ctrl is the chamber-pressure setpoint the
@@ -249,7 +297,7 @@ class TestGrowthMidValues:
         values = growth_mid_values(profile)
 
         assert values.mid_s is None
-        assert values.peak_temp_c == 900.0
+        assert values.peak_temp_c == 25.0
         assert values.mfc == ()
         assert values.pc == ()
         assert (values.rtv, values.spin, values.p1, values.p2) == (None, None, None, None)
@@ -291,7 +339,7 @@ class TestProfileStats:
 
         assert stats["gw_start_min"] is None
         assert stats["gw_end_min"] is None
-        assert stats["peak_T"] == 900.0
+        assert stats["peak_T"] == 25.0
 
     def test_a_window_starting_at_time_zero_still_reports_its_edges(self):
         """The guard the ancestor wrote as `if gw_start` rather than `is not None`.
@@ -367,7 +415,7 @@ class TestProfileStats:
         stats = profile_stats(_profile(tmp_path, _NO_WINDOW))
 
         assert stats["total_min"] is not None
-        assert stats["peak_T"] == 900.0
+        assert stats["peak_T"] == 25.0
         assert stats["canvas_h"] is not None
         assert (stats["gw_start_min"], stats["p1_T"], stats["p2_T"]) == (None, None, None)
 
@@ -415,23 +463,36 @@ class TestTubeRows:
             for row in rows if row.kind == "tube"
         ]
 
-    def test_ha_sums_mfc_1_3_4_and_6_7_8(self, tmp_path):
-        assert self._tubes(tmp_path, "HADI44") == [
+    @pytest.mark.parametrize("run_id", ["HADI44", "NSHA1P012508001"])
+    def test_ha_sums_mfc_1_3_4_and_6_7_8(self, tmp_path, run_id):
+        assert self._tubes(tmp_path, run_id) == [
             ("Inner tube (MFC1+3+4)", [(0.0, 60.0, 100.0), (60.0, 120.0, 105.0), (120.0, 180.0, 100.0)]),
             ("Outer tube (MFC6+7+8)", [(0.0, 180.0, 40.0)]),
         ]
 
-    @pytest.mark.parametrize("run_id", ["VBCA08", "VABD14", "vbbe00"])
+    @pytest.mark.parametrize("run_id", ["VBCA08", "VABD14", "vbbe00", "NSVA1P012512040", "nsvb1p01xx"])
     def test_va_and_vb_sum_mfc_1_to_4_and_5_to_8(self, tmp_path, run_id):
         assert self._tubes(tmp_path, run_id) == [
             ("Inner tube (MFC1+2+3+4)", [(0.0, 60.0, 130.0), (60.0, 120.0, 135.0), (120.0, 180.0, 130.0)]),
             ("Outer tube (MFC5+6+7+8)", [(0.0, 180.0, 60.0)]),
         ]
 
-    def test_an_unknown_series_falls_back_to_ha(self, tmp_path):
-        assert [label for label, _ in self._tubes(tmp_path, "NX123")] == [
+    @pytest.mark.parametrize("run_id", ["NX123", "NS", "NSXX01", ""])
+    def test_an_unknown_series_falls_back_to_ha_and_says_so(self, tmp_path, run_id):
+        from modules.runcard.processing.stats import tube_series_for
+
+        assert tube_series_for(run_id) is None
+        assert [label for label, _ in self._tubes(tmp_path, run_id)] == [
             "Inner tube (MFC1+3+4)", "Outer tube (MFC6+7+8)",
         ]
+
+    @pytest.mark.parametrize("run_id, series", [
+        ("NSHA1P012508001", "HA"), ("NSVA1P012512040", "VA"), ("HADI44", "HA"), ("vbbe00", "VB"),
+    ])
+    def test_the_series_is_read_past_the_tool_file_prefix(self, run_id, series):
+        from modules.runcard.processing.stats import tube_series_for
+
+        assert tube_series_for(run_id) == series
 
     def test_equal_neighbouring_totals_merge_and_zero_stretches_are_blank(self, tmp_path):
         # Two lines swapping 10 sccm at t=60 leave the sum unchanged, so that is

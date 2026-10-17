@@ -668,3 +668,21 @@ class TestBuildFitGridFigure:
         from the layout the images letterbox inside their columns."""
         assert 0 < FIT_COLUMN_ASPECT_RATIO < 1
         assert FIT_GRID_COLUMNS == 3
+
+
+class TestTenPointOverview:
+    def test_a_tenth_frame_gets_a_cell_instead_of_being_dropped(self, monkeypatch):
+        import core.report.summary_figure as sf
+
+        placed = []
+        monkeypatch.setattr(sf, "_place_image", lambda fig, b, l, t, w, h: placed.append(b))
+        monkeypatch.setattr(sf, "_add_placeholder", lambda *a, **k: placed.append(None))
+        import matplotlib.pyplot as plt
+
+        fig = plt.figure()
+        try:
+            sf._add_om_grid(fig, {k: bytes([k]) for k in range(1, 11)}, "50x")
+        finally:
+            plt.close(fig)
+
+        assert bytes([10]) in placed and len(placed) >= 10

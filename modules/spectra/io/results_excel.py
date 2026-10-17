@@ -102,6 +102,11 @@ def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
     columns = [
         _Column("Point", "0", 7),
         _Column("Source_File", None, 24),
+        # Which spectrum of the file a row belongs to (v5.23.0): "Raman_1__3"
+        # is the third column of a map. Without it, a 25-spectrum map file gave
+        # 25 x n_peaks rows all reading Point 1 / Raman_1.txt, and a ratio
+        # could only be rebuilt from row order.
+        _Column("Spectrum", None, 16),
         _Column("Peak_Label", None, 14),
         _Column("Center", "0.00", 11),
         _Column("Center_Stderr", "0.000", 14),
@@ -119,6 +124,10 @@ def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
         _Column("Shape", "0.00", 8),
         _Column("R_Squared", "0.0000", 11),
         _Column("Chi_Squared", "General", 13),
+        # False when the fit stopped on its iteration budget (v5.21.0): the
+        # row's numbers are the best found, not an optimum, and its stderr
+        # cells are empty because no covariance exists.
+        _Column("Converged", None, 10),
         _Column("Convergence_Time_s", "0.000", 19),
     ]
     return columns
@@ -231,20 +240,20 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
             # intensity is still reported: 0 counts is a measurement.
             if raw is not None:
                 row = [
-                    point, source, RAW_STAT_LABEL,
+                    point, source, getattr(spectrum, "filename", None), RAW_STAT_LABEL,
                     raw.center, None, raw.intensity, None, raw.fwhm, None,
                 ]
                 if show_fwhm_v1:
                     # No fit, so there is no sigma/gamma the v1 formula could
                     # come from.
                     row += [None, None]
-                row += [None, None, None, None]
+                row += [None, None, None, None, None]
                 rows.append(row)
 
         for peak in (fit.fitted_peaks if fit else []):
             intensity, intensity_stderr = peak_intensity_and_stderr(peak)
             row = [
-                point, source, peak.label,
+                point, source, getattr(spectrum, "filename", None), peak.label,
                 peak.center, peak.center_stderr,
                 intensity, intensity_stderr,
                 peak.width_fwhm, peak.width_stderr,
@@ -253,7 +262,7 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
                 # No stderr computed for the deprecated formula -- left
                 # blank rather than fabricated.
                 row += [peak.width_fwhm_v1, None]
-            row += [peak.shape, fit.r_squared, fit.chi_squared, fit.convergence_time]
+            row += [peak.shape, fit.r_squared, fit.chi_squared, fit.converged, fit.convergence_time]
             rows.append(row)
 
     return rows

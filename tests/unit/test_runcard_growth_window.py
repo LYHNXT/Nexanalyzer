@@ -26,9 +26,10 @@ from tests.datalog_fixtures import RUNCARD_FULL, RUNCARD_SHORT
 #: such test has a real growth window to read values at (mid = 20 s).
 _GROWTH_TAIL = "Wait,Sec,10\nHeater Ramp,900,10\nWait,Sec,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
-#: The final ramp completes at t=20 while the heater went off at t=10: the run
-#: never held at its own peak, so the window's end would precede its start and
-#: there is no window at all -- while `peak_temp_c` still reports 900.
+#: The ramp to 900 is issued at t=10, the same instant the heater goes off, so
+#: it never acts: the trace never leaves room temperature and there is no
+#: window. Until v5.23.0 the ramp was laid down whole after heater-off and
+#: `peak_temp_c` reported a 900 the heater was never driven to.
 _NO_WINDOW = "MFC/PC,PC-1,400\nWait,Sec,10\nHeater Ramp,900,10\nHeater Soak,0,--\nWait,Sec,60\n"
 
 #: No `Heater Soak`, so no cooldown and no extension to `total`: the trace ends
@@ -83,7 +84,7 @@ class TestWaitDurationSeconds:
 
 
 class TestBuildTimelineClock:
-    """Exactly two commands advance the clock: `Wait` and `Check Status`."""
+    """Exactly three commands advance the clock: `Wait`, `Check Status` and `Pulse*`."""
 
     def test_every_other_recognised_command_is_instantaneous(self, tmp_path):
         timeline = build_timeline(_commands(
@@ -377,11 +378,13 @@ class TestFindGrowthWindow:
         assert (window.start_s, window.end_s) == (None, None)
 
     def test_a_final_ramp_after_the_heater_went_off_has_no_window(self, tmp_path):
-        # peak_temp_c is still 900: it is a max() over a trace that always has
-        # a vertex, so it is never evidence that a window exists.
+        # Changed in v5.23.0: this pinned peak_temp_c == 900, the target of a
+        # ramp issued as the heater went off. That ramp never acts, so the
+        # peak is room temperature -- and peak_temp_c is still populated, a
+        # max() over a trace that always has a vertex, never evidence of a window.
         profile = _profile(tmp_path, _NO_WINDOW)
 
-        assert profile.growth == GrowthWindow(start_s=None, end_s=None, peak_temp_c=900.0)
+        assert profile.growth == GrowthWindow(start_s=None, end_s=None, peak_temp_c=ROOM_TEMP_C)
         assert profile.growth.mid_s is None
 
     def test_a_recipe_with_no_heater_soak_gets_a_zero_length_window(self, tmp_path):
@@ -580,3 +583,172 @@ class TestFixedChannelValueAtGrowthMid:
         profile = _profile(tmp_path, _NO_WINDOW)
 
         assert fixed_channel_value_at_growth_mid(profile, "PC-3") is None
+
+
+class TestPulseAdvancesTheClock:
+    """`Pulse H2Se,N,half` is the growth step of every recipe since mid-2025.
+
+    The vendored reference ignores it, which put the growth window of 44 real
+    recipes at a single instant: heater-off landed on the same second the
+    peak was reached, and the page read "Growth (0 min @ 890 C)" on a
+    13-minute growth.
+    """
+
+    def test_a_pulse_costs_count_times_on_plus_off_plus_switching(self, tmp_path):
+        from modules.runcard.processing.growth_window import PULSE_SWITCH_OVERHEAD_SEC
+
+        timeline = build_timeline(_commands(tmp_path, "Pulse H2Se,72,5\nWait,Sec,10\n"))
+
+        assert timeline.total_time == pytest.approx(72 * (10 + PULSE_SWITCH_OVERHEAD_SEC) + 10)
+        assert timeline.mfc_events == []   # the controller toggles the gas, not MFC/PC rows
+
+    @pytest.mark.parametrize("row", ["Pulse,6,30", "Pulse O2,6,30"])
+    def test_every_pulse_spelling_is_on_the_clock(self, tmp_path, row):
+        from modules.runcard.processing.growth_window import PULSE_SWITCH_OVERHEAD_SEC
+
+        assert build_timeline(_commands(tmp_path, row + "\n")).total_time == pytest.approx(
+            6 * (60 + PULSE_SWITCH_OVERHEAD_SEC)
+        )
+
+    def test_a_malformed_pulse_row_contributes_nothing(self, tmp_path):
+        assert build_timeline(_commands(tmp_path, "Pulse H2Se,--,--\nWait,Sec,10\n")).total_time == 10.0
+
+    def test_the_growth_window_spans_the_pulsed_growth(self, tmp_path):
+        from modules.runcard.processing.growth_window import PULSE_SWITCH_OVERHEAD_SEC
+
+        # Ramp to 890 over 60 s, grow by pulsing, heater off: the window is
+        # the pulse block, not the instant the ramp finished.
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,890,60\nWait,Sec,60\nPulse H2Se,72,5\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        assert profile.growth.start_s == 60.0
+        assert profile.growth.end_s == pytest.approx(60 + 72 * (10 + PULSE_SWITCH_OVERHEAD_SEC))
+        assert profile.growth.duration_min == pytest.approx(72 * (10 + PULSE_SWITCH_OVERHEAD_SEC) / 60)
+
+
+def _cooled(from_c, seconds):
+    """The synthesized cooldown, `seconds` after heater-off, from `from_c`."""
+    return ROOM_TEMP_C + (from_c - ROOM_TEMP_C) * math.exp(-seconds / 1500)
+
+
+class TestNothingAfterHeaterOffReachesTheTrace:
+    """A ramp the heater was given after it went off never acted (v5.23.0).
+
+    Every ramp used to be laid down whole and the cooldown started from the
+    last one's target, so 34 HA1N01 cards with a `Heater Ramp` after the soak
+    drew a trace that ran backwards in time, and a VB1P01 card cut part-way
+    up a ramp to 850 reported an 850 peak it never reached.
+    """
+
+    def test_a_ramp_issued_after_heater_off_is_ignored(self, tmp_path):
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,900,100\nWait,Sec,100\nHeater Soak,0,--\nWait,Sec,60\n"
+            "Heater Ramp,500,30\nWait,Sec,60\n",
+        )
+
+        trace = profile.temp_trace
+        assert [t for t, _temp in trace] == [0.0, 100.0, 160.0, 220.0]
+        assert trace[2][1] == pytest.approx(_cooled(900.0, 60))
+        assert trace[3][1] == pytest.approx(_cooled(900.0, 120))
+
+    def test_the_trace_never_runs_backwards_after_heater_off(self, tmp_path):
+        # The NSHA1N012506035 shape before the soak setpoint was understood:
+        # heater off, then a ramp issued and waited out.
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,900,100\nWait,Sec,100\nHeater Soak,0,--\nWait,Sec,900\n"
+            "Heater Ramp,900,600\nWait,Sec,600\n",
+        )
+
+        times = [t for t, _temp in profile.temp_trace]
+        assert times == sorted(times)
+        assert max(temp for t, temp in profile.temp_trace if t > 100.0) < 900.0
+
+    def test_a_ramp_still_running_at_heater_off_is_cut_at_the_temperature_reached(self, tmp_path):
+        # 200 -> 850 over 200 s from t=100, heater cut at t=200: half way, 525.
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,200,100\nWait,Sec,100\nHeater Ramp,850,200\nWait,Sec,100\n"
+            "Heater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        assert profile.temp_trace[:3] == [(0.0, 25.0), (100.0, 200.0), (200.0, 525.0)]
+        assert profile.temp_trace[3][1] == pytest.approx(_cooled(525.0, 60))
+        assert profile.growth.peak_temp_c == 525.0
+
+    def test_a_heater_cut_mid_ramp_has_a_zero_length_window_at_heater_off(self, tmp_path):
+        # The peak is the instant the heater was cut, so the window is that
+        # instant -- the edges the reference draws, at the temperature reached.
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,850,200\nWait,Sec,100\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        assert profile.growth == GrowthWindow(start_s=100.0, end_s=100.0, peak_temp_c=437.5)
+
+    def test_build_temp_trace_cuts_a_running_ramp_directly(self):
+        ramps = [(0.0, 25.0, 825.0, 100.0), (150.0, 825.0, 25.0, 50.0)]
+
+        trace = build_temp_trace(ramps, 25.0, 25.0)
+
+        assert trace == [(0.0, 25.0), (25.0, 225.0)]
+
+    def test_a_ramp_completing_exactly_at_heater_off_is_whole(self):
+        trace = build_temp_trace([(0.0, 25.0, 825.0, 100.0)], 100.0, 160.0)
+
+        assert trace[:2] == [(0.0, 25.0), (100.0, 825.0)]
+        assert trace[2][1] == pytest.approx(_cooled(825.0, 60))
+
+
+class TestANonzeroHeaterSoakIsASetpointStep:
+    """`Heater Soak,600,--` steps the heater to 600 and holds; only a zero soak is off.
+
+    The HA1P01 datalogs show the SV going to 600 and staying there, and the
+    `NSHA1N012506029`-`036` cards then ramp back to 900 for a second growth
+    before a final `Heater Soak,0`. The vendored reference reads every first
+    soak as heater-off; this is a deliberate departure (docs/reference/README.md).
+    """
+
+    def test_a_nonzero_soak_is_a_zero_duration_step_and_not_heater_off(self, tmp_path):
+        timeline = build_timeline(_commands(
+            tmp_path, "Heater Ramp,900,100\nWait,Sec,100\nHeater Soak,600,--\nWait,Sec,50\n",
+        ))
+
+        assert timeline.heater_ramps == [(0.0, 25.0, 900.0, 100.0), (100.0, 900.0, 600.0, 0.0)]
+        assert timeline.heater_off_t is None
+
+    @pytest.mark.parametrize("row", ["Heater Soak,0,--", "Heater Soak,0,600", "Heater Soak,--,--"])
+    def test_a_zero_or_unreadable_soak_is_heater_off(self, tmp_path, row):
+        timeline = build_timeline(_commands(tmp_path, f"Wait,Sec,10\n{row}\nWait,Sec,10\n"))
+
+        assert timeline.heater_off_t == 10.0
+        assert timeline.heater_ramps == []
+
+    def test_the_next_ramp_starts_from_the_soak_setpoint(self, tmp_path):
+        timeline = build_timeline(_commands(
+            tmp_path, "Heater Soak,600,--\nWait,Sec,10\nHeater Ramp,900,60\n",
+        ))
+
+        assert timeline.heater_ramps[-1] == (10.0, 600.0, 900.0, 60.0)
+
+    def test_a_two_step_recipe_grows_in_the_first_stretch_at_the_peak(self, tmp_path):
+        # Ramp to 900, grow 200 s, step to 600 and hold 150 s, ramp back to 900
+        # over 60 s, hold 200 s, heater off. The window is the first plateau,
+        # ended by the step down -- the documented "whichever comes first of
+        # heater-off and a commanded ramp-down".
+        profile = _profile(
+            tmp_path,
+            "Heater Ramp,900,100\nWait,Sec,100\nWait,Sec,200\nHeater Soak,600,--\nWait,Sec,150\n"
+            "Heater Ramp,900,60\nWait,Sec,60\nWait,Sec,200\nHeater Soak,0,--\nWait,Sec,60\n",
+        )
+
+        assert profile.timeline.heater_off_t == 710.0
+        assert profile.temp_trace[:7] == [
+            (0.0, 25.0), (100.0, 900.0), (300.0, 900.0), (300.0, 600.0),
+            (450.0, 600.0), (510.0, 900.0), (710.0, 900.0),
+        ]
+        assert profile.temp_trace[7][1] == pytest.approx(_cooled(900.0, 60))
+        assert profile.growth == GrowthWindow(start_s=100.0, end_s=300.0, peak_temp_c=900.0)

@@ -762,3 +762,42 @@ class TestEdgeDomains:
             (4 + 0.5 * 2) / 200.0 * domain_size_module.DENSITY_AREA_UM2
         )
         assert stat.diameter_mean == pytest.approx(2.0)  # edge domains never sized
+
+
+class TestMinimumDomainInMicrons:
+    """v5.22.0: the size floor can be a diameter in microns, so it means the same size at any magnification."""
+
+    BLOBS = [(slice(40, 52), slice(40, 52)), (slice(120, 160), slice(200, 240))]   # ~12 px and ~40 px across
+
+    def test_a_micron_floor_drops_domains_below_that_diameter(self, tmp_path):
+        frame = _frame(tmp_path, self.BLOBS)
+        um = 0.1 * frame.scale          # 0.1 um per working pixel
+        loose = measure_domains(frame, target="above", um_per_px=um, min_domain_um=0.3, detect_size_populations=False)
+        strict = measure_domains(frame, target="above", um_per_px=um, min_domain_um=2.0, detect_size_populations=False)
+
+        assert len(loose.diameters_um) > len(strict.diameters_um)
+        assert all(d >= 2.0 for d in strict.diameters_um)
+
+    def test_without_a_calibration_the_pixel_floor_applies(self, tmp_path):
+        frame = _frame(tmp_path, self.BLOBS)
+        a = measure_domains(frame, target="above", min_domain_um=50.0, detect_size_populations=False)
+        b = measure_domains(frame, target="above", detect_size_populations=False)
+
+        assert len(a.diameters_px) == len(b.diameters_px)
+
+
+class TestOpticalParamsDomainFields:
+    def test_round_trip_and_magnification_lookup(self):
+        from modules.spectra.models.preset import OpticalParams
+
+        p = OpticalParams(min_domain_um_50x=1.0, min_domain_um_100x=0.5, domain_size_enabled=False)
+        again = OpticalParams.from_dict(p.to_dict())
+
+        assert again == p
+        assert (p.min_domain_um_for("50X"), p.min_domain_um_for("100x"), p.min_domain_um_for("20x")) == (1.0, 0.5, None)
+        assert p.as_kwargs() == {}          # domain-only settings never reach the segmentation
+
+    def test_out_of_range_floor_is_rejected(self):
+        from modules.spectra.models.preset import OpticalParams
+
+        assert any("min_domain_um_50x" in e for e in OpticalParams(min_domain_um_50x=0.0).validate())

@@ -74,6 +74,8 @@ hand before this became a QC Report feature.
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+import math
+
 import numpy as np
 from scipy import ndimage as ndi
 from scipy.signal import argrelextrema
@@ -277,6 +279,7 @@ def measure_domains(
     mask_closing_radius: Optional[int] = None,
     um_per_px: Optional[float] = None,
     detect_size_populations: bool = True,
+    min_domain_um: Optional[float] = None,
 ) -> DomainResult:
     """Measure flake domains in one already-segmented frame.
 
@@ -327,6 +330,12 @@ def measure_domains(
     per-material/layer preset field. Too large a radius starts merging
     genuinely separate close-together small flakes into one.
 
+    `min_domain_um` (v5.22.0) replaces `min_domain_px` with a physical floor:
+    the smallest equivalent-circle diameter kept, in microns, converted to
+    working pixels with this frame's own calibration. A floor in pixels is a
+    different size at every magnification (40 px is 1.07 um at 50x, 0.53 um at
+    100x). Ignored without `um_per_px`, where there is no micron to convert.
+
     `detect_size_populations` gates the `split_size_populations()` call
     below; False forces `DomainResult.population_is_large` to `None`
     regardless of what the diameters would otherwise show. The QC Report
@@ -363,6 +372,8 @@ def measure_domains(
     # Microns per pixel of `frame.original`, not per camera pixel -- see above.
     if um_per_px is not None:
         um_per_px = um_per_px / frame.scale
+        if min_domain_um is not None:
+            min_domain_px = max(1, math.ceil(math.pi / 4.0 * (min_domain_um / um_per_px) ** 2))
 
     if not mask.any():
         empty = np.zeros(0, dtype=float)

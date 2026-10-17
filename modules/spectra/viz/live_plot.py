@@ -738,3 +738,6 @@ def render_unified_plot():
         df_results = pd.DataFrame(results_data)
         st.dataframe(df_results, hide_index=True, width="stretch")
         st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")
+        if not spectrum.fit_result.converged:
+            from ..processing.auto_workflow import convergence_warning
+            st.warning(convergence_warning(spectrum.fit_result))

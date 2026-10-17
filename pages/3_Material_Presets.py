@@ -30,6 +30,7 @@ from core.io.om_calibration import load_om_calibration, save_om_calibration
 from modules.optical.processing.contrast import layer_word
 from modules.spectra.models.preset import (
     OPTICAL_LAYERS,
+    FitWindow,
     MaterialPreset,
     OpticalParams,
     PeakTemplate,
@@ -39,11 +40,18 @@ from modules.spectra.models.spectrum import DESPIKE_THRESHOLD_MAX, DESPIKE_THRES
 from modules.spectra.io.preset_store import load_store, save_presets
 
 PEAK_COLUMNS = ["peak_label", "center", "center_tolerance", "width_fwhm", "shape", "color"]
+WINDOW_COLUMNS = ["x_min", "x_max", "baseline_algorithm", "baseline_lambda", "baseline_p",
+                  "baseline_degree", "exclusion_ranges"]
+#: What an empty baseline cell in the fit-window table means.
+_INHERIT = "(block's)"
 BASELINE_ALGORITHMS = ["Polynomial", "ALS", "None (Skip)"]
 MODES = ["Raman", "PL"]
 
 #: Optical field -> (label, help). The help text is the algorithm doc's own
 #: guidance, so the operator doesn't have to go and find it.
+#: Optical fields that take a yes/no rather than a number.
+_BOOL_OPTICAL_FIELDS = ("domain_size_enabled",)
+
 _OPTICAL_FIELDS = {
     "nsigma": (
         "nsigma",
@@ -102,6 +110,22 @@ _OPTICAL_FIELDS = {
         "or inside a large flake's footprint; too large starts merging "
         "genuinely separate close-together small flakes. Default 0 (off).",
     ),
+    "min_domain_um_50x": (
+        "min domain, 50x (µm)",
+        "QC Report's domain-size measurement only. Smallest domain kept at 50x, as an "
+        "equivalent-circle diameter. Empty = 40 px (1.07 µm at 50x). Near 0.5 µm it "
+        "counts features at the 50x lens's resolution limit.",
+    ),
+    "min_domain_um_100x": (
+        "min domain, 100x (µm)",
+        "QC Report's domain-size measurement only. Smallest domain kept at 100x, as an "
+        "equivalent-circle diameter. Empty = 40 px (0.53 µm at 100x).",
+    ),
+    "domain_size_enabled": (
+        "domain size (yes/no)",
+        "'no' hides the QC Report's domain-size measurement for this material and layer, "
+        "for a film that is continuous by process. Empty = available.",
+    ),
 }
 
 
@@ -125,6 +149,46 @@ def _df_to_peaks(df: pd.DataFrame) -> list[PeakTemplate]:
             color=str(row["color"]).strip(),
         ))
     return peaks
+
+
+def _windows_to_df(windows: list[FitWindow]) -> pd.DataFrame:
+    rows = []
+    for w in windows:
+        row = w.to_dict()
+        row["baseline_algorithm"] = row["baseline_algorithm"] or _INHERIT
+        rows.append(row)
+    return pd.DataFrame(rows, columns=WINDOW_COLUMNS)
+
+
+def _cell(row, key, cast):
+    value = row.get(key)
+    if value is None or (isinstance(value, float) and pd.isna(value)) or str(value).strip() == "":
+        return None
+    return cast(value)
+
+
+def _df_to_windows(df: pd.DataFrame) -> list[FitWindow]:
+    windows = []
+    for _, row in df.iterrows():
+        x_min, x_max = _cell(row, "x_min", float), _cell(row, "x_max", float)
+        if x_min is None or x_max is None:
+            continue
+        algorithm = _cell(row, "baseline_algorithm", str)
+        exclusions = row.get("exclusion_ranges")
+        windows.append(FitWindow(
+            x_min=x_min,
+            x_max=x_max,
+            baseline_algorithm=None if algorithm in (None, _INHERIT) else algorithm,
+            baseline_lambda=_cell(row, "baseline_lambda", float),
+            baseline_p=_cell(row, "baseline_p", float),
+            baseline_degree=_cell(row, "baseline_degree", lambda v: int(float(v))),
+            # Empty cell = inherit the block's exclusions; there is no way to
+            # type "none" into a cell, so a window that must have none sets a
+            # range outside itself.
+            exclusion_ranges=None if exclusions is None or pd.isna(exclusions) or not str(exclusions).strip()
+            else str(exclusions).strip(),
+        ))
+    return sorted(windows, key=lambda w: w.x_min)
 
 
 def _render_technique_block(key_prefix: str, mode: str,
@@ -201,11 +265,46 @@ def _render_technique_block(key_prefix: str, mode: str,
         key=f"{key_prefix}_max_iterations"
     )
 
+    fit_starts = st.number_input(
+        "Fit starting points", min_value=1, max_value=10,
+        value=d.fit_starts if d else 1, step=1,
+        help="Fit from the preset's own guesses plus this many minus one perturbed "
+             "starts, and keep the best. Levenberg-Marquardt stops at the nearest "
+             "minimum; more starts find better ones at that many times the time. "
+             "Per fit window when the block has windows.",
+        key=f"{key_prefix}_fit_starts"
+    )
+
     exclusion_ranges = st.text_input(
         "Exclusion ranges (optional)",
         value=d.exclusion_ranges if (d and d.exclusion_ranges) else "",
         help="Semicolon-separated ranges to exclude from baseline fitting, e.g. '1200-1400; 2600-2800'",
         key=f"{key_prefix}_exclusion"
+    )
+
+    st.caption("Fit windows (optional)")
+    st.caption(
+        "Leave empty to fit every peak at once. Otherwise each row is a stretch of "
+        "the spectrum with **its own baseline and its own fit**, holding the peaks "
+        "whose centre falls in it; the results are shown together as one spectrum. "
+        "A window owns `x_min ≤ x < x_max` (the last one includes its x_max). "
+        "Empty baseline cells use the settings above."
+    )
+    windows_df = st.data_editor(
+        _windows_to_df(d.fit_windows) if d else pd.DataFrame(columns=WINDOW_COLUMNS),
+        num_rows="dynamic",
+        width="stretch",
+        column_config={
+            "x_min": st.column_config.NumberColumn("x min", required=True),
+            "x_max": st.column_config.NumberColumn("x max", required=True),
+            "baseline_algorithm": st.column_config.SelectboxColumn(
+                "Baseline", options=[_INHERIT, *BASELINE_ALGORITHMS], default=_INHERIT),
+            "baseline_lambda": st.column_config.NumberColumn("ALS lambda", min_value=1000.0, max_value=1000000.0),
+            "baseline_p": st.column_config.NumberColumn("ALS p", min_value=0.001, max_value=0.1, format="%.3f"),
+            "baseline_degree": st.column_config.NumberColumn("Poly degree", min_value=1, max_value=10, step=1),
+            "exclusion_ranges": st.column_config.TextColumn("Exclusions"),
+        },
+        key=f"{key_prefix}_windows"
     )
 
     st.caption("Peak templates")
@@ -240,7 +339,9 @@ def _render_technique_block(key_prefix: str, mode: str,
         baseline_p=float(baseline_p) if baseline_p is not None else None,
         exclusion_ranges=exclusion_ranges.strip() or None,
         max_iterations=int(max_iterations),
+        fit_starts=int(fit_starts),
         peak_templates=_df_to_peaks(peaks_df),
+        fit_windows=_df_to_windows(windows_df),
     )
 
 
@@ -268,6 +369,16 @@ def _render_optical_block(key_prefix: str, layer: str,
         raw = raw.strip()
         if not raw:
             values[name] = None
+            continue
+        if name in _BOOL_OPTICAL_FIELDS:
+            word = raw.lower()
+            if word in ("yes", "y", "true", "on", "1"):
+                values[name] = True
+            elif word in ("no", "n", "false", "off", "0"):
+                values[name] = False
+            else:
+                st.error(f"{layer} {label}: '{raw}' is not yes or no.")
+                values[name] = None
             continue
         try:
             is_int_field = name in ("minpx", "marker_min_distance", "mask_closing_radius")

@@ -149,3 +149,26 @@ class TestEnabledIsAControlNow:
         at = AppTest.from_file(PAGE, default_timeout=60).run()
 
         assert at.session_state["edit_WSe2_enabled"] is False
+
+
+class TestFitWindowsSurviveTheEditor:
+    """A block's fit windows (v5.22.0) have their own table; Save must keep them."""
+
+    def test_windows_and_their_baseline_overrides_survive_a_save(self, store):
+        from modules.spectra.models.preset import FitWindow
+
+        presets = preset_store.load_presets()
+        presets["WSe2"].raman.fit_windows = [
+            FitWindow(6.0, 200.0),
+            FitWindow(200.0, 400.0, baseline_algorithm="Polynomial", baseline_degree=1,
+                      exclusion_ranges="240-270"),
+        ]
+        preset_store.save_presets(presets)
+        before = _read(store)
+
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        next(b for b in at.button if b.key == "edit_WSe2_save").click().run()
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert _read(store) == before
+        assert len(before["materials"][0]["raman"]["fit_windows"]) == 2

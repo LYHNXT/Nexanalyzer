@@ -5,6 +5,8 @@ This module orchestrates the complete processing pipeline:
 X-range → De-spike → Baseline → Peak Fitting
 """
 
+import dataclasses
+
 import streamlit as st
 import numpy as np
 from typing import Dict, Any
@@ -18,6 +20,7 @@ from .baseline import (
     baseline_als_with_mask
 )
 from .fitting import fit_voigt_peaks
+from ..models.peak import FitResult
 from ..utils.fit_staleness import mark_fit_stale_if_needed, compute_preprocessing_hash
 from ..ui.session_state import set_view_options
 
@@ -207,7 +210,11 @@ def execute_auto_workflow(
         # Match manual workflow: replicate what happens when user clicks "Run Baseline Correction"
         result["stage_completed"] = "baseline"
 
-        if block.baseline_algorithm == "None (Skip)":
+        if block.fit_windows:
+            # Each fit window is baseline-corrected on its own in stage 4, on
+            # its own stretch of the despiked spectrum; nothing to do here.
+            pass
+        elif block.baseline_algorithm == "None (Skip)":
             # Skip baseline, mark as done
             spectrum.processing_settings.baseline_applied = False
             spectrum.baseline_done = True
@@ -216,55 +223,10 @@ def execute_auto_workflow(
             X = spectrum.processed_data.X
             Y_despiked = spectrum.processed_data.Y
 
-            # Parse exclusion ranges if provided
-            exclusions = None
-            if block.exclusion_ranges:
-                try:
-                    exclusions = parse_exclusion_ranges(block.exclusion_ranges)
-                except ValueError as e:
-                    raise WorkflowExecutionError(
-                        f"Invalid exclusion_ranges format: {e}. "
-                        f"Expected format: '1200-1400; 2600-2800'"
-                    )
-
-            # Route to appropriate algorithm (matches manual workflow)
-            if block.baseline_algorithm == "Polynomial":
-                if exclusions:
-                    # Use masked version (no autoshift)
-                    Y_corrected, baseline_curve = baseline_polynomial_with_mask(
-                        X, Y_despiked,
-                        degree=block.baseline_degree,
-                        exclusions=exclusions
-                    )
-                    y_shift = 0.0  # No shift in masked version
-                else:
-                    # Use standard version with autoshift
-                    Y_corrected, baseline_curve, y_shift = baseline_polynomial_with_autoshift(
-                        X, Y_despiked, degree=block.baseline_degree
-                    )
-            elif block.baseline_algorithm == "ALS":
-                if exclusions:
-                    # Use masked version (no autoshift)
-                    Y_corrected, baseline_curve = baseline_als_with_mask(
-                        X, Y_despiked,
-                        lambda_=block.baseline_lambda,
-                        p=block.baseline_p,
-                        exclusions=exclusions
-                    )
-                    y_shift = 0.0  # No shift in masked version
-                else:
-                    # Use standard version with autoshift
-                    Y_corrected, baseline_curve, y_shift = baseline_als_with_autoshift(
-                        X, Y_despiked,
-                        lambda_=block.baseline_lambda,
-                        p=block.baseline_p
-                    )
-            else:
-                raise WorkflowExecutionError(
-                    f"Baseline algorithm '{block.baseline_algorithm}' not supported. "
-                    f"Supported: 'Polynomial', 'ALS', 'None (Skip)'. "
-                    f"Suggestion: Check baseline_algorithm spelling in preset."
-                )
+            Y_corrected, baseline_curve, y_shift = _subtract_baseline(
+                X, Y_despiked, block.baseline_algorithm, block.baseline_degree,
+                block.baseline_lambda, block.baseline_p, block.exclusion_ranges,
+            )
 
             # Update processing_settings (matches manual workflow)
             spectrum.processing_settings.baseline_algorithm = block.baseline_algorithm
@@ -308,44 +270,16 @@ def execute_auto_workflow(
         st.session_state['expanded_section'] = 'peak_fitting'
 
         # ========== STAGE 4: PEAK FITTING ==========
-        # Match manual workflow: replicate what happens when user clicks "Run Voigt Fit"
-        X = spectrum.processed_data.X
-        Y_corrected = spectrum.processed_data.Y
-
-        # Convert peak templates to PeakDefinitions (matches manual workflow)
-        x_range = (X.min(), X.max())
-        y_max = Y_corrected.max()
-        spectral_resolution = np.median(np.abs(np.diff(X)))
-
-        peak_definitions = []
-        for template in block.peak_templates:
-            try:
-                peak_def = template.to_peak_definition(
-                    mode=spectrum.mode,
-                    x_range=x_range,
-                    y_max=y_max,
-                    spectral_resolution=spectral_resolution
-                )
-                peak_definitions.append(peak_def)
-            except Exception as e:
-                raise WorkflowExecutionError(
-                    f"Failed to convert peak template '{template.peak_label}': {e}"
-                )
-
-        # Update spectrum peak table (matches manual workflow)
-        spectrum.peak_table = peak_definitions
-
-        # Execute fitting (matches manual workflow)
-        try:
-            fit_result = fit_voigt_peaks(
-                X, Y_corrected, peak_definitions,
-                mode=spectrum.mode, max_iterations=block.max_iterations
+        if block.fit_windows:
+            fit_result = _fit_in_windows(spectrum, block)
+            spectrum.processing_settings.baseline_algorithm = block.baseline_algorithm
+            spectrum.processing_settings.baseline_applied = any(
+                w.resolved(block)["baseline_algorithm"] != "None (Skip)" for w in block.fit_windows
             )
-        except Exception as e:
-            raise WorkflowExecutionError(
-                f"Peak fitting failed: {e}. "
-                f"Suggestion: Check peak initial guesses (center, intensity, width) in preset."
-            )
+            spectrum.processing_settings.y_shift = 0.0
+            spectrum.baseline_done = True
+        else:
+            fit_result = _fit_whole(spectrum, block)
 
         if not fit_result.success:
             raise WorkflowExecutionError(
@@ -397,6 +331,213 @@ def execute_auto_workflow(
         return result
 
 
+def _subtract_baseline(X, Y, algorithm, degree, lam, p, exclusion_str, window=False):
+    """`(Y - baseline, baseline, y_shift)` for one stretch of spectrum.
+
+    The one routing of a preset's baseline settings to an algorithm, shared by a
+    whole-spectrum block and by each fit window. Every algorithm returns the
+    baseline in the original scale, so `Y == corrected + baseline`.
+    """
+    exclusions = None
+    if exclusion_str:
+        try:
+            exclusions = parse_exclusion_ranges(exclusion_str)
+        except ValueError as e:
+            raise WorkflowExecutionError(
+                f"Invalid exclusion_ranges format: {e}. "
+                f"Expected format: '1200-1400; 2600-2800'"
+            )
+        if window:
+            # A range that misses this window entirely is not its concern: a
+            # block's exclusions are inherited by every window. Whole-spectrum
+            # fits keep every range, as they always have -- dropping them would
+            # switch an all-outside list from the masked to the autoshift routine.
+            exclusions = [(lo, hi) for lo, hi in exclusions if hi >= X.min() and lo <= X.max()] or None
+
+    if algorithm == "None (Skip)":
+        return Y.copy(), np.zeros_like(Y, dtype=np.float64), 0.0
+    if algorithm == "Polynomial":
+        if exclusions:
+            corrected, baseline = baseline_polynomial_with_mask(X, Y, degree=degree, exclusions=exclusions)
+            return corrected, baseline, 0.0
+        return baseline_polynomial_with_autoshift(X, Y, degree=degree)
+    if algorithm == "ALS":
+        if exclusions:
+            corrected, baseline = baseline_als_with_mask(X, Y, lambda_=lam, p=p, exclusions=exclusions)
+            return corrected, baseline, 0.0
+        return baseline_als_with_autoshift(X, Y, lambda_=lam, p=p)
+    raise WorkflowExecutionError(
+        f"Baseline algorithm '{algorithm}' not supported. "
+        f"Supported: 'Polynomial', 'ALS', 'None (Skip)'. "
+        f"Suggestion: Check baseline_algorithm spelling in preset."
+    )
+
+
+def _peak_definitions(templates, mode, x, y_corrected):
+    """The block's templates as PeakDefinitions bounded against `x`."""
+    x_range = (x.min(), x.max())
+    y_max = y_corrected.max()
+    spectral_resolution = np.median(np.abs(np.diff(x)))
+    definitions = []
+    for template in templates:
+        try:
+            definitions.append(template.to_peak_definition(
+                mode=mode, x_range=x_range, y_max=y_max, spectral_resolution=spectral_resolution,
+            ))
+        except Exception as e:
+            raise WorkflowExecutionError(
+                f"Failed to convert peak template '{template.peak_label}': {e}"
+            )
+    return definitions
+
+
+def _fit_whole(spectrum: SpectrumFile, block) -> FitResult:
+    """One fit of every template over the whole processed spectrum (no fit windows)."""
+    # Match manual workflow: replicate what happens when user clicks "Run Voigt Fit"
+    X = spectrum.processed_data.X
+    Y_corrected = spectrum.processed_data.Y
+    peak_definitions = _peak_definitions(block.peak_templates, spectrum.mode, X, Y_corrected)
+
+    # Update spectrum peak table (matches manual workflow)
+    spectrum.peak_table = peak_definitions
+
+    try:
+        return fit_voigt_peaks(
+            X, Y_corrected, peak_definitions,
+            mode=spectrum.mode, max_iterations=block.max_iterations,
+            starts=block.fit_starts,
+        )
+    except Exception as e:
+        raise WorkflowExecutionError(
+            f"Peak fitting failed: {e}. "
+            f"Suggestion: Check peak initial guesses (center, intensity, width) in preset."
+        )
+
+
+#: A window with fewer points than this cannot be baseline-corrected (ALS
+#: needs 10) or fitted meaningfully.
+_MIN_WINDOW_POINTS = 10
+
+
+def _fit_in_windows(spectrum: SpectrumFile, block) -> FitResult:
+    """Baseline and fit each of `block.fit_windows` on its own, then join them.
+
+    Reads the despiked spectrum from `processed_data` and replaces it with the
+    windows' baseline-corrected stretches side by side -- points outside every
+    window are dropped -- with `background` holding each window's own baseline
+    over the same points. The result is one `FitResult` over those points:
+
+    - every peak's `component_curve` is its window's curve, zero in the other
+      windows, so `peak_intensity` (the curve's maximum) is the window fit's;
+    - `total_fit_curve` and `residuals` are each window's, side by side;
+    - chi-squared is their sum, R-squared is over the joined data, and the fit
+      is `converged` only if every window's fit converged.
+
+    A window the spectrum does not reach (fewer than `_MIN_WINDOW_POINTS`
+    points) is skipped and its peaks are absent from the result, as a peak a
+    single-fit preset never had would be: a digitized reference curve covering
+    200-330 cm-1 still gets its main band fitted. Only a spectrum that reaches
+    no window at all fails.
+
+    Peaks come back in the block's template order, so every table lists them as
+    a single-fit block would.
+    """
+    X = spectrum.processed_data.X
+    Y = spectrum.processed_data.Y
+    windows = block.window_peaks()
+    last = len(windows) - 1
+
+    keep = np.zeros(len(X), dtype=bool)
+    corrected = np.zeros(len(X), dtype=np.float64)
+    background = np.zeros(len(X), dtype=np.float64)
+    total = np.zeros(len(X), dtype=np.float64)
+    peaks_by_label = {}
+    definitions_by_label = {}
+    convergence_time = 0.0
+    converged = True
+    nfev = 0
+    max_nfev = 0
+    skipped = []
+
+    for i, (window, templates) in enumerate(windows):
+        name = f"fit window {i + 1} ({window.x_min:g} to {window.x_max:g})"
+        mask = window.contains(X, i == last)
+        if mask.sum() < _MIN_WINDOW_POINTS:
+            skipped.append(name)
+            continue
+        settings = window.resolved(block)
+        xw = X[mask]
+        yw_corrected, yw_background, _shift = _subtract_baseline(
+            xw, Y[mask], settings["baseline_algorithm"], settings["baseline_degree"],
+            settings["baseline_lambda"], settings["baseline_p"], settings["exclusion_ranges"],
+            window=True,
+        )
+        definitions = _peak_definitions(templates, spectrum.mode, xw, yw_corrected)
+        try:
+            window_fit = fit_voigt_peaks(
+                xw, yw_corrected, definitions,
+                mode=spectrum.mode, max_iterations=block.max_iterations,
+                starts=block.fit_starts,
+            )
+        except Exception as e:
+            raise WorkflowExecutionError(f"Peak fitting failed in {name}: {e}")
+        if not window_fit.success:
+            raise WorkflowExecutionError(f"In {name}: {window_fit.error_message}")
+
+        keep |= mask
+        corrected[mask] = yw_corrected
+        background[mask] = yw_background
+        total[mask] = window_fit.total_fit_curve
+        for definition, peak in zip(definitions, window_fit.fitted_peaks):
+            full = np.zeros(len(X), dtype=np.float64)
+            full[mask] = peak.component_curve
+            peaks_by_label[peak.label] = (peak, full)
+            definitions_by_label[definition.label] = definition
+        convergence_time += window_fit.convergence_time
+        converged &= window_fit.converged
+        nfev += window_fit.nfev or 0
+        max_nfev += window_fit.max_nfev or 0
+
+    if len(skipped) == len(windows):
+        raise WorkflowExecutionError(
+            f"The spectrum reaches none of the fit windows (X range [{X.min():.1f}, {X.max():.1f}]). "
+            f"Suggestion: check the fit windows against this file."
+        )
+    if keep.sum() < 100:
+        # SpectrumData's own floor; a display of fewer points is not a spectrum.
+        raise WorkflowExecutionError(
+            f"The fit windows hold only {int(keep.sum())} of this file's points (100 needed)."
+        )
+
+    order = [t.peak_label for t in block.peak_templates if t.peak_label in peaks_by_label]
+    fitted_peaks = [
+        dataclasses.replace(peaks_by_label[label][0], component_curve=peaks_by_label[label][1][keep])
+        for label in order
+    ]
+    y = corrected[keep]
+    fit_curve = total[keep]
+    residuals = y - fit_curve
+    ss_res = float(np.sum(residuals ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+
+    spectrum.processed_data = SpectrumData(X=X[keep], Y=y)
+    spectrum.background = background[keep]
+    spectrum.peak_table = [definitions_by_label[label] for label in order]
+
+    return FitResult(
+        success=True,
+        fitted_peaks=fitted_peaks,
+        total_fit_curve=fit_curve,
+        residuals=residuals,
+        chi_squared=ss_res,
+        r_squared=1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0,
+        convergence_time=convergence_time,
+        converged=converged,
+        nfev=nfev,
+        max_nfev=max_nfev,
+    )
+
+
 def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset,
                             mode: str = "Raman") -> str:
     """
@@ -431,19 +572,43 @@ def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset,
             summary += f" ({block.x_min} - {block.x_max})"
         summary += (
             f"\n- De-spiking: Threshold {block.despike_threshold}\n"
-            f"- Baseline: {block.baseline_algorithm}\n"
-            f"- Fitting: {len(block.peak_templates)} peaks fitted\n\n"
+            f"- Baseline: {block.baseline_algorithm}"
+            + (f" (own baseline in each of {len(block.fit_windows)} fit windows)" if block.fit_windows else "")
+            + f"\n- Fitting: {len(block.peak_templates)} peaks fitted"
+            + (f" in {len(block.fit_windows)} fit windows" if block.fit_windows else "")
+            + "\n\n"
             f"**Fit Quality:**\n"
             f"- R²: {fit_result.r_squared:.4f}\n"
             f"- χ²: {fit_result.chi_squared:.2e}\n"
             f"- Convergence time: {fit_result.convergence_time:.2f}s"
         )
+        if not fit_result.converged:
+            summary += "\n\n" + convergence_warning(fit_result)
         return summary
     else:
         return (
             f"**Auto-workflow failed at stage: {result['stage_completed']}**\n\n"
             f"{result['error_message']}"
         )
+
+
+def convergence_warning(fit_result) -> str:
+    """The one sentence every surface prints beside a fit that ran out of budget.
+
+    Kept here so the Spectra page, the batch summary and the QC Report say the
+    same thing about the same condition. Empty for a converged fit.
+    """
+    if fit_result is None or fit_result.converged:
+        return ""
+    budget = (
+        f" ({fit_result.nfev}/{fit_result.max_nfev} evaluations)"
+        if fit_result.nfev is not None and fit_result.max_nfev is not None else ""
+    )
+    return (
+        f"⚠️ Not converged: the fit stopped at the preset's max_iterations{budget}. "
+        f"The numbers are the best found so far, not an optimum, and no "
+        f"uncertainties could be estimated. Raise max_iterations in the preset."
+    )
 
 
 def get_workflow_suggestions(stage: str, error_msg: str) -> str:

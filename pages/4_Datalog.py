@@ -82,7 +82,7 @@ from modules.datalog.io.tag_store import (
     set_runcard_tag,
     set_runcard_tags,
 )
-from modules.datalog.io.threshold_store import load_thresholds, save_thresholds
+from modules.datalog.io.threshold_store import load_thresholds, save_tolerances
 from modules.datalog.processing import runcard_match
 from modules.datalog.processing.analysis import (
     TIME_COLUMN,
@@ -953,6 +953,10 @@ def _render_tolerance_settings(root_folder: str, pv_sv_pairs) -> dict:
     An override equal to the global is dropped rather than stored, so a channel
     dragged back to the default follows the global again instead of being
     pinned to whatever it happened to equal that day.
+
+    Save **merges** into the folder's overrides (`threshold_store.save_tolerances`):
+    only the channels this run shows are rewritten. Writing the rows wholesale
+    deleted the override of every channel the open run happens not to carry.
     """
     thresholds = load_thresholds(root_folder)
     with st.expander("PV/SV tolerance settings"):
@@ -990,10 +994,10 @@ def _render_tolerance_settings(root_folder: str, pv_sv_pairs) -> dict:
         if st.button("Save tolerance settings", width="stretch"):
             try:
                 # Merges into the folder's file, so the Runcard check's timing
-                # keys survive; see threshold_store.save_thresholds.
-                save_thresholds(root_folder, {
-                    "global_default_pct": global_default, "overrides": overrides,
-                })
+                # keys survive -- and the overrides merge too, against the file
+                # as it is now, so a channel this run lacks keeps the override
+                # saved for it. See threshold_store.save_tolerances.
+                save_tolerances(root_folder, global_default, pair_names, overrides)
             except OSError as e:
                 # A read-only share, or thresholds.json held open by
                 # datalog_monitor on the tool PC. Handled the way the folder

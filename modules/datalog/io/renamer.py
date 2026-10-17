@@ -163,11 +163,24 @@ def plan_renames(root_folder: str) -> List[RenamePlan]:
 
     Every target name is recomputed from current data, so this also fixes files
     that were renamed under a tag that has since been edited.
+
+    **Plans over the de-duplicated run list**, the one the run table shows
+    (`duplicates.without_duplicates`). A byte-identical stale copy the copier
+    put back (``06173312.csv`` beside ``2026-08-06_173312~VBBE00.csv``) has no
+    tag of its own, so planning it renamed it to ``2026-08-06_173312.csv``.
+    Both files then carried *their* canonical name, `stale_copies` no longer
+    recognised either as stale, the hidden copy reappeared as a second row,
+    and Duplicate cleanup could never remove it. A stale copy is cleanup's to
+    handle; the rename sweep leaves it exactly where it is.
     """
+    # Imported here: `duplicates` imports `renamer.target_filename` at module
+    # level, so a top-level import would be a cycle.
+    from .duplicates import without_duplicates
+
     tags = load_runcard_tags(root_folder)
     return [
         _plan_for(meta, get_runcard_tag(root_folder, meta.path, tags))
-        for meta in scan_folder(root_folder)
+        for meta in without_duplicates(root_folder, scan_folder(root_folder))
     ]
 
 

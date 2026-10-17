@@ -8,11 +8,14 @@ from modules.datalog.io.scanner import detect_pv_sv_pairs, load_run
 from modules.datalog.processing.analysis import (
     compute_all_violations,
     compute_deviation_pct,
+    SV_FLOOR,
     compute_summary_stats,
+    evaluable_rows,
     find_final_plateau_start,
     find_violation_mask,
     find_violation_segments,
     get_tolerance_pct,
+    stale_lead_in_mask,
 )
 from tests.datalog_fixtures import write_datalog
 
@@ -218,23 +221,41 @@ class TestComputeAllViolations:
 
         violations, _masks = compute_all_violations(df, pairs, {"global_default_pct": 5.0})
 
-        assert violations["Channel"].tolist() == ["Heater", "MFC-1"]
-        assert violations["Start"].tolist() == [
-            pd.Timestamp("2026-08-06 17:33:12"),
-            pd.Timestamp("2026-08-06 17:33:20"),
-        ]
-        assert violations["Duration (s)"].tolist() == [18.0, 2.0]
+        # The heater's 910 lead-in is the previous run's, so the fixture's
+        # only finding is MFC-1's ramp (see the stale lead-in tests below).
+        assert violations["Channel"].tolist() == ["MFC-1"]
+        assert violations["Start"].tolist() == [pd.Timestamp("2026-08-06 17:33:20")]
+        assert violations["Duration (s)"].tolist() == [2.0]
 
-    def test_the_heaters_stale_setpoint_block_is_a_real_violation(self, tmp_path):
+    def test_pairs_pool_in_start_order_across_channels(self):
+        timestamps = pd.date_range("2026-08-06 17:33:12", periods=6, freq="1s")
+        df = pd.DataFrame({
+            "Time": timestamps,
+            "A PV": [10, 10, 10, 10, 20, 20], "A SV": [10.0] * 6,
+            "B PV": [10, 20, 10, 10, 10, 10], "B SV": [10.0] * 6,
+        })
+
+        violations, _masks = compute_all_violations(
+            df, [("A", "A PV", "A SV"), ("B", "B PV", "B SV")], {"global_default_pct": 5.0}
+        )
+
+        assert violations["Channel"].tolist() == ["B", "A"]
+
+    def test_the_heaters_inherited_setpoint_is_not_a_violation(self, tmp_path):
         # Heater PV sits at ~88 against the previous run's leftover SV of 910
-        # until the recipe commands its own ramp: 90.3 % out, for 18 s.
+        # until the recipe commands its own ramp. Before v5.23.0 that was
+        # reported as 90.3 % out for 18 s; on HADI49 the same lead-in was
+        # 844 s at 96.6 % -- the largest row in an 87-row table, and nothing
+        # this run commanded.
         df = load_run(write_datalog(tmp_path))
         pairs = detect_pv_sv_pairs(list(df.columns))
 
-        violations, _masks = compute_all_violations(df, pairs, {"global_default_pct": 5.0})
+        violations, masks = compute_all_violations(df, pairs, {"global_default_pct": 5.0})
 
-        heater = violations[violations["Channel"] == "Heater"].iloc[0]
-        assert heater["Max Deviation (%)"] == pytest.approx(90.32967, abs=1e-5)
+        assert "Heater" not in set(violations["Channel"])
+        _mask, deviation = masks["Heater"]
+        assert deviation.iloc[:19].isna().all()      # the 910 block
+        assert deviation.iloc[19:].notna().all()     # from the first command on
 
     def test_the_idle_ends_of_a_flow_channel_are_not_flagged(self, tmp_path):
         # MFC-1 sits at SV 0 for rows 1-8 and 30-36. Only the ramp against a
@@ -340,3 +361,73 @@ class TestFindFinalPlateauStart:
         df = _pair_frame([np.nan] * 4)
 
         assert find_final_plateau_start(df, "X SV") is None
+
+
+class TestStaleLeadIn:
+    def test_the_leading_block_is_masked_when_the_setpoint_later_changes(self):
+        sv = pd.Series([900.0, 900.0, 900.0, 31.0, 32.0, 900.0])
+        assert stale_lead_in_mask(sv).tolist() == [True, True, True, False, False, False]
+
+    def test_a_setpoint_that_never_changes_is_not_masked(self):
+        # Nothing says where an inherited value stops, so it is the run's own.
+        sv = pd.Series([600.0] * 5)
+        assert not stale_lead_in_mask(sv).any()
+
+    def test_a_gapped_index_is_masked_by_position(self):
+        # The scanner's dropna leaves gaps; the mask must keep df's labels.
+        sv = pd.Series([500.0, 500.0, 140.0, 140.0], index=[0, 2, 3, 7])
+        mask = stale_lead_in_mask(sv)
+        assert mask.index.tolist() == [0, 2, 3, 7]
+        assert mask.tolist() == [True, True, False, False]
+
+    def test_an_empty_series_masks_nothing(self):
+        assert stale_lead_in_mask(pd.Series([], dtype=float)).empty
+
+    def test_the_plateau_finder_reads_the_same_lead_in(self, tmp_path):
+        # One definition of "where this run's commands begin": the alignment
+        # target search starts exactly where the violation mask stops.
+        df = load_run(write_datalog(tmp_path))
+        first_evaluated = df.index[~stale_lead_in_mask(df["Heater SV"]).to_numpy()][0]
+        assert df.loc[first_evaluated, "Heater SV"] == 100
+        assert find_final_plateau_start(df, "Heater SV") == pd.Timestamp("2026-08-06 17:33:40")
+
+
+class TestSubResolutionFloor:
+    def _mfc(self, sv, pv):
+        timestamps = pd.date_range("2026-08-06 17:33:12", periods=len(sv), freq="1s")
+        return pd.DataFrame({"Time": timestamps, "MFC-3 PV": pv, "MFC-3 SV": sv})
+
+    def test_a_sub_resolution_mfc_setpoint_is_not_judged(self):
+        # HADI49: MFC-3 at a card's 0.01 sccm reads 0.06-0.10, which is 930 %
+        # and is the meter's floor, not a fault.
+        df = self._mfc([0.01] * 4, [0.066, 0.07, 0.103, 0.06])
+
+        violations, masks = compute_all_violations(
+            df, [("MFC-3", "MFC-3 PV", "MFC-3 SV")], {"global_default_pct": 5.0}
+        )
+
+        assert violations.empty
+        assert masks["MFC-3"][1].isna().all()
+
+    def test_a_real_setpoint_on_the_same_channel_still_is(self):
+        df = self._mfc([1.0] * 4, [1.0, 0.5, 1.0, 1.0])
+
+        violations, _masks = compute_all_violations(
+            df, [("MFC-3", "MFC-3 PV", "MFC-3 SV")], {"global_default_pct": 5.0}
+        )
+
+        assert violations["Max Deviation (%)"].tolist() == [pytest.approx(50.0)]
+
+    def test_the_floor_itself_is_evaluated(self):
+        # Constant setpoints, so the lead-in rule stays out of it.
+        assert evaluable_rows(self._mfc([0.05] * 2, [0.05] * 2), "MFC-3", "MFC-3 SV").all()
+        assert not evaluable_rows(self._mfc([0.049] * 2, [0.049] * 2), "MFC-3", "MFC-3 SV").any()
+
+    def test_mfc_floor_matches_the_runcard_matchers_sub_resolution_threshold(self):
+        from modules.datalog.processing import runcard_match
+
+        assert all(SV_FLOOR[f"MFC-{i}"] == runcard_match._SUB_RESOLUTION_SCCM for i in range(1, 9))
+
+    def test_pressure_controllers_have_a_floor_and_heaters_do_not(self):
+        assert SV_FLOOR["P1"] == SV_FLOOR["P2"] == SV_FLOOR["P3"] == 1.0
+        assert not {"Heater", "P1_H", "P2_H", "P3_H"} & set(SV_FLOOR)

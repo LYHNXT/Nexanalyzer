@@ -5,6 +5,293 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.23.0] - 2026-10-17
+
+The remaining items of the 2026-10-15 review, except three left open on purpose
+(the LA/E2g+A1g 0.13 spec line, which needs re-deriving on WSe2_QC data; the
+domain-marker colour-scale mismatch; and the fitted-spectra grid restacking a
+missing middle point). The golden-fit record does not move: every new fitting
+behaviour is opt-in per preset and the frozen golden preset uses none of it.
+
+### Fitting
+
+- **A fit can run from several starting points and keep the best.** New block
+  setting `fit_starts` (Material Presets: *Fit starting points*, default 1).
+  Start 1 is the preset's own guesses; each further start moves every starting
+  value by up to 25 % of its bounded range (seeded, so a refit reproduces), and
+  the fit with the lowest chi-squared is kept, a converged fit beating one that
+  ran out of budget. Levenberg-Marquardt stops at the nearest minimum: on 91
+  real WSe2 spectra the preset's single start reached the best main-band fit
+  62 % of the time. `WSe2_QC` now uses 3 starts: 89 %, at a median 16 s per
+  spectrum (4 s with one start; the old `WSe2` took 29 s). `MoS2_QC` PL uses 3.
+- **Every fitted peak records whether it ended on a fit limit**
+  (`FittedPeak.on_limit`: centre on its range edge, or Voigt width on its
+  ceiling).
+- **Ratios use only measured peaks.** LA/E2g+A1g and C/LB (summary table and
+  quality figure alike) now skip a point where either peak is on a fit limit
+  or under 3x its fit's residual noise; `n` counts the points used, and a ratio
+  with none reads as absent. On HA1P01 WSe2 spectra C sits on its range edge and
+  width ceiling ~70 % of the time, fitting the laser line's tail, and LB is
+  under 3x the noise on many. Four window-1 set-ups were tested on 91 spectra;
+  the only one that freed C (window from 8 cm-1, quadratic baseline) showed LB
+  under 3x the noise on 74 % of spectra, so the setup cannot rescue C/LB on
+  these wafers. Numbers move: C/LB is reported on fewer points, often none for
+  HA wafers; LA/E2g+A1g loses the points whose E2g+A1g sits on its ceiling (on
+  the test set, the noisiest 12 %: median SNR 19 against 117).
+- **`MoS2_QC` PL ranges widened to +-12 nm** (A0 682, A- 700, B 632) with 3
+  starts: A0 on its range edge 24 % -> 7 %, B 5 % -> 1 %; A- still presses its
+  712 nm edge on 18 % (the emission's red tail). R2 median 0.9990 unchanged.
+
+### QC Report and exports
+
+- **Map files named `RM_MAPPING_N.txt` / `PL_MAPPING_N.txt` are found** as Raman
+  / PL point N (they were ignored, so a mapped sample reported no spectra).
+- **The workbook's per-point sheets gain a `Spectrum` column** ("Raman_1__3" is
+  the third column of a map). A 25-spectrum map used to give 25 x n_peaks rows
+  all reading Point 1 / Raman_1.txt.
+- **Batch PNG export follows "Peaks on Background"** as Quick Export does.
+- **The PL quality figure says what it drops**: its title names the FWHM floor
+  and top-5 % cut the summary table does not apply, which is why their `n`
+  differ. Two comments claiming they could not disagree were corrected.
+
+### OM
+
+- **A tenth grid point is analysed** (segmentation, figures, layer suggestion)
+  and drawn on the summary page in a fourth row; it was dropped without a word.
+- **A mask margin of 0 no longer crashes circular frames** (scipy read zero
+  erosion iterations as "erode until empty"); it now analyses the whole
+  aperture.
+- **The page warns when a fixed threshold sits inside a frame's noise**
+  (threshold under 2x sigma_noise/mode, the CLAUDE.md rule), naming the frames.
+
+### Runcard
+
+- **The temperature trace no longer runs backwards after heater-off.** A
+  `Heater Ramp` issued after heater-off is ignored, as the reference ignores
+  it; a ramp still running when the heater is cut ends at the temperature it
+  had reached (interpolated), and the cooldown starts there. The reference pins
+  the ramp's target instead: a deliberate departure, recorded in
+  docs/reference/README.md. Numbers move on 1 of 2,349 real cards:
+  NSVA1P012512040 goes from Peak 850 °C with no window to Peak 564 °C with a
+  zero-length window at 35 min.
+- **Zero PC, RTV and spin setpoints are drawn.** `MFC/PC,PC-2,0`, `RTV ...,0` and
+  `Stage Rot,0` used to end their gantt row; each is now held to the next
+  command or the end of the run, labelled "0", "vac" or "0 rpm" as the reference
+  does. Gas rows keep their idle floor. Gantt rows change on 330 of 2,349 cards
+  (324 gain a zero segment, 6 lose a zero-length one) and now match the
+  reference on all 2,250 non-Pulse cards. Peaks, windows and the summary block
+  do not move.
+- **`Heater Soak,<T>` with T != 0 is a setpoint step, not heater-off.** On the
+  tool `Heater Soak,600,--` steps the heater to 600 °C and holds it; only
+  `Heater Soak,0` turns it off. The trace holds the soak temperature and the
+  cooldown starts at the zero soak (a deliberate departure from the reference).
+  The trace changes on 60 of 2,349 cards; on the NSHA1N012506029-036 two-step
+  family the window and peak do not move (50-70 min at 900 °C). The only window
+  change is ymc/TestSoak.csv: now 0-80 min at 900 °C instead of none.
+
+### Datalog
+
+- **Bulk rename skips stale copies the run list hides.** A byte-identical
+  `06173312.csv` beside its renamed run was renamed to `2026-08-06_173312.csv`,
+  came back as a second row and could never be cleaned up. On HA1P01 this would
+  have hit 12 hidden copies (7 renames, 5 collisions); now 0 are planned.
+- **The runcard matcher forgives an aborted run for its cut-short last wait.**
+  The rule needed the run's last block to align with the card's last, which a
+  run stopped mid-card never does. Costs drop for aborted runs only (HADH79
+  0.58 -> 0, HADH71_FAIL 1.28 -> 0.65); suggestions and confidence unchanged
+  across 125 tagged runs.
+- **The violations table no longer judges setpoints this run didn't command.**
+  The opening stretch where a channel's SV is still the previous run's is
+  skipped (the block the comparison alignment already excludes), as are MFC
+  setpoints below 0.05 sccm and pressure setpoints below 1.0. On HADI49 this
+  removes the heater's 844 s at 96.6 % and MFC-3's 930 % at 0.01 sccm (87 -> 85
+  segments; P1's PV sits on the 5 % line and still flickers, and the heater's
+  post-growth cooldown with SV left at 900 remains: no heater-on column exists
+  to detect it). thresholds.json is unchanged.
+- **A run whose last line has an empty Time field no longer crashes the page**
+  (NaT slipped past the start-time fallback).
+- **Opening a run no longer fails on a non-UTF-8 byte or a BOM.**
+- **Duplicate cleanup re-checks each copy (size and SHA-256) immediately before
+  the Recycle Bin**, skipping with the reason one that changed or whose keeper
+  disappeared.
+- **Saving tolerances keeps the override of a channel the open run lacks**;
+  only the channels shown are rewritten, against the file as it is at save time.
+
+### Insight scripts (Result/Raman_insights/_scripts, outside the app)
+
+- **Wavelength-axis Raman is converted with each file's own laser line.** QC_KRX261001/2
+  were converted with the nominal 488.0 nm and put every WSe2 peak ~+5 cm-1 high
+  (main band 255, B2g 313): their Rayleigh line sits at ~488.12 nm. The line is
+  now located per file (median over the map's spectra, sub-point centroid) and
+  used when it stands clear of the background. With 3 starts, KRX's E2g+A1g centre on its range edge drops from 97 % to 19 % of
+  spectra and 2LA-taller-than-E2g+A1g from 41 % to 9 %. Its width still reaches the
+  9 cm-1 ceiling on 56 % (noisy map spectra), as does DDAA08's on 71 % (a main band
+  genuinely broader than 9 cm-1); those fits are flagged on-limit and their FWHM is
+  a lower bound.
+- **Folder overrides apply to the TSMC tree only, and VABD90 is skipped in every
+  source**, as the TSMC discovery and the extraction scripts already did; the
+  VB1P01 copy was refitted with the TSMC copy's "names swapped" override and
+  failed its nine PL spectra.
+
+## [5.22.0] - 2026-10-16
+
+### Added
+
+- **Fit windows: a preset can split its spectrum into stretches, each with its
+  own baseline and its own fit, shown together as one.** A Raman or PL block
+  takes an optional *Fit windows* table on the Material Presets page. Each row
+  is an x range; the peaks whose centre falls in it are fitted there, against a
+  baseline computed on that range alone (its own algorithm, lambda/p/degree and
+  exclusions, or the block's when left empty). The windows' corrected data,
+  baselines, fits and residuals are then put side by side, so the Spectra page,
+  the exports, the ratios and the QC Report read one spectrum and one fit as
+  before. A window owns `x_min <= x < x_max` (the last one includes its end);
+  points outside every window are dropped from the processed spectrum.
+  - Why: on 91 real WSe2 Raman spectra, one 8-peak fit over -5..500 cm-1 took
+    a median 29 s (worst 136 s); the same peaks in three windows took 4 s
+    (worst 41 s) with the main-band E2g+A1g FWHM within 0.08 cm-1.
+  - `max_iterations` is spent per window; the fit is `converged` only if every
+    window's fit is.
+  - Separate baselines meet with a step at each window edge; *Peaks on
+    Background* shows it.
+  - A window the spectrum does not reach (under 10 points) is skipped and its
+    peaks are absent, so a curve covering only 200-330 cm-1 still gets its
+    main band fitted; only a spectrum that reaches no window fails.
+- `scripts/recommend_max_iterations.py`: runs a folder of spectra through a
+  preset with the budget at its ceiling and prints, per preset and technique,
+  how many iterations the fits needed, how many the current cap would cut
+  short, and a recommended cap.
+
+- **New preset `WSe2_QC`**, beside `WSe2` (which is unchanged). Raman is fitted
+  in three windows, -5..40, 40..210 and 210..330 cm-1, each on its own
+  baseline: ALS (the block's settings) for the first and last, a straight line
+  fitted outside 80-180 cm-1 under the LA hump. Centre ranges were set from
+  where the peaks sit on 91 real spectra so the main-band peaks cannot trade
+  places: 2ZA(M) 240-246, E2g+A1g 247-254, 2LA 255-266, LA 119-135 (start
+  width 30). Other widths are WSe2's: narrower or wider starts were tested and
+  made the fits worse. `max_iterations` is 5700 for Raman (1.5x the most any of
+  795 September HA1P01 spectra needed) and 500 for PL.
+  - On those 795 spectra: median 1.4 s per fit against 12.1 s for `WSe2`,
+    worst 34 s against 185 s. On the 91-spectrum test set the preset's start
+    reaches the best main-band fit 62 % of the time (37 % before the new
+    ranges), and 2LA comes out taller than E2g+A1g on 2 % (23 %).
+  - LA/E2g+A1g reads lower than with `WSe2` (median 0.08 against 0.15): the
+    straight-line baseline leaves the whole LA hump to LA, whose width now
+    settles at ~38 cm-1 instead of on its 45 cm-1 limit. The 0.13 spec line
+    was set on the old method and is not comparable.
+
+- **New preset `MoS2_QC`**, beside `MoS2` (unchanged). Raman is MoS2's: on
+  the Samsung QC_MoS2 maps (225 spectra) E2g, A1g and 2LA(M) are never on a
+  bound and fit in 0.1 s, so it needs no windows. PL moves A0 to 682 +- 8 nm and
+  A- to 697 +- 8 nm, onto the measured ~688 nm emission; MoS2 starts A0 at
+  662 nm, where it fitted to near zero (median intensity 103 against A-'s 1561)
+  and sat on its range edge in a third of spectra. On the 225 PL spectra the
+  preset's start now reaches the best of three starts 75 % of the time (52 %),
+  with median R2 0.9989 (0.9980). `max_iterations` is 500 for Raman and 2100
+  for PL (1.5x the most any spectrum needed; MoS2's 2000 cut 2 PL fits short).
+  Optical block as MoS2.
+
+- **OM: the layer suggestion follows copied presets, and refuses noisy frames.**
+  The 1L/2L colour calibration was looked up by exact material name, so
+  `WSe2_QC` (and `WSe2 extended`, `WSe2_truncate`) got no suggestion and the
+  QC Report silently fell back to 2L. A name now falls back to its leading
+  word (`WSe2_QC` -> `WSe2`); `MoS2` and `MoS2_QC` remain uncalibrated. Frames
+  whose noise exceeds 3 % of the film level now get no suggestion: on 26 WSe2
+  wafers both confidently wrong calls had 4.2 % and 5.3 % noise, every correct
+  one 2.2 % or less.
+- **OM: the minimum domain size is set in microns, per magnification.** New
+  optical fields `min_domain_um_50x` / `min_domain_um_100x` (equivalent-circle
+  diameter). The fixed 40-pixel floor was 1.07 um at 50x but 0.53 um at 100x.
+  `WSe2_QC` sets 1.0 um at 50x (35 px) and 0.5 um at 100x (36 px), both close
+  to before: a 0.5 um floor at 50x, the lens's resolution limit, multiplied
+  HADH51's domain count 12x. Empty keeps 40 px.
+- **OM: `domain_size_enabled = no` hides the domain-size measurement** for a
+  material and layer, and a material whose optical block names a single layer
+  is analysed at that layer without asking. `MoS2_QC` uses both: monolayer
+  only (below 1L / 1L / above 1L), no layer suggestion, no domain size,
+  thresholds 3.5 % below (MoS2's step to substrate, ~7 %, is smaller than
+  WSe2's, so WSe2's 6 % cut sits on the substrate) and 4.2 % above (copied from
+  WSe2; no MoS2 2L has been measured), flat-field divisor 12 as MoS2.
+
+### Unchanged
+
+- Numbers do not move for any preset without fit windows, which is every
+  shipped preset: the single-fit path is the same code, and the golden-fit
+  record passes unchanged.
+
+## [5.21.0] - 2026-10-15
+
+Four defects found by a full review of the algorithms and their outputs. The
+golden-fit record was regenerated: the Raman numbers move (see the first item),
+the PL numbers do not.
+
+### Fixed
+
+- **A Raman fit that ran out of iterations was reported as converged, with
+  every uncertainty printed as 0.** lmfit gives the message "Tolerance seems to
+  be too small" both to a fit that cannot improve further and to one that hit
+  `max_nfev` (MINPACK ier 5, or lmfit's own ier -1 abort), and
+  `fit_voigt_peaks` accepted the message. On the shipped WSe2 preset a fifth
+  of real spectra stop this way (2 of 9 on HADI44, 2 of 6 on HADI49; the
+  golden RM_1 needed 13,889 evaluations against a budget of 10,000), and the
+  numbers depended on the budget: the golden spectrum's C/LB stacking ratio
+  read 3.75 at 2,000, 2.20 at 10,000 and 2.07 converged.
+  - `FitResult.converged`, `nfev` and `max_nfev` record what happened. A
+    budget-exhausted fit is kept — its peaks are the best found — but flagged
+    on the Spectra page (beneath the Fit Results table and in the Run summary),
+    in the batch run's summary, in a `Converged` column in both CSVs and the
+    workbook's per-technique sheets, and as a warning in the QC Report's
+    Results section with the count.
+  - The preset's `max_iterations` now means iterations. It was passed straight
+    to lmfit as `max_nfev`, which counts function evaluations; one iteration
+    costs (variables + 1) of them, so an 8-peak fit had 1/33 of the budget its
+    preset named. It is now `max_iterations * (variables + 1)`, lmfit's own
+    default scaling. Every budget-stopped real spectrum tested converges
+    within 24,000–38,000 evaluations (17–28 s at 0.72 ms per evaluation); a
+    fit that converges quickly is unaffected.
+  - A standard error lmfit could not estimate is NaN — an empty cell in the
+    CSVs and the workbook — never 0.0. This is common on converged WSe2 Raman
+    fits too: a peak fitted to zero or a width on its bound makes the
+    covariance singular, and the old 0.0 printed as "perfectly determined".
+  - Golden record regenerated. RM_1 is now a converged fit: R² 0.89574 →
+    0.89625, B2g centre 313.98 → 318.33, C centre 18.01 → 12.92 and width
+    4.57 → 14.93, LB intensity 1.29 → 0.76, E2g+A1g within 0.02 cm⁻¹. PL_1 is
+    unchanged to every digit. The record now carries `converged`.
+- **Runcard: the growth window of a pulsed-growth recipe was 0 min.** Every
+  recipe written since mid-2025 grows with `Pulse H2Se,N,half` (72 pulses of
+  5 s on / 5 s off on HADI-series cards), which neither the vendored reference
+  nor the port put on the clock. Heater-off then landed on the same second the
+  peak was reached: 44 of the 2,349 real HA1P01/VB1P01 cards reconstructed a
+  zero-length window, the caption read "Growth (0 min @ 890 °C)" on a
+  13-minute growth, total time was short by it, and every "at the growth
+  midpoint" value was read from the instant the gas was switched off. `Pulse`,
+  `Pulse H2Se` and `Pulse O2` now cost `N × 2 × half` plus a measured 1.5 s of
+  controller switching per pulse (834 s logged for `Pulse H2Se,72,5`, 139 s
+  for `12,5`, 367 s for `Pulse,6,30`). `Check PC-*` and `Stage Pos` stay off
+  the clock, like `Pumping`, as holds of unstated length. Recorded as a
+  deliberate divergence in docs/reference/README.md.
+- **Runcard: the inner/outer tube rows used HA plumbing for every VB1P01
+  card.** The series was read from the run id's first two letters, which on
+  every production card are the tool-file prefix `NS` (`NSHA1P01…`,
+  `NSVA1P01…`), so all 1,065 such cards fell back to HA's MFC 1+3+4 / 6+7+8 —
+  right by luck for the 492 NSHA cards, wrong for the 577 NSVA cards, whose
+  outer row summed the H2Se line alone instead of MFC 5–8. The series is now
+  read past the prefix, and a run id that names no series gets a note under
+  its chart saying the tube rows assume HA, as the reference prints.
+- **Datalog: runcard matching charged every October run a flat 2.0.** The
+  matcher assumed MFC-8 (H2Se) logs its 0.01 sccm setpoint; since 2026-10 the
+  controller logs it as 0 (0 of 103 October logs show it, 101 of 137 in
+  September; MFC-3 still logs its 0.01), so each card's two MFC-8 0.01 steps
+  cost 1.0 against a log that shows nothing. Growth runs scored at the
+  "medium" ceiling and several (HADI33/38/40/42/49) fell to "low" and were not
+  pre-ticked, while the "Differences" column listed MFC-8 steps on every run.
+  Which MFCs can show a sub-resolution setpoint is now read off each log
+  (`RunSteps.coarse`: any channel never logged strictly between 0 and
+  0.05 sccm in that run); the fixed list remains only as the fallback for a
+  caller with no log. On the 25 newest tagged runs the confidence counts go
+  from 2 high / 17 medium / 6 low to 19 high / 4 medium / 2 low, with 24 of
+  25 named correctly either way -- the same split September's runs score.
+
 ## [5.20.0] - 2026-10-14
 
 ### Added

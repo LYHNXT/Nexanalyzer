@@ -114,8 +114,10 @@ zero: it still reports a centre and a width, but with no height those
 parameters are free and describe nothing.
 
 PL only. The QC Report's PL summary table (`aggregate_fit_results`) and its PL
-quality figure (`peak_quality.PL_CLEANING`) both read this one value, so the
-table's `n` and the figure's points cannot disagree. MoS2's A0 is the case that
+quality figure (`peak_quality.PL_CLEANING`) both read this one value. They
+still differ in `n`: the figure also drops widths under 5 nm and the widest 5 %
+of each peak (inherited cleaning the table does not apply), and its title says
+so. MoS2's A0 is the case that
 needs it: on red-shifted wafers the trion carries the whole peak and A0 fits to
 nothing on a third of the points.
 """
@@ -322,6 +324,35 @@ def aggregate_raw_peak_stats(spectra) -> Optional[PeakStat]:
     )
 
 
+MEASURED_SNR = 3.0
+"""A peak counts as measured when its intensity is at least this many times its
+fit's own residual noise (and it is not on a fit limit). Below it the fit has
+placed a component in the noise, and a ratio formed with it is noise too."""
+
+
+def fit_noise(fit: FitResult) -> float:
+    """The fit's residual RMS: what is left in the data that the model does not explain."""
+    residuals = getattr(fit, "residuals", None)
+    if residuals is None or len(residuals) == 0:
+        return 0.0
+    return float(np.sqrt(np.mean(np.square(np.asarray(residuals, float)))))
+
+
+def peak_is_measured(peak, fit: FitResult) -> bool:
+    """Whether `peak` is a measurement rather than a component the fit parked (v5.23.0).
+
+    Not measured when it ended on a fit limit (`FittedPeak.on_limit`: centre on
+    its range edge, or width on its ceiling) or when its intensity is under
+    `MEASURED_SNR` times the fit's residual noise. On HA1P01's WSe2 spectra C sits
+    on its range edge and width limit ~70 % of the time, fitting the laser line's
+    tail, and LB is under 3x the noise on many: C/LB formed from those is not a
+    stacking measurement.
+    """
+    if getattr(peak, "on_limit", False):
+        return False
+    return peak_intensity(peak) >= MEASURED_SNR * fit_noise(fit)
+
+
 RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (("LA", "E2g+A1g"), ("C", "LB"))
 """The WSe2 bilayer quality indicators, as (numerator, denominator) labels.
 
@@ -363,12 +394,15 @@ def compute_peak_intensity_ratio(
     Intensities, not `FittedPeak.area` — see the module docstring; for peaks
     of unequal width the two ratios differ by a large factor.
 
-    Points missing either peak (or with a zero denominator) are skipped.
-    Returns (median, mad, n), or None if no point has both peaks.
+    Points missing either peak (or with a zero denominator) are skipped, and so
+    are points where either peak is not measured (`peak_is_measured`, v5.23.0):
+    on a fit limit, or under 3x the fit's noise. `n` counts the points used.
+    Returns (median, mad, n), or None if no point has both peaks measured.
     """
     ratios = []
     for fit_result in fit_results:
-        intensities = {peak.label: peak_intensity(peak) for peak in fit_result.fitted_peaks}
+        intensities = {peak.label: peak_intensity(peak) for peak in fit_result.fitted_peaks
+                       if peak_is_measured(peak, fit_result)}
         numerator = intensities.get(numerator_label)
         denominator = intensities.get(denominator_label)
         if numerator is not None and denominator:

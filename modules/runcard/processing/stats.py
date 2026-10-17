@@ -230,12 +230,41 @@ def _segments_from(points: Sequence[Tuple[float, float]], total: float, floor: f
     return tuple(segments)
 
 
-def _named_rows(events: Sequence[NamedEvent], total: float, floor: float, kind: str, unit: str) -> List[BarRow]:
-    """One `BarRow` per distinct channel in `events`, in first-appearance order."""
+def _held_segments(points: Sequence[Tuple[float, float]], total: float) -> Tuple[BarSegment, ...]:
+    """Every command of one setpoint channel as a held segment, **zero included**.
+
+    For the pressure controllers, the throttle valve and the stage. Unlike a
+    gas line these have no "off" below which nothing is happening: `PC-2 = 0`,
+    `RTV = 0` and `Spin = 0 rpm` are setpoints the recipe commanded, and the
+    reference draws each of them — PC as a "0" bar, RTV below 1 Torr as "vac",
+    spin as "0 rpm" — holding to the next command or to the end of the run.
+    Before v5.23.0 these went through `_segments_from` with a zero floor, so
+    `MFC/PC,PC-2,0` *ended* PC-2's row instead of drawing it at zero to the end,
+    and a recipe whose only RTV command was `RTV Pressure Ctrl,100 Torr,0`
+    lost its RTV row entirely.
+
+    Only a zero-*length* segment is dropped — a command replaced at the same
+    instant — again as the reference does.
+    """
+    segments: List[BarSegment] = []
+    for i, (t, value) in enumerate(points):
+        end = points[i + 1][0] if i + 1 < len(points) else total
+        if end > t:
+            segments.append(BarSegment(start_s=t, end_s=end, value=value))
+    return tuple(segments)
+
+
+def _named_rows(events: Sequence[NamedEvent], total: float, floor: Optional[float], kind: str, unit: str) -> List[BarRow]:
+    """One `BarRow` per distinct channel in `events`, in first-appearance order.
+
+    `floor=None` holds every setpoint (`_held_segments`); a number drops the
+    commands at or below it (`_segments_from`), which is what the gas rows want.
+    """
     rows: List[BarRow] = []
     for name in _channel_order(events):
         points = [(t, v) for t, n, v in events if n == name]
-        rows.append(BarRow(label=name, kind=kind, unit=unit, segments=_segments_from(points, total, floor)))
+        segments = _held_segments(points, total) if floor is None else _segments_from(points, total, floor)
+        rows.append(BarRow(label=name, kind=kind, unit=unit, segments=segments))
     return rows
 
 
@@ -244,9 +273,10 @@ def _simple_row(events: Sequence[ValueEvent], total: float, label: str, kind: st
 
     Unlike the named rows, these are dropped entirely when empty: there is one
     throttle valve and one stage, so an empty row would say "this reactor has a
-    stage" rather than anything about this recipe.
+    stage" rather than anything about this recipe. A zero setpoint is *not*
+    empty — see `_held_segments`.
     """
-    segments = _segments_from(list(events), total, 0.0)
+    segments = _held_segments(list(events), total)
     if not segments:
         return None
     return BarRow(label=label, kind=kind, unit=unit, segments=segments)
@@ -284,7 +314,7 @@ def build_bar_rows(timeline: Timeline, run_id: str = "") -> List[BarRow]:
     if rtv is not None:
         rows.append(rtv)
 
-    rows.extend(_named_rows(timeline.pc_events, total, 0.0, "pc", "Torr"))
+    rows.extend(_named_rows(timeline.pc_events, total, None, "pc", "Torr"))
 
     spin = _simple_row(timeline.spin_events, total, "Spin", "spin", "rpm")
     if spin is not None:
@@ -296,9 +326,11 @@ def build_bar_rows(timeline: Timeline, run_id: str = "") -> List[BarRow]:
 
 #: Which MFCs feed the inner tube and which the outer, per reactor series —
 #: `(inner, outer)` MFC numbers. The CSV never says which tube a line feeds,
-#: so this is plumbing knowledge, keyed on the first two letters of the run id
-#: (`VBCA08` -> VB, `VABD14` -> VA, `HADI44` -> HA). VA is plumbed like VB.
-#: From the reference renderer's `SERIES_TUBE_GROUPS`; keep the two in step.
+#: so this is plumbing knowledge, keyed on the series letters of the run id
+#: (`VBCA08` -> VB, `VABD14` -> VA, `HADI44` -> HA, and past the tool-file
+#: prefix: `NSHA1P012508001` -> HA, `NSVA1P012512040` -> VA). VA is plumbed
+#: like VB. From the reference renderer's `SERIES_TUBE_GROUPS`; keep the two
+#: in step.
 _VB_TUBES: Tuple[Tuple[int, ...], Tuple[int, ...]] = ((1, 2, 3, 4), (5, 6, 7, 8))
 TUBE_GROUPS: Dict[str, Tuple[Tuple[int, ...], Tuple[int, ...]]] = {
     "VB": _VB_TUBES,
@@ -310,9 +342,33 @@ TUBE_GROUPS: Dict[str, Tuple[Tuple[int, ...], Tuple[int, ...]]] = {
 DEFAULT_TUBE_SERIES = "HA"
 
 
+#: The prefix the tool puts on every card it saves (`NSHA1P012508001.csv`,
+#: `NSVA1P012512040.csv`). It names the tool's file format, not a reactor
+#: series, and the series letters follow it.
+_TOOL_FILE_PREFIX = "NS"
+
+
+def tube_series_for(run_id: str) -> Optional[str]:
+    """The reactor series `run_id` names, or None when it names no known one.
+
+    Reads the two letters after the tool-file prefix when there is one, else
+    the first two. Keying on `run_id[:2]` alone -- what the reference does --
+    made every production card `NS`, which is no series, so all 1,065 of them
+    fell back to HA's plumbing: right by luck for the 492 NSHA cards, wrong for
+    the 577 NSVA cards on VB1P01 (v5.21.0). The reference prints a note when
+    it falls back; the page shows one too, so a run id this cannot read is
+    never silently drawn as HA.
+    """
+    key = (run_id or "").upper()
+    if key.startswith(_TOOL_FILE_PREFIX):
+        key = key[len(_TOOL_FILE_PREFIX):]
+    key = key[:2]
+    return key if key in TUBE_GROUPS else None
+
+
 def tube_groups_for(run_id: str) -> Tuple[Tuple[int, ...], Tuple[int, ...]]:
-    """`(inner, outer)` MFC numbers for the series `run_id` belongs to."""
-    return TUBE_GROUPS.get((run_id or "")[:2].upper(), TUBE_GROUPS[DEFAULT_TUBE_SERIES])
+    """`(inner, outer)` MFC numbers for the series `run_id` belongs to, HA when unknown."""
+    return TUBE_GROUPS[tube_series_for(run_id) or DEFAULT_TUBE_SERIES]
 
 
 def tube_label(kind: str, numbers: Sequence[int]) -> str:

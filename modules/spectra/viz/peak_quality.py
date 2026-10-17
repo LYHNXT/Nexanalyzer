@@ -67,6 +67,7 @@ from ..processing.peak_metrics import (  # noqa: E402
     RAMAN_RATIO_PAIRS,
     iqr_mask,
     peak_intensity,
+    peak_is_measured,
 )
 
 #: Plotly's qualitative sequence, carried over from the inherited scripts so a
@@ -333,6 +334,7 @@ class _PeakRecord(NamedTuple):
     center: float
     fwhm: float
     intensity: float
+    measured: bool = True    # peak_metrics.peak_is_measured; ratios use only measured peaks
 
 
 def _records(fits_by_point: Sequence[Tuple[int, FitResult]]) -> List[_PeakRecord]:
@@ -347,6 +349,7 @@ def _records(fits_by_point: Sequence[Tuple[int, FitResult]]) -> List[_PeakRecord
                 center=peak.center,
                 fwhm=peak.width_fwhm,
                 intensity=peak_intensity(peak),
+                measured=peak_is_measured(peak, fit),
             ))
     return out
 
@@ -415,7 +418,10 @@ def _ratio_values(records: Sequence[_PeakRecord], panel: RatioPanel) -> Dict[int
     by_spectrum: Dict[int, Tuple[int, Dict[str, float]]] = {}
     for record in records:
         point, intensities = by_spectrum.setdefault(record.spectrum, (record.point, {}))
-        intensities[record.label] = record.intensity
+        # Same rule as the summary table's ratio (peak_metrics.peak_is_measured):
+        # a peak on a fit limit or under 3x the noise forms no ratio.
+        if record.measured:
+            intensities[record.label] = record.intensity
 
     out: Dict[int, list] = {}
     for point, intensities in by_spectrum.values():
@@ -563,10 +569,18 @@ def build_peak_quality_figure(
 
         per_position = spectra / len(positions) if positions else 0
         marker = "median ± std" if spec.statistic == "median" else "mean ± std"
+        # Say what the figure drops that the summary table does not, or the
+        # two disagree about n with nothing on the page to explain it.
+        cuts = []
+        if spec.cleaning.fwhm_floor is not None:
+            cuts.append(f"FWHM ≤ {spec.cleaning.fwhm_floor:g}")
+        if spec.cleaning.fwhm_top_fraction:
+            cuts.append(f"widest {spec.cleaning.fwhm_top_fraction:.0%} per peak")
+        cut_note = f"; excludes {' and '.join(cuts)}, unlike the summary table" if cuts else ""
         fig.suptitle(
             f"{sample_name}  {material_name} — {spec.technique} quality analysis "
             f"({len(positions)} positions × {per_position:.0f} spectra, "
-            f"{marker} per position)",
+            f"{marker} per position{cut_note})",
             fontsize=_FS_SUPTITLE, fontweight="bold", y=1.0,
         )
 

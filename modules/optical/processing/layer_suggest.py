@@ -49,6 +49,13 @@ from scipy import ndimage as ndi
 
 from modules.optical.processing import contrast
 
+#: Above this frame noise (median sigma_noise / film mode, %), the suggestion
+#: names no layer, however confident the score (v5.22.0). On 26 WSe2 wafers
+#: both confidently wrong calls had noise of 4.2 % and 5.3 %, and every correct
+#: one 2.2 % or less: noise widens the film's histogram into the monolayer
+#: band and inflates the band share.
+NOISE_GATE_PCT = 3.0
+
 #: Below this, the suggestion names no layer. 0.6 is p(2L) outside 0.2-0.8;
 #: in calibration 84 % of wafers cleared it and 96 % of those agreed with
 #: their label.
@@ -84,6 +91,7 @@ class FrameFeatures:
     blue_green: float
     red_green: float
     band_pct: float          # share of in-span pixels inside MONOLAYER_BAND, %
+    noise_pct: float = 0.0   # sigma_noise / film mode, %
 
 
 @dataclass(frozen=True)
@@ -95,6 +103,7 @@ class LayerSuggestion:
     likely: str              # the side the score falls on, even below the floor
     n_frames: int
     features: FrameFeatures  # per-feature medians over the frames
+    too_noisy: bool = False  # median noise above NOISE_GATE_PCT: no layer named
 
 
 def frame_features(a: np.ndarray) -> FrameFeatures:
@@ -118,6 +127,7 @@ def frame_features(a: np.ndarray) -> FrameFeatures:
     return FrameFeatures(
         blue_green=b / gm, red_green=r / gm,
         band_pct=100.0 * in_band / max(in_span, 1),
+        noise_pct=100.0 * noise / mode,
     )
 
 
@@ -127,19 +137,35 @@ def frame_score(f: FrameFeatures, cal: Calibration) -> float:
             + cal.log_band * np.log10(f.band_pct + _BAND_FLOOR))
 
 
+def calibration_for(material: Optional[str]) -> Optional[Calibration]:
+    """The calibration for `material`, or None.
+
+    Exact name first, then the name's leading word (before the first space or
+    underscore), so a copied preset -- WSe2_QC, "WSe2 extended" -- keeps the
+    calibration of the material it was copied from. Until v5.22.0 the lookup was
+    exact, and every such copy silently lost the suggestion and fell back to 2L.
+    """
+    name = (material or "").strip()
+    if name in CALIBRATIONS:
+        return CALIBRATIONS[name]
+    return CALIBRATIONS.get(name.replace("_", " ").split(" ")[0])
+
+
 def suggest_from_features(
     features: Sequence[FrameFeatures], material: Optional[str]
 ) -> Optional[LayerSuggestion]:
     """Combine frames into one suggestion. None if the material is uncalibrated
     or there are no frames -- "no opinion", distinct from a low-confidence one."""
-    cal = CALIBRATIONS.get(material or "")
+    cal = calibration_for(material)
     if cal is None or not features:
         return None
     score = float(np.median([frame_score(f, cal) for f in features]))
     confidence = float(abs(2.0 / (1.0 + np.exp(-score)) - 1.0))
     likely = "2L" if score > 0 else "1L"
+    noise = float(np.median([f.noise_pct for f in features]))
+    too_noisy = noise > NOISE_GATE_PCT
     return LayerSuggestion(
-        layer=likely if confidence >= CONFIDENCE_FLOOR else None,
+        layer=likely if (confidence >= CONFIDENCE_FLOOR and not too_noisy) else None,
         confidence=confidence,
         likely=likely,
         n_frames=len(features),
@@ -147,12 +173,14 @@ def suggest_from_features(
             blue_green=float(np.median([f.blue_green for f in features])),
             red_green=float(np.median([f.red_green for f in features])),
             band_pct=float(np.median([f.band_pct for f in features])),
+            noise_pct=noise,
         ),
+        too_noisy=too_noisy,
     )
 
 
 def suggest_layer(paths: Sequence, material: Optional[str]) -> Optional[LayerSuggestion]:
     """Load each frame and suggest a layer for the set. See `suggest_from_features`."""
-    if (material or "") not in CALIBRATIONS:
+    if calibration_for(material) is None:
         return None
     return suggest_from_features([frame_features(contrast.load(p)) for p in paths], material)

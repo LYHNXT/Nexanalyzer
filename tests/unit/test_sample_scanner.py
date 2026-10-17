@@ -108,3 +108,14 @@ class TestDefaultMagnification:
         scan = scan_sample_folder(str(tmp_path))
 
         assert default_magnification(scan) is None
+
+
+class TestMappingFileNames:
+    def test_rm_and_pl_mapping_files_count_as_their_technique(self, tmp_path):
+        for n in (1, 2):
+            _touch(tmp_path / f"RM_MAPPING_{n}.txt")
+            _touch(tmp_path / f"PL_MAPPING_{n}.txt")
+        scan = scan_sample_folder(str(tmp_path))
+
+        assert sorted(scan.raman_files) == [1, 2] and sorted(scan.pl_files) == [1, 2]
+        assert not scan.ignored_files

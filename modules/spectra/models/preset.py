@@ -144,6 +144,91 @@ class PeakTemplate:
         return cls(**data)
 
 
+BASELINE_ALGORITHMS = ("Polynomial", "ALS", "None (Skip)")
+
+
+def _baseline_errors(algorithm: str, degree, lam, p) -> List[str]:
+    """What is wrong with one set of baseline settings; shared by blocks and windows."""
+    errors = []
+    if algorithm not in BASELINE_ALGORITHMS:
+        errors.append(
+            f"Invalid baseline_algorithm: {algorithm} (must be one of {list(BASELINE_ALGORITHMS)})"
+        )
+    if algorithm == "Polynomial":
+        if degree is None or not (1 <= degree <= 10):
+            errors.append(f"Polynomial algorithm requires baseline_degree in [1, 10], got {degree}")
+    if algorithm == "ALS":
+        if lam is None or not (1000 <= lam <= 1000000):
+            errors.append(f"ALS algorithm requires baseline_lambda in [1e3, 1e6], got {lam}")
+        if p is None or not (0.001 <= p <= 0.1):
+            errors.append(f"ALS algorithm requires baseline_p in [0.001, 0.1], got {p}")
+    return errors
+
+
+@dataclass
+class FitWindow:
+    """One stretch of the spectrum with its own baseline and its own fit (v5.22.0).
+
+    A block with fit windows does not fit its peaks in one go. Each window is
+    cut out of the despiked spectrum, baseline-corrected on its own, and fitted
+    with the peaks whose `center` falls inside it; the windows' results are then
+    put side by side into one corrected spectrum, one fit and one result, so the
+    plots, tables, ratios and the QC Report read them exactly as they read a
+    single fit.
+
+    Why: WSe2's Raman band holds peaks 300 cm-1 apart that share no line shape,
+    and one 32-variable fit across all of them took a median 29 s per spectrum
+    against 4 s for three small ones, on 91 real HA1P01 spectra.
+
+    A window owns `x_min <= x < x_max`; the last window of a block also owns its
+    own `x_max`. That rule assigns both the data points and the peaks, so a
+    point or a peak on a shared edge belongs to exactly one window.
+
+    The baseline fields default to `None`, meaning "the block's setting", so a
+    window states only what it does differently -- typically a stiffer or
+    different baseline under a broad feature. `exclusion_ranges` likewise:
+    `None` inherits the block's, `""` means none.
+    """
+
+    x_min: float
+    x_max: float
+    baseline_algorithm: Optional[str] = None
+    baseline_degree: Optional[int] = None
+    baseline_lambda: Optional[float] = None
+    baseline_p: Optional[float] = None
+    exclusion_ranges: Optional[str] = None
+
+    def contains(self, x, last: bool):
+        """Whether `x` (scalar or array) lies in this window under the edge rule above."""
+        return (x >= self.x_min) & ((x <= self.x_max) if last else (x < self.x_max))
+
+    def resolved(self, block: "TechniquePreset") -> dict:
+        """The baseline settings this window runs with, the block's filling every None."""
+        return {
+            "baseline_algorithm": self.baseline_algorithm or block.baseline_algorithm,
+            "baseline_degree": self.baseline_degree if self.baseline_degree is not None else block.baseline_degree,
+            "baseline_lambda": self.baseline_lambda if self.baseline_lambda is not None else block.baseline_lambda,
+            "baseline_p": self.baseline_p if self.baseline_p is not None else block.baseline_p,
+            "exclusion_ranges": (self.exclusion_ranges if self.exclusion_ranges is not None
+                                 else block.exclusion_ranges),
+        }
+
+    def to_dict(self) -> dict:
+        return {
+            "x_min": self.x_min,
+            "x_max": self.x_max,
+            "baseline_algorithm": self.baseline_algorithm,
+            "baseline_degree": self.baseline_degree,
+            "baseline_lambda": self.baseline_lambda,
+            "baseline_p": self.baseline_p,
+            "exclusion_ranges": self.exclusion_ranges,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FitWindow":
+        return _construct(cls, dict(data), what="fit window")
+
+
 @dataclass
 class TechniquePreset:
     """Processing settings and peak templates for one technique of a material.
@@ -174,7 +259,9 @@ class TechniquePreset:
     # Peak templates
     peak_templates: List[PeakTemplate] = field(default_factory=list)
 
-    #: Fit iteration budget (lmfit's `max_nfev`). Per technique, not per
+    #: Fit iteration budget: Levenberg-Marquardt iterations, passed to lmfit
+    #: as `max_iterations * (variables + 1)` evaluations since v5.21.0, and
+    #: spent per fit window when the block has windows. Per technique, not per
     #: material: a PL doublet on a noisy background and a two-peak Raman
     #: spectrum converge at very different speeds, and the block is where every
     #: other fit setting already lives. Until v5.2.0 this was a sidebar slider
@@ -183,8 +270,26 @@ class TechniquePreset:
     #: not in the CSV -- so a run could not be reproduced from its preset alone.
     max_iterations: int = 2000
 
+    #: Starting points per fit (v5.23.0): the preset's own, plus perturbed ones;
+    #: the best fit is kept. See `fitting.fit_voigt_peaks(starts=)`. 1 = one
+    #: fit from the preset, as before. Per fit window when the block has windows.
+    fit_starts: int = 1
+
     # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
     exclusion_ranges: Optional[str] = None
+
+    #: Empty: one baseline and one fit over the (x-range-cropped) spectrum, as
+    #: before v5.22.0. Otherwise each `FitWindow` gets its own baseline and fit
+    #: and the results are joined for display; see `FitWindow`.
+    fit_windows: List["FitWindow"] = field(default_factory=list)
+
+    def window_peaks(self) -> List[Tuple["FitWindow", List[PeakTemplate]]]:
+        """Each fit window with the templates whose centre it owns, in template order."""
+        out = []
+        last = len(self.fit_windows) - 1
+        for i, window in enumerate(self.fit_windows):
+            out.append((window, [t for t in self.peak_templates if window.contains(t.center, i == last)]))
+        return out
 
     def validate(self) -> List[str]:
         """
@@ -208,33 +313,43 @@ class TechniquePreset:
                 f"max_iterations {self.max_iterations} out of range [500, 20000]"
             )
 
-        # Baseline algorithm
-        valid_algos = ["Polynomial", "ALS", "None (Skip)"]
-        if self.baseline_algorithm not in valid_algos:
-            errors.append(
-                f"Invalid baseline_algorithm: {self.baseline_algorithm} "
-                f"(must be one of {valid_algos})"
-            )
+        if not (1 <= self.fit_starts <= 10):
+            errors.append(f"fit_starts {self.fit_starts} out of range [1, 10]")
 
-        # Algorithm-specific validation
-        if self.baseline_algorithm == "Polynomial":
-            if self.baseline_degree is None or not (1 <= self.baseline_degree <= 10):
-                errors.append(
-                    f"Polynomial algorithm requires baseline_degree in [1, 10], "
-                    f"got {self.baseline_degree}"
-                )
+        # Baseline
+        errors += _baseline_errors(self.baseline_algorithm, self.baseline_degree,
+                                   self.baseline_lambda, self.baseline_p)
+        if self.exclusion_ranges:
+            try:
+                parse_exclusion_ranges(self.exclusion_ranges)
+            except ValueError as e:
+                errors.append(str(e))
 
-        if self.baseline_algorithm == "ALS":
-            if self.baseline_lambda is None or not (1000 <= self.baseline_lambda <= 1000000):
-                errors.append(
-                    f"ALS algorithm requires baseline_lambda in [1e3, 1e6], "
-                    f"got {self.baseline_lambda}"
-                )
-            if self.baseline_p is None or not (0.001 <= self.baseline_p <= 0.1):
-                errors.append(
-                    f"ALS algorithm requires baseline_p in [0.001, 0.1], "
-                    f"got {self.baseline_p}"
-                )
+        # Fit windows: ordered, non-overlapping, every peak owned by one, none empty
+        for i, w in enumerate(self.fit_windows):
+            name = f"Fit window {i + 1} ({w.x_min:g} to {w.x_max:g})"
+            if w.x_min >= w.x_max:
+                errors.append(f"{name}: x_min must be < x_max")
+            if i and w.x_min < self.fit_windows[i - 1].x_max:
+                errors.append(f"{name}: overlaps the window before it (windows must be in order "
+                              f"and may only touch)")
+            r = w.resolved(self)
+            errors += [f"{name}: {e}" for e in _baseline_errors(
+                r["baseline_algorithm"], r["baseline_degree"], r["baseline_lambda"], r["baseline_p"])]
+            if r["exclusion_ranges"]:
+                try:
+                    parse_exclusion_ranges(r["exclusion_ranges"])
+                except ValueError as e:
+                    errors.append(f"{name}: {e}")
+        if self.fit_windows:
+            owned = self.window_peaks()
+            for i, (w, peaks) in enumerate(owned):
+                if not peaks:
+                    errors.append(f"Fit window {i + 1} ({w.x_min:g} to {w.x_max:g}) holds no peak centre")
+            claimed = {id(t) for _, peaks in owned for t in peaks}
+            for t in self.peak_templates:
+                if id(t) not in claimed:
+                    errors.append(f"Peak {t.peak_label} (centre {t.center:g}) lies in no fit window")
 
         # X-range validation
         if self.x_range_enabled:
@@ -287,6 +402,12 @@ class TechniquePreset:
             "peak_templates": [t.to_dict() for t in self.peak_templates],
             "exclusion_ranges": self.exclusion_ranges,
             "max_iterations": self.max_iterations,
+            # Omitted at 1 (and windows when empty), so a block that uses
+            # neither serialises exactly as before and older versions read it.
+            **({"fit_starts": self.fit_starts} if self.fit_starts != 1 else {}),
+            # Omitted when empty, so a block without windows serialises exactly
+            # as it did before v5.22.0 and older app versions can still read it.
+            **({"fit_windows": [w.to_dict() for w in self.fit_windows]} if self.fit_windows else {}),
         }
 
     @classmethod
@@ -296,6 +417,7 @@ class TechniquePreset:
         data["peak_templates"] = [
             PeakTemplate.from_dict(t) for t in data.get("peak_templates", [])
         ]
+        data["fit_windows"] = [FitWindow.from_dict(w) for w in data.get("fit_windows") or []]
         return _construct(cls, data, what="technique block")
 
 
@@ -360,6 +482,20 @@ class OpticalParams:
     #: tunes `measure_domains()`. Too large a radius starts merging
     #: genuinely separate close-together small flakes into one.
     mask_closing_radius: Optional[int] = None
+    #: Smallest domain kept, as an equivalent-circle diameter in microns, at 50x
+    #: and at 100x (v5.22.0). `None` keeps `domain_size.DEFAULT_MIN_DOMAIN_PX`
+    #: (40 working pixels), which is 1.07 um at 50x but 0.53 um at 100x -- a
+    #: floor in pixels means a different size at each magnification. Separate
+    #: values because the two lenses resolve different sizes: a 0.5 um floor at
+    #: 100x changes VBBF26's count by +10 %, while at 50x, where 0.5 um is the
+    #: lens's resolution limit, it multiplied HADH51's count 12x. Applied only
+    #: when the frame's magnification is calibrated in om_calibration.json.
+    min_domain_um_50x: Optional[float] = None
+    min_domain_um_100x: Optional[float] = None
+    #: False hides the QC Report's domain-size measurement for this material and
+    #: layer -- for a film that is continuous by process (MoS2), where there are
+    #: no domains to count. `None` means available, as before v5.22.0.
+    domain_size_enabled: Optional[bool] = None
     #: Field name -> the `contrast.analyse_frame` keyword it sets.
     _KWARGS = {
         "nsigma": "nsigma",
@@ -428,14 +564,24 @@ class OpticalParams:
             errors.append(
                 f"mask_closing_radius {self.mask_closing_radius} out of range [0, 10]"
             )
+        for name in ("min_domain_um_50x", "min_domain_um_100x"):
+            value = getattr(self, name)
+            if value is not None and not (0.1 <= value <= 20.0):
+                errors.append(f"{name} {value} out of range [0.1, 20.0] um")
         return errors
+
+    def min_domain_um_for(self, magnification: Optional[str]) -> Optional[float]:
+        """The minimum domain diameter set for `magnification` ("50x", "100X", ...), or None."""
+        mag = (magnification or "").strip().lower()
+        return {"50x": self.min_domain_um_50x, "100x": self.min_domain_um_100x}.get(mag)
 
     def to_dict(self) -> dict:
         """Only the fields that are set; absent means "algorithm default"."""
         return {
             name: getattr(self, name)
             for name in tuple(self._KWARGS) + self._ABS_FIELDS
-            + ("marker_margin_sigma", "marker_min_distance", "mask_closing_radius")
+            + ("marker_margin_sigma", "marker_min_distance", "mask_closing_radius",
+               "min_domain_um_50x", "min_domain_um_100x", "domain_size_enabled")
             if getattr(self, name) is not None
         }
 

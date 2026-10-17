@@ -141,8 +141,16 @@ def load_run_dataframe(path: str, mtime: float) -> pd.DataFrame:
     Numeric coercion is a pure exclusion rule — everything that is not
     categorical and not the timestamp — so a column added to a future datalog
     is treated as numeric without this file being edited.
+
+    Decoded as ``utf-8-sig`` with ``encoding_errors="replace"``, so no byte can
+    stop a run opening. Before v5.23.0 this was the only strict-UTF-8 reader of
+    a datalog: `_scan_metadata_from_file` and `runcard_index.read_run_steps`
+    already replaced bad bytes, so a file with one stray byte was *listed* and
+    then raised `UnicodeDecodeError` when opened, and a BOM turned the first
+    header into ``"﻿Time"`` and ``df["Time"]`` into a KeyError.
     """
-    df = pd.read_csv(path, on_bad_lines="skip", engine="python")
+    df = pd.read_csv(path, on_bad_lines="skip", engine="python",
+                     encoding="utf-8-sig", encoding_errors="replace")
     df[TIME_COLUMN] = pd.to_datetime(df[TIME_COLUMN], format=TIME_FORMAT, errors="coerce")
     df = df.dropna(subset=[TIME_COLUMN])
     numeric_cols = [c for c in df.columns if c not in CATEGORICAL_COLUMNS and c != TIME_COLUMN]
@@ -163,14 +171,19 @@ def _parse_time_field(fields: List[str], time_idx: int) -> Optional[pd.Timestamp
     """One timestamp out of an already-split row, or None if it isn't one.
 
     Returns None for a short row as well as an unparseable one, because the
-    last line of a live datalog is regularly half-written.
+    last line of a live datalog is regularly half-written -- and for an
+    **empty** field, which `pd.to_datetime` turns into NaT without raising.
+    NaT is truthy, so before v5.23.0 it slipped past both the caller's
+    ``is None`` test and its ``or start_time`` fallback, and the page then
+    crashed on ``NaT.total_seconds()``.
     """
     if time_idx >= len(fields):
         return None
     try:
-        return pd.to_datetime(fields[time_idx], format=TIME_FORMAT)
+        parsed = pd.to_datetime(fields[time_idx], format=TIME_FORMAT)
     except (ValueError, TypeError):
         return None
+    return None if pd.isna(parsed) else parsed
 
 
 def _scan_metadata_from_file(path: str) -> Optional[RunMetadata]:
@@ -233,7 +246,11 @@ def _scan_metadata_from_file(path: str) -> Optional[RunMetadata]:
         return None
     # Falls back to start_time when the final line is half-written, which is the
     # normal state of the run currently being logged.
-    end_time = _parse_time_field(last_line.split(","), time_idx) or start_time
+    # `is None`, not `or`: a Timestamp is always truthy, and the helper never
+    # returns NaT, so the test says what it means.
+    end_time = _parse_time_field(last_line.split(","), time_idx)
+    if end_time is None:
+        end_time = start_time
     first_program = first_fields[program_idx] if program_idx < len(first_fields) else ""
 
     return RunMetadata(

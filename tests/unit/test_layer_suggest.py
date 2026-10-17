@@ -132,3 +132,34 @@ class TestSuggest:
 
     def test_suggest_layer_does_not_read_files_for_an_uncalibrated_material(self, tmp_path):
         assert suggest_layer([tmp_path / "missing.png"], "Silicon") is None
+
+
+class TestCopiedPresetsAndNoise:
+    """v5.22.0: a copied preset keeps its parent's calibration; noisy frames name no layer."""
+
+    @pytest.mark.parametrize("name", ["WSe2_QC", "WSe2 extended", "WSe2_truncate"])
+    def test_a_copied_preset_uses_its_parents_calibration(self, name):
+        from modules.optical.processing.layer_suggest import calibration_for
+
+        assert calibration_for(name) is CALIBRATIONS["WSe2"]
+        s = suggest_from_features([frame_features(_frame(**_BILAYER, seed=i)) for i in range(3)], name)
+        assert s.layer == "2L"
+
+    @pytest.mark.parametrize("name", ["MoS2", "MoS2_QC", "", None])
+    def test_an_uncalibrated_family_still_has_no_opinion(self, name):
+        from modules.optical.processing.layer_suggest import calibration_for
+
+        assert calibration_for(name) is None
+
+    def test_noisy_frames_name_no_layer_however_confident(self):
+        from modules.optical.processing.layer_suggest import NOISE_GATE_PCT
+
+        noisy = [FrameFeatures(1.04, 0.92, 2.0, noise_pct=NOISE_GATE_PCT + 1.0)] * 3
+        s = suggest_from_features(noisy, "WSe2")
+
+        assert s.too_noisy and s.layer is None
+        assert s.likely == "2L" and s.confidence >= CONFIDENCE_FLOOR
+
+    def test_frame_features_measure_the_noise(self):
+        quiet = frame_features(_frame(1.0, 1.0, level=200.0))
+        assert 0.0 < quiet.noise_pct < 3.0
