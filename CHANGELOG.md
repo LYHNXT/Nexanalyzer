@@ -5,6 +5,28 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.24.0] - 2026-10-17
+
+### Added
+
+- **Zero-line calibration for Raman.** New block setting
+  `zero_line_calibration` (Material Presets: a checkbox on Raman blocks). Before
+  cropping, baseline and fitting, the laser line is located within +-3 cm-1 of 0
+  (sub-point, by a parabola through the maximum) and its position is subtracted
+  from the axis; the offset is recorded on the spectrum and written to both CSVs
+  and the workbook (`Zero_Offset`), and the run summary states it. A spectrum
+  whose line does not stand 10x above the side-band noise is left as recorded.
+  On 1,527 real WSe2 spectra the line sat at a median +0.1 cm-1 (spread 0.46
+  between sessions, 0.1 within a wafer) and its offset correlated with the
+  E2g+A1g position (r = 0.45); subtracting it narrowed the E2g+A1g scatter from
+  1.10 to 0.98 cm-1 across spectra and from 0.82 to 0.64 cm-1 across wafer
+  medians. The window is narrow on purpose: at +-20 cm-1 the notch filter's
+  edge, a few cm-1 up, was taken for the line on 18 % of spectra, and correcting
+  by it doubled the scatter. On in `WSe2_QC` and `MoS2_QC`; off elsewhere, so
+  the golden fit does not move. Numbers move for those two presets: every Raman
+  position shifts by its spectrum's offset (e.g. HADI49 E2g+A1g -0.68 cm-1,
+  Samsung QC_MoS2 A1g -1.14 cm-1).
+
 ## [5.23.0] - 2026-10-17
 
 The remaining items of the 2026-10-15 review, except three left open on purpose

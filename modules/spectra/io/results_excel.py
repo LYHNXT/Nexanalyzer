@@ -128,6 +128,9 @@ def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
         # row's numbers are the best found, not an optimum, and its stderr
         # cells are empty because no covariance exists.
         _Column("Converged", None, 10),
+        # Laser-line offset subtracted from the axis by zero-line calibration
+        # (cm-1, v5.24.0); empty when none was applied.
+        _Column("Zero_Offset", "0.00", 12),
         _Column("Convergence_Time_s", "0.000", 19),
     ]
     return columns
@@ -247,7 +250,7 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
                     # No fit, so there is no sigma/gamma the v1 formula could
                     # come from.
                     row += [None, None]
-                row += [None, None, None, None, None]
+                row += [None, None, None, None, getattr(spectrum, "zero_offset", None), None]
                 rows.append(row)
 
         for peak in (fit.fitted_peaks if fit else []):
@@ -262,7 +265,8 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
                 # No stderr computed for the deprecated formula -- left
                 # blank rather than fabricated.
                 row += [peak.width_fwhm_v1, None]
-            row += [peak.shape, fit.r_squared, fit.chi_squared, fit.converged, fit.convergence_time]
+            row += [peak.shape, fit.r_squared, fit.chi_squared, fit.converged,
+                    getattr(spectrum, "zero_offset", None), fit.convergence_time]
             rows.append(row)
 
     return rows

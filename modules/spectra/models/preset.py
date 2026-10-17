@@ -275,6 +275,11 @@ class TechniquePreset:
     #: fit from the preset, as before. Per fit window when the block has windows.
     fit_starts: int = 1
 
+    #: Raman only (v5.24.0): shift the axis so the laser line sits at 0 cm-1
+    #: before anything else runs. See `processing/zero_line.py`. A spectrum with
+    #: no clear line is left as recorded.
+    zero_line_calibration: bool = False
+
     # Semicolon-separated ranges (e.g., "1200-1400; 2600-2800")
     exclusion_ranges: Optional[str] = None
 
@@ -405,6 +410,7 @@ class TechniquePreset:
             # Omitted at 1 (and windows when empty), so a block that uses
             # neither serialises exactly as before and older versions read it.
             **({"fit_starts": self.fit_starts} if self.fit_starts != 1 else {}),
+            **({"zero_line_calibration": True} if self.zero_line_calibration else {}),
             # Omitted when empty, so a block without windows serialises exactly
             # as it did before v5.22.0 and older app versions can still read it.
             **({"fit_windows": [w.to_dict() for w in self.fit_windows]} if self.fit_windows else {}),

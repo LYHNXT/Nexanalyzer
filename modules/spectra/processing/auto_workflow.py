@@ -20,6 +20,7 @@ from .baseline import (
     baseline_als_with_mask
 )
 from .fitting import fit_voigt_peaks
+from .zero_line import laser_line_offset
 from ..models.peak import FitResult
 from ..utils.fit_staleness import mark_fit_stale_if_needed, compute_preprocessing_hash
 from ..ui.session_state import set_view_options
@@ -107,6 +108,20 @@ def execute_auto_workflow(
         # saying so would make picking the wrong material in the dropdown
         # destructive.
         spectrum.reset_to_raw()
+
+        # ========== STAGE 0: ZERO-LINE CALIBRATION (Raman, opt-in) ==========
+        # Before the crop, so an x-range and fit windows apply to the corrected
+        # axis. original_data is never touched, so a re-run starts from the
+        # recorded axis and cannot shift twice.
+        result["zero_offset"] = None
+        if block.zero_line_calibration and spectrum.mode == "Raman":
+            offset = laser_line_offset(spectrum.raw_data.X, spectrum.raw_data.Y)
+            if offset is not None:
+                shifted = SpectrumData(X=spectrum.raw_data.X - offset, Y=spectrum.raw_data.Y.copy())
+                spectrum.raw_data = shifted
+                spectrum.processed_data = SpectrumData(X=shifted.X.copy(), Y=shifted.Y.copy())
+                spectrum.zero_offset = offset
+                result["zero_offset"] = offset
 
         # ========== STAGE 1: X-RANGE CROPPING ==========
         # Match manual workflow: replicate what happens when user clicks "Apply X-Range"
@@ -570,6 +585,11 @@ def format_workflow_summary(result: Dict[str, Any], preset: MaterialPreset,
         )
         if block.x_range_enabled:
             summary += f" ({block.x_min} - {block.x_max})"
+        if block.zero_line_calibration and mode == "Raman":
+            offset = result.get("zero_offset")
+            summary += (f"\n- Zero line: laser line at {offset:+.2f} cm⁻¹, axis shifted to put it at 0"
+                        if offset is not None else
+                        "\n- Zero line: no clear laser line, axis left as recorded")
         summary += (
             f"\n- De-spiking: Threshold {block.despike_threshold}\n"
             f"- Baseline: {block.baseline_algorithm}"

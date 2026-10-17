@@ -127,7 +127,8 @@
           }
         ],
         "exclusion_ranges": null,
-        "max_iterations": 500
+        "max_iterations": 500,
+        "zero_line_calibration": true
       },
       "pl": {
         "x_range_enabled": true,
@@ -969,6 +970,7 @@
         "exclusion_ranges": null,
         "max_iterations": 5700,
         "fit_starts": 3,
+        "zero_line_calibration": true,
         "fit_windows": [
           {
             "x_min": -5.0,

@@ -34,7 +34,7 @@ from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
 # bound, a peak fitted to zero): empty means unknown, never zero.
 _PEAK_COLUMNS = [
     "Peak_Label", "Center", "Center_Stderr", "Intensity", "Intensity_Stderr",
-    "FWHM", "FWHM_Stderr", "Shape", "R_Squared", "Chi_Squared", "Converged",
+    "FWHM", "FWHM_Stderr", "Shape", "R_Squared", "Chi_Squared", "Converged", "Zero_Offset",
 ]
 
 
@@ -55,6 +55,9 @@ def _peak_row(filename: str, spectrum, peak) -> dict:
         "R_Squared": spectrum.fit_result.r_squared,
         "Chi_Squared": spectrum.fit_result.chi_squared,
         "Converged": spectrum.fit_result.converged,
+        # Laser-line offset subtracted from the axis (cm-1); empty when no
+        # zero-line calibration was applied.
+        "Zero_Offset": getattr(spectrum, "zero_offset", None),
     }
 
 
@@ -86,6 +89,7 @@ def _raw_row(filename: str, spectrum) -> dict:
         "R_Squared": "",
         "Chi_Squared": "",
         "Converged": "",
+        "Zero_Offset": "",
         "Convergence_Time_s": "",
     }
     return row

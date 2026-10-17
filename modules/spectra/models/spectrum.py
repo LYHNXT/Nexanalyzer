@@ -250,6 +250,9 @@ class SpectrumFile:
     fit_stale: bool = False
     last_preprocessing_hash: Optional[str] = None
     background: Optional[np.ndarray] = None  # v5.13.0: the subtracted baseline
+    #: v5.24.0: the laser-line offset (cm-1) subtracted from the axis by
+    #: zero-line calibration; None when none was applied (off, or no clear line).
+    zero_offset: Optional[float] = None
 
     def __post_init__(self):
         """Validate attributes."""
@@ -303,6 +306,7 @@ class SpectrumFile:
         self.fit_stale = False
         self.last_preprocessing_hash = None
         self.background = None
+        self.zero_offset = None
 
     def to_dict(self, include_arrays: bool = True) -> dict:
         """
@@ -337,6 +341,7 @@ class SpectrumFile:
             result["raw_data"] = self.raw_data.to_dict()
             result["processed_data"] = self.processed_data.to_dict()
             result["background"] = self.background.tolist() if self.background is not None else None
+            result["zero_offset"] = self.zero_offset
         else:
             result["original_data"] = None
             result["raw_data"] = None
@@ -388,4 +393,5 @@ class SpectrumFile:
             # baseline-corrected until re-run.
             background=(np.array(data["background"], dtype=np.float64)
                         if data.get("background") is not None else None),
+            zero_offset=data.get("zero_offset"),
         )

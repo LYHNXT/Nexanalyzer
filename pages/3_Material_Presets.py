@@ -265,6 +265,17 @@ def _render_technique_block(key_prefix: str, mode: str,
         key=f"{key_prefix}_max_iterations"
     )
 
+    zero_line_calibration = False
+    if mode == "Raman":
+        zero_line_calibration = st.checkbox(
+            "Zero-line calibration (shift the axis so the laser line is at 0 cm⁻¹)",
+            value=bool(d.zero_line_calibration) if d else False,
+            help="Finds the laser line within ±3 cm⁻¹ of 0 and subtracts its position before "
+                 "cropping, baseline and fitting. A spectrum without a clear line is left as "
+                 "recorded. Needs the export to include 0 cm⁻¹.",
+            key=f"{key_prefix}_zero_line",
+        )
+
     fit_starts = st.number_input(
         "Fit starting points", min_value=1, max_value=10,
         value=d.fit_starts if d else 1, step=1,
@@ -340,6 +351,7 @@ def _render_technique_block(key_prefix: str, mode: str,
         exclusion_ranges=exclusion_ranges.strip() or None,
         max_iterations=int(max_iterations),
         fit_starts=int(fit_starts),
+        zero_line_calibration=bool(zero_line_calibration),
         peak_templates=_df_to_peaks(peaks_df),
         fit_windows=_df_to_windows(windows_df),
     )
