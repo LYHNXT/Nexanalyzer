@@ -1029,7 +1029,174 @@
           }
         ],
         "exclusion_ranges": "650-880",
-        "max_iterations": 500
+        "max_iterations": 500,
+        "fit_starts": 3
+      },
+      "optical": {
+        "1L": {
+          "nsigma": 3.0,
+          "minpx": 3,
+          "abs_threshold_below": 6.0,
+          "abs_threshold_above": 4.2,
+          "marker_margin_sigma": 0.5,
+          "marker_min_distance": 8,
+          "mask_closing_radius": 0,
+          "min_domain_um_50x": 1.0,
+          "min_domain_um_100x": 0.5
+        },
+        "2L": {
+          "nsigma": 4.0,
+          "minpx": 3,
+          "abs_threshold_below": 9.0,
+          "abs_threshold_above": 4.5,
+          "min_domain_um_50x": 1.0,
+          "min_domain_um_100x": 0.5
+        }
+      }
+    },
+    {
+      "material_name": "WSe2_QC_broad",
+      "enabled": true,
+      "description": "WSe2 for QC: Raman fitted in three windows (-5..40, 40..210, 210..330 cm-1), each with its own baseline; LA on a straight-line baseline; 2ZA(M)/E2g+A1g/2LA centre ranges do not overlap. PL and optical as WSe2.",
+      "raman": {
+        "x_range_enabled": true,
+        "x_min": -5.0,
+        "x_max": 330.0,
+        "despike_threshold": 100.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.005,
+        "peak_templates": [
+          {
+            "peak_label": "E2g+A1g",
+            "center": 250.5,
+            "center_tolerance": 3.5,
+            "width_fwhm": 4.667,
+            "shape": 0.3,
+            "color": "#EF482E"
+          },
+          {
+            "peak_label": "2LA",
+            "center": 260.5,
+            "center_tolerance": 5.5,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#D5EF2E"
+          },
+          {
+            "peak_label": "2ZA(M)",
+            "center": 243.0,
+            "center_tolerance": 3.0,
+            "width_fwhm": 2.5,
+            "shape": 0.3,
+            "color": "#FF7F0E"
+          },
+          {
+            "peak_label": "B2g",
+            "center": 310.0,
+            "center_tolerance": 10.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#2ED5EF"
+          },
+          {
+            "peak_label": "LB",
+            "center": 30.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 2.0,
+            "shape": 0.3,
+            "color": "#482EEF"
+          },
+          {
+            "peak_label": "LA",
+            "center": 127.0,
+            "center_tolerance": 8.0,
+            "width_fwhm": 30.0,
+            "shape": 0.3,
+            "color": "#76EC32"
+          },
+          {
+            "peak_label": "C",
+            "center": 17.0,
+            "center_tolerance": 5.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          },
+          {
+            "peak_label": "center",
+            "center": 0.0,
+            "center_tolerance": 3.0,
+            "width_fwhm": 5.0,
+            "shape": 0.3,
+            "color": "#3276EC"
+          }
+        ],
+        "exclusion_ranges": null,
+        "max_iterations": 5700,
+        "fit_starts": 3,
+        "zero_line_calibration": true,
+        "fit_windows": [
+          {
+            "x_min": -5.0,
+            "x_max": 40.0,
+            "baseline_algorithm": null,
+            "baseline_degree": null,
+            "baseline_lambda": null,
+            "baseline_p": null,
+            "exclusion_ranges": null
+          },
+          {
+            "x_min": 40.0,
+            "x_max": 210.0,
+            "baseline_algorithm": "Polynomial",
+            "baseline_degree": 1,
+            "baseline_lambda": null,
+            "baseline_p": null,
+            "exclusion_ranges": "80-180"
+          },
+          {
+            "x_min": 210.0,
+            "x_max": 330.0,
+            "baseline_algorithm": null,
+            "baseline_degree": null,
+            "baseline_lambda": null,
+            "baseline_p": null,
+            "exclusion_ranges": null
+          }
+        ]
+      },
+      "pl": {
+        "x_range_enabled": false,
+        "x_min": null,
+        "x_max": null,
+        "despike_threshold": 8.0,
+        "baseline_algorithm": "ALS",
+        "baseline_degree": null,
+        "baseline_lambda": 50000.0,
+        "baseline_p": 0.01,
+        "peak_templates": [
+          {
+            "peak_label": "Exciton",
+            "center": 755.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 30.0,
+            "shape": 0.3,
+            "color": "#d62728"
+          },
+          {
+            "peak_label": "Trion",
+            "center": 780.0,
+            "center_tolerance": 15.0,
+            "width_fwhm": 40.0,
+            "shape": 0.3,
+            "color": "#9467bd"
+          }
+        ],
+        "exclusion_ranges": "650-880",
+        "max_iterations": 500,
+        "fit_starts": 3
       },
       "optical": {
         "1L": {

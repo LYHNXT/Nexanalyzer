@@ -359,8 +359,11 @@ def plot_fit_column(
     Parameters
     ----------
     points : sequence of (point_index, x, y_data, fit_result)
-        In top-to-bottom order. Fewer than `rows` leaves the lower panels
-        empty rather than restacking, so columns stay aligned across the grid.
+        In top-to-bottom order, one per row. A point with no spectrum is passed
+        as ``(point_index, None, None, None)``: its panel stays empty and is
+        labelled "no spectrum", so the points below it keep their rows and the
+        grid stays aligned across columns (before v5.25.0 a missing middle point
+        moved the bottom one up into its place, under the wrong row).
     normalize : bool, default=True
         Scale each point by its own tallest peak, putting every panel's peak
         at 1.0. Comparable peak shape and position, at the cost of intensity:
@@ -384,6 +387,8 @@ def plot_fit_column(
 
     x_label = axis_label(mode)
     for row, (_point, x, y_data, fit_result) in enumerate(points[:rows], start=1):
+        if x is None:
+            continue  # an empty slot: labelled below, nothing to draw
         scale = peak_normalization_scale(y_data, fit_result) if normalize else 1.0
         _add_spectrum_traces(
             fig, row, x, y_data, fit_result, x_label, show_components,
@@ -420,9 +425,9 @@ def plot_fit_column(
     # Point numbers go inside their panel rather than above it. A title band
     # above each panel costs height three times over; a corner label costs
     # none, and sits in space the spectrum's tail isn't using.
-    for row, (point, *_rest) in enumerate(points[:rows], start=1):
+    for row, (point, x, *_rest) in enumerate(points[:rows], start=1):
         fig.add_annotation(
-            text=f"Point {point}",
+            text=f"Point {point}" if x is not None else f"Point {point} · no spectrum",
             row=row, col=1,
             xref="x domain", yref="y domain",
             x=0.015, y=0.98, xanchor="left", yanchor="top",

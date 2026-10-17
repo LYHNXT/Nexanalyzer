@@ -5,6 +5,40 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.25.0] - 2026-10-17
+
+### Presets
+
+- **`WSe2_QC` PL fits from 3 starting points** (was 1). On 110 real WSe2 PL
+  spectra (HA1P01, VB1P01, TSMC) the preset's single start reached the best of
+  five starts on 71 %; three starts reach it on 98 % (median R2 0.9919 -> 0.9970).
+  The misses were mostly VA/VB spectra, some with 10-50x the best fit's residual
+  and Exciton/Trion centres up to ~13 nm off. A PL fit takes ~0.5 s, so three
+  cost ~1.5 s. Numbers move for WSe2_QC PL; Raman does not change.
+- **New preset `WSe2_QC_broad`** for samples whose main band is wider than
+  WSe2_QC allows (DDAA08: 12.2 cm-1 measured directly from the data, against
+  E2g+A1g's 9 cm-1 ceiling, which it sat on in 98 % of spectra). Identical to
+  `WSe2_QC` except the main band's width ceilings: E2g+A1g 14, 2LA 15, 2ZA(M)
+  7.5 cm-1. On 40 DDAA08 spectra E2g+A1g fits 12.5 cm-1 and sits on its ceiling
+  in 2 % (main-band R2 0.959 -> 0.979). Choose it per folder; raising the
+  ceiling in `WSe2_QC` itself lets noisy spectra widen falsely. E2g and A1g
+  stay one peak: fitting them separately was tested and every part filled its
+  own ceiling.
+
+### QC Report
+
+- **B2g / E2g+A1g is reported again**, as a third diagnostic ratio beside
+  LA/E2g+A1g and C/LB (summary table and quality figure, which now has three
+  rows in its ratio column). B2g appears with a second layer, so a 1L film's
+  B2g is under 3x the noise and the ratio reads as absent, while a 2L film shows
+  a measurable one. No spec line: the threshold is the reader's.
+- **A missing grid point no longer moves the one below it up.** The fitted-
+  spectra grid stacked a column's points in whatever order they existed, so with
+  point 4 absent, point 7 was drawn in the middle row beside points 5 and 6. The
+  missing point now keeps its row, empty and labelled "no spectrum".
+
+The golden-fit record does not move.
+
 ## [5.24.0] - 2026-10-17
 
 ### Added

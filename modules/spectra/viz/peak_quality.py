@@ -179,6 +179,7 @@ PL_CLEANING = CleaningRule(
 _RAMAN_RATIO_PRESENTATION = {
     ("LA", "E2g+A1g"): ("I(LA) / I(E₂g+A₁g)", "Defect ratio", 0.13),
     ("C", "LB"): ("I(C) / I(LB)", "Stacking ratio", None),
+    ("B2g", "E2g+A1g"): ("I(B₂g) / I(E₂g+A₁g)", "Bilayer ratio", None),
 }
 
 

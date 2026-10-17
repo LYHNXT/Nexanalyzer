@@ -353,13 +353,19 @@ def peak_is_measured(peak, fit: FitResult) -> bool:
     return peak_intensity(peak) >= MEASURED_SNR * fit_noise(fit)
 
 
-RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (("LA", "E2g+A1g"), ("C", "LB"))
+RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (
+    ("LA", "E2g+A1g"), ("C", "LB"), ("B2g", "E2g+A1g"),
+)
 """The WSe2 bilayer quality indicators, as (numerator, denominator) labels.
 
 - ``LA / E2g+A1g`` — the defect ratio: disorder relative to the in-plane mode.
 - ``C / LB`` — the stacking ratio: the shear mode against the layer-breathing
   mode. Both are interlayer vibrations, so their ratio speaks directly to how
   the two layers sit on each other, which is what a bilayer wafer is judged on.
+- ``B2g / E2g+A1g`` — the bilayer ratio (v5.25.0): B2g is Raman-silent in a
+  monolayer and appears with a second layer, so a 1L film shows it under the
+  noise (the ratio reads as absent) and a 2L film shows a measurable ratio.
+  No spec line: the threshold is the reader's judgement.
 
 One constant, because two surfaces read it: the QC Report's Raman summary table
 and the Raman quality figure's ratio panels. They were separate literals until
@@ -367,8 +373,10 @@ v5.0.0 — one in the page, one in the figure module — with a comment in each
 saying they had to agree, which is not a mechanism. A figure and a table
 disagreeing about which ratios matter is the exact failure that comment feared.
 
-B2g / E2g+A1g was reported until v3.10.0 and was dropped in favour of the
-stacking ratio. Any pair whose labels aren't both present in a fit is dropped
+B2g / E2g+A1g was reported until v3.10.0, dropped in favour of the stacking
+ratio, and restored in v5.25.0 beside it: on HA1P01 C/LB is often unmeasurable
+(C on its fit limit, LB under the noise), and B2g is the layer check people
+read by eye. Any pair whose labels aren't both present in a fit is dropped
 automatically (see `compute_peak_intensity_ratio`), so this list is safe for
 materials that don't define these peaks.
 """

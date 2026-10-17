@@ -77,9 +77,11 @@ def _pl_fit(exciton=200.0, trion=100.0, exciton_fwhm=30.0, trion_fwhm=50.0):
 
 
 class TestRamanPanelDefinitions:
-    def test_the_grid_is_three_columns_of_two(self):
+    def test_the_grid_is_three_columns(self):
+        """Two peak panels per column, and one ratio panel per entry of
+        RAMAN_RATIO_PAIRS (three since v5.25.0 restored B2g/E2g+A1g)."""
         assert len(PANEL_COLUMNS) == 3
-        assert all(len(panels) == 2 for _title, panels in PANEL_COLUMNS)
+        assert [len(panels) for _title, panels in PANEL_COLUMNS] == [2, 2, len(RAMAN_RATIO_PAIRS)]
 
     def test_column_titles_match_the_inherited_figure(self):
         assert [title for title, _ in PANEL_COLUMNS] == [

@@ -927,17 +927,18 @@ if scan is not None:
                         images = {}
                         progress.start(stage_key, detail=f"0/{FIT_GRID_COLUMNS}")
                         for col in range(FIT_GRID_COLUMNS):
+                            # A missing point keeps its row as an empty slot,
+                            # so point 7 never moves up beside points 4 and 6.
                             column_points = [
                                 (
                                     point,
                                     by_point[point].processed_data.X,
                                     by_point[point].processed_data.Y,
                                     by_point[point].fit_result,
-                                )
+                                ) if point in by_point else (point, None, None, None)
                                 for point in (col + 1, col + 4, col + 7)
-                                if point in by_point
                             ]
-                            if not column_points:
+                            if all(x is None for _p, x, _y, _f in column_points):
                                 continue  # placeholder column; nothing to render
 
                             fig = plot_fit_column(

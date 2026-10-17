@@ -60,7 +60,7 @@ The full reasoning is in the
 - **`modules/*` may import `core`; `core` never imports `modules`.** See "The one
   rule" in docs/Summary.md.
 - **The diagnostic ratios live in one constant.** `peak_metrics.RAMAN_RATIO_PAIRS`
-  is `LA/E2g+A1g` and `C/LB`. The quality figure and the QC Report's summary
+  is `LA/E2g+A1g`, `C/LB` and `B2g/E2g+A1g` (the last restored in v5.25.0, no spec line). The quality figure and the QC Report's summary
   table both read it; don't write the pair out again.
 - **Spec lines are drawn and never evaluated, and there are only four.**
   `peak_quality` carries Raman's `E2g+A1g` FWHM = 7, `B2g` centre = 308,

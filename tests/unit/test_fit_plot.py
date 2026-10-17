@@ -243,6 +243,17 @@ class TestPlotFitColumn:
         assert fig.layout.yaxis3 is not None, "the third row should still exist"
         assert len([t for t in fig.data if t.name == "Data"]) == 2
 
+    def test_a_missing_middle_point_keeps_its_row(self):
+        """Point 4 absent: point 7 is still drawn in row 3, not moved up into
+        row 2 where it would sit beside the other columns' middle points."""
+        p1, _p4, p7 = self._points((1, 4, 7))
+        fig = plot_fit_column([p1, (4, None, None, None), p7])
+
+        data_axes = [t.yaxis for t in fig.data if t.name == "Data"]
+        assert data_axes == ["y", "y3"]
+        assert [a.text for a in fig.layout.annotations] == [
+            "Point 1", "Point 4 · no spectrum", "Point 7"]
+
     def test_ranges_apply_to_every_panel(self):
         fig = plot_fit_column(self._points(), x_range=(0.0, 400.0), y_range=(-0.1, 1.1))
 
