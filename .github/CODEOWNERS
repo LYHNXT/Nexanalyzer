@@ -1,0 +1,19 @@
+# Who must review changes to the code and data that decide reported numbers.
+# Takes effect only when branch protection on main has "Require review from Code
+# Owners" switched on. GitHub does not let an author approve their own pull
+# request, so leave that switch off until a second reviewer is listed here.
+# See docs/Development_Process.md.
+
+/modules/spectra/processing/   @angyulu
+/modules/spectra/models/       @angyulu
+/modules/optical/processing/   @angyulu
+/modules/runcard/processing/   @angyulu
+/modules/datalog/processing/   @angyulu
+/data/materials.json           @angyulu
+/data/om_calibration.json      @angyulu
+/data/datalog.json             @angyulu
+/tests/fixtures/golden_fit/    @angyulu
+/tests/unit/test_golden_fit.py @angyulu
+/tests/unit/test_om_contrast.py @angyulu
+/.github/                      @angyulu
+/scripts/check_algo_change.py  @angyulu

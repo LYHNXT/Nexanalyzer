@@ -1,2 +1,13 @@
 #!/bin/sh
-exec "$(git rev-parse --show-toplevel)/.githooks/check-golden-fit"
+# Before a push: the golden fit must still reproduce, and an algorithm change must
+# carry its version bump and CHANGELOG entry (the same guard CI runs on the PR).
+root="$(git rev-parse --show-toplevel)"
+"$root/.githooks/check-golden-fit" || exit 1
+cd "$root" || exit 1
+if [ -x venv/Scripts/python.exe ]; then PY=venv/Scripts/python.exe
+elif [ -x venv/bin/python ]; then PY=venv/bin/python
+else PY=python
+fi
+if git rev-parse --verify -q origin/main >/dev/null; then
+    "$PY" scripts/check_algo_change.py origin/main || exit 1
+fi

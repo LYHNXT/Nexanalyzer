@@ -1,0 +1,85 @@
+# NexAnalyzer CI. Runs on every pull request into main and every push to main.
+# The three jobs are the gates listed in docs/Development_Process.md; make all three
+# "required status checks" on main (Settings -> Branches) so nothing merges red.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast and cheap: did an algorithm or a locked record change without saying so?
+  algo-guard:
+    name: Algorithm-change guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Version bump + CHANGELOG for algorithm changes; stated reason for locked records
+        run: python scripts/check_algo_change.py origin/${{ github.base_ref }}
+        if: github.event_name == 'pull_request'
+      - name: (push to main) compare with the previous main
+        run: python scripts/check_algo_change.py ${{ github.event.before }}
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+
+  # The numbers: the golden fit and the locked OM contrast record, on the pinned stack.
+  algorithms:
+    name: Golden fit + locked numbers
+    runs-on: windows-latest   # the app's own platform
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install (pinned)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest ruff -c requirements-lock.txt
+      - name: Lint (pyflakes + syntax only)
+        run: python -m ruff check .
+      - name: Golden fit (must not skip)
+        env:
+          NEXANALYZER_REQUIRE_GOLDEN: "1"
+        run: python -m pytest tests/unit/test_golden_fit.py -q -p no:cacheprovider
+      - name: Locked algorithm numbers
+        run: >
+          python -m pytest -q -p no:cacheprovider
+          tests/unit/test_om_contrast.py tests/unit/test_zero_line.py
+          tests/unit/test_peak_metrics.py tests/unit/test_fitting.py
+
+  # Everything else.
+  tests:
+    name: Full test suite
+    needs: algorithms
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-lock.txt
+      - name: Install (pinned)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest ruff -c requirements-lock.txt
+      - name: pytest
+        env:
+          NEXANALYZER_REQUIRE_GOLDEN: "1"
+        run: python -m pytest -q -p no:cacheprovider

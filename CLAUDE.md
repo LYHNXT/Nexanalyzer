@@ -27,6 +27,13 @@ trip it. Moving the numbers on purpose: `python tests/unit/test_golden_fit.py
 spectra are committed through a `.gitignore` exception — the only measurement
 data in the repo; don't widen it.
 
+**CI repeats this on every pull request** (`.github/workflows/ci.yml`), on the
+versions pinned in `requirements-lock.txt`, and adds `scripts/check_algo_change.py`:
+an algorithm file changed without a version bump and CHANGELOG entry, or a locked
+record (golden fixtures, `test_golden_fit.py`, `test_om_contrast.py`) changed
+without the CHANGELOG saying so, fails the build. Procedure:
+[docs/Development_Process.md](docs/Development_Process.md).
+
 ## Two quantities, two names — never "amplitude"
 
 A peak has a maximum and it has an area. These are different numbers, they differ
