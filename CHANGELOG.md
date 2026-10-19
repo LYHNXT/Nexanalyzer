@@ -5,6 +5,44 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.28.0] - 2026-10-19
+
+### QC Report
+
+- **A point with more than 25 spectra loses its outliers and is drawn down to
+  25** (`spectrum_selection.select_spectra_per_point`, `SPECTRA_PER_POINT`).
+  For 36-spectrum maps: a spectrum is an outlier if its fit fails the R² gate
+  or one of its main peaks lies outside the point's 1.5x IQR fence on centre,
+  FWHM or intensity; 25 of the rest are kept at random, seeded by the point so
+  a rerun keeps the same ones. The main peaks are read from the data: the
+  strongest by median intensity and any within half of it. Applied once after
+  fitting, so the stats tables, ratios, quality figures, fit grids and workbook
+  all describe the same 25. The page says how many were fitted, removed and
+  left out. Numbers move for every point that had more than 25 spectra; a point
+  with 25 or fewer is untouched.
+- **Each quality-figure panel's legend shows "Robust CV = x %" under its
+  median** (`peak_quality.robust_cv`): 1.4826 x MAD / |median| x 100 over the
+  same pooled, cleaned points the median line is drawn from, two decimals
+  below 10 % and one above. Drawn only; no table or workbook number moves.
+- **Every QC Report PNG is 300 dpi** (were 144 for the summary and fit-grid
+  pages, 160 for the OM, domain-size and quality figures), from one constant,
+  `core.report.REPORT_DPI`. The figures are laid out in inches, so only the
+  pixel count changes: the summary page is now 4000x2250. No numbers move.
+
+### Presets
+
+- **`WSe2_QC` fits Raman from 1 start, down from 3.** A 36-spectrum map per
+  point (324 Raman spectra per wafer) took about an hour on one core at ~12 s a
+  spectrum; one start is 4x faster. PL keeps its 3 starts (0.5 s a spectrum),
+  and `WSe2_QC_broad` is unchanged. Numbers move for Raman spectra where an
+  extra start found a lower chi-squared.
+  - Measured on 72 spectra from QC_HADI09 and QC_HADI05 (P1/P5/P9, every third
+    spectrum): 222 s against 900 s. Every 1-start fit converged, so convergence
+    cannot be used to decide when more starts are needed. 12 of 72 reached a
+    worse minimum than 3 starts (chi-squared +2 to +25 %), all in the
+    low-frequency peaks LB, C and the zero-line `center`; E2g+A1g's FWHM agreed
+    to 0.01 cm-1 on every one. C/LB is the reported number that can move.
+
 ## [5.27.0] - 2026-10-19
 
 ### Presets

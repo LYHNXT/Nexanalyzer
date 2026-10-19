@@ -28,6 +28,8 @@ matplotlib.use("Agg")  # no display; must precede the pyplot import
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+from core.report import REPORT_DPI  # noqa: E402
 from matplotlib import gridspec  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
 
@@ -157,7 +159,7 @@ def build_om_grid_figure(
     sample_name: str,
     magnification: Optional[str] = None,
     points: Optional[Sequence[int]] = None,
-    dpi: int = 160,
+    dpi: int = REPORT_DPI,
     show_histograms: bool = True,
 ) -> bytes:
     """

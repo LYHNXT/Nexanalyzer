@@ -35,6 +35,8 @@ matplotlib.use("Agg")  # no display; must precede the pyplot import
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+from core.report import REPORT_DPI  # noqa: E402
 from matplotlib.font_manager import FontProperties  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
@@ -659,7 +661,7 @@ def build_summary_figure(
     show_fwhm_v1: bool = False,
     domain_stat: Optional[DomainSizeStat] = None,
     domain_class_label: Optional[str] = None,
-    dpi: int = 144,
+    dpi: int = REPORT_DPI,
 ) -> bytes:
     """Render the overview page and return it as PNG bytes.
 
@@ -684,7 +686,7 @@ def build_summary_figure(
     the other two tables. `domain_class_label` names the OM class it was
     measured from (e.g. "Bilayer"); None omits it from the caption.
 
-    At the default 144 dpi the page is 1920x1080.
+    At the default REPORT_DPI (300) the page is 4000x2250.
     """
     fig = _new_page(dpi)
     try:
@@ -755,7 +757,7 @@ def build_fit_grid_figure(
     legend: Optional[Sequence[Tuple[str, str]]] = None,
     x_label: str = "",
     y_label: str = "Normalized intensity",
-    dpi: int = 144,
+    dpi: int = REPORT_DPI,
 ) -> bytes:
     """Render one technique's nine fitted spectra as a page, and return PNG bytes.
 

@@ -121,7 +121,8 @@ from modules.spectra.processing.peak_metrics import (
     compute_peak_intensity_ratio,
     filter_fits_by_quality,
 )
-from modules.spectra.processing.sample_batch import run_sample_batch
+from modules.spectra.processing.sample_batch import SampleBatchResult, run_sample_batch
+from modules.spectra.processing.spectrum_selection import SPECTRA_PER_POINT, select_spectra_per_point
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.utils.preset_staleness import optical_fingerprint, technique_fingerprint
 from modules.spectra.viz.fit_plot import (
@@ -867,6 +868,20 @@ if scan is not None:
                     )
                     if has_spectra:
                         progress.complete("fit")
+                    # A point measured as a map of more than SPECTRA_PER_POINT
+                    # spectra loses its outliers and is then drawn down to
+                    # SPECTRA_PER_POINT (v5.28.0). Applied here, once, so every
+                    # surface below -- grids, stats, ratios, figures, workbook --
+                    # describes the same spectra.
+                    raman_kept, state["raman_selection"] = select_spectra_per_point(
+                        batch_result.raman_spectra)
+                    pl_kept, state["pl_selection"] = select_spectra_per_point(
+                        batch_result.pl_spectra)
+                    batch_result = SampleBatchResult(
+                        raman_spectra=raman_kept, pl_spectra=pl_kept,
+                        raman_errors=batch_result.raman_errors,
+                        pl_errors=batch_result.pl_errors,
+                    )
                     state["batch_result"] = batch_result
 
                     # Stamped on *attempt*, not on success. A run that fitted
@@ -1171,6 +1186,21 @@ def _render_gate_verdict(technique: str, dropped_key: str, fitted_key: str,
         )
 
 
+def _render_selection_note(technique: str, selection_key: str) -> None:
+    """Say how a technique's maps were cut down to SPECTRA_PER_POINT a point."""
+    sel = state.get(selection_key)
+    if not sel or not sel.points_reduced:
+        return
+    st.caption(
+        f"**{technique}:** {sel.fitted} spectra fitted; at the {sel.points_reduced} point(s) "
+        f"with more than {SPECTRA_PER_POINT}, {sel.outliers} outlier(s) were removed "
+        f"(R² ≤ {R_SQUARED_MIN}, or {', '.join(sel.main_peaks) or 'the main peak'} outside "
+        f"the point's 1.5×IQR fence on centre, FWHM or intensity) and {sel.unused} more "
+        f"left out at random, leaving {sel.selected} — up to {SPECTRA_PER_POINT} per point — "
+        f"in every figure, table and the workbook."
+    )
+
+
 def _render_convergence_note(technique: str, unconverged_key: str, fitted_key: str) -> None:
     """Say how many of one technique's fits stopped on the preset's iteration budget.
 
@@ -1278,6 +1308,8 @@ if _HAS_RESULTS:
             with st.expander(f"{number} — {caption}"):
                 st.image(state[key], width="stretch")
 
+    _render_selection_note("Raman", "raman_selection")
+    _render_selection_note("PL", "pl_selection")
     _render_gate_verdict("Raman", "raman_dropped", "raman_fitted", "raman_stats_png")
     _render_gate_verdict("PL", "pl_dropped", "pl_fitted", "pl_stats_png")
     _render_convergence_note("Raman", "raman_unconverged", "raman_fitted")

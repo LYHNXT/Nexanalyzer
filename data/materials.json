@@ -970,7 +970,6 @@
         ],
         "exclusion_ranges": null,
         "max_iterations": 10000,
-        "fit_starts": 3,
         "zero_line_calibration": true,
         "fit_windows": [
           {

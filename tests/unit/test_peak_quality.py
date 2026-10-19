@@ -33,8 +33,10 @@ from modules.spectra.viz.peak_quality import (
     _peak_values,
     _raman_ratio_panels,
     _ratio_values,
+    _draw_panel,
     _records,
     build_peak_quality_figure,
+    robust_cv,
 )
 
 
@@ -404,6 +406,27 @@ class TestRatioValues:
 
         assert _peak_values(records, PeakPanel("Exciton", "fwhm", "y", "c")) != {}
         assert _ratio_values(records, RatioPanel("Exciton", "Trion", "y", "c")) == {}
+
+
+class TestRobustCv:
+    def test_is_normal_equivalent_mad_over_median(self):
+        # median 10, |deviations| 0,1,1,2,2 -> MAD 1 -> 14.826 %
+        assert robust_cv([8, 9, 10, 11, 12]) == pytest.approx(14.826)
+
+    def test_nan_for_nothing_or_a_zero_median(self):
+        assert np.isnan(robust_cv([])) and np.isnan(robust_cv([0.0, 0.0, 0.0]))
+
+    def test_sits_under_the_median_in_the_legend(self):
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        try:
+            _draw_panel(ax, {1: np.array([8.0, 9, 10, 11, 12])}, [1],
+                        PeakPanel("E2g", "fwhm", "FWHM", "E2g"), is_bottom=True,
+                        rng=np.random.default_rng(0), statistic="mean", per_position_iqr=False)
+            labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        finally:
+            plt.close(fig)
+        assert labels == ["Median = 10.00", "Robust CV = 14.8%"]
 
 
 class TestBuildFigure:

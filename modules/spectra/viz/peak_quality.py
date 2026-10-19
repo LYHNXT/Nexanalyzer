@@ -59,6 +59,8 @@ matplotlib.use("Agg")  # no display; must precede the pyplot import
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+
+from core.report import REPORT_DPI  # noqa: E402
 from matplotlib import gridspec  # noqa: E402
 
 from ..models.peak import FitResult  # noqa: E402
@@ -433,6 +435,17 @@ def _ratio_values(records: Sequence[_PeakRecord], panel: RatioPanel) -> Dict[int
     return {p: np.asarray(v, float) for p, v in out.items()}
 
 
+def robust_cv(values) -> float:
+    """1.4826 * MAD / |median| * 100, in percent; NaN for no values or a zero median."""
+    values = np.asarray(values, dtype=float)
+    if values.size == 0:
+        return float("nan")
+    median = float(np.median(values))
+    if median == 0:
+        return float("nan")
+    return 1.4826 * float(np.median(np.abs(values - median))) / abs(median) * 100.0
+
+
 def _draw_panel(ax, by_point: Dict[int, np.ndarray], positions: Sequence[int],
                 panel: Panel, is_bottom: bool, rng: np.random.Generator,
                 statistic: str, per_position_iqr: bool) -> None:
@@ -460,6 +473,12 @@ def _draw_panel(ax, by_point: Dict[int, np.ndarray], positions: Sequence[int],
         median = float(np.median(pooled))
         ax.axhline(median, color="black", linestyle="--", linewidth=1.3,
                    alpha=0.8, zorder=2, label=f"Median = {median:.2f}")
+        # Robust CV under the median (v5.28.0): 1.4826 * MAD / |median|, the
+        # normal-equivalent spread of the same pooled points the line is drawn from.
+        cv = robust_cv(pooled)
+        if np.isfinite(cv):
+            ax.plot([], [], linestyle="none",
+                    label=f"Robust CV = {cv:.2f}%" if cv < 10 else f"Robust CV = {cv:.1f}%")
         ax.legend(loc="upper right", fontsize=_FS_REFTEXT, framealpha=0.85)
     else:
         ax.text(0.5, 0.5, f"no {getattr(panel, 'peak', 'data')} fits",
@@ -493,7 +512,7 @@ def build_peak_quality_figure(
     sample_name: str,
     material_name: str = "WSe₂",
     spec: QualityFigureSpec = RAMAN_QUALITY,
-    dpi: int = 160,
+    dpi: int = REPORT_DPI,
 ) -> bytes:
     """
     Render one technique's quality figure and return it as PNG bytes.
