@@ -501,3 +501,50 @@ class TestMultipleStarts:
         b = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", starts=3)
 
         assert a.chi_squared == b.chi_squared
+
+
+class TestDominantPeak:
+    """v5.26.0: `dominant` holds every other peak's fitted maximum at or below one peak's."""
+
+    def _peaks(self):
+        # Centres free to settle (+-20), so the only limit a peak can end on is the constraint's.
+        return [PeakDefinition(label="A", center=795.0, intensity=1.0, width_fwhm=45.0, center_tolerance=20.0),
+                PeakDefinition(label="B", center=1305.0, intensity=1.0, width_fwhm=65.0, center_tolerance=20.0)]
+
+    # Fine enough that the sampled curve maximum (the reported intensity) is the
+    # analytic height the constraint bounds; a 6-unit grid misses a 40-wide peak's top.
+    N = 4000
+
+    @staticmethod
+    def _heights(result):
+        return {p.label: float(np.max(p.component_curve)) for p in result.fitted_peaks}
+
+    def test_a_peak_the_data_makes_taller_is_held_level_and_flagged(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=self.N, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)))
+        free_fit = fit_voigt_peaks(x, y, self._peaks(), mode="Raman")
+        free = self._heights(free_fit)
+        held = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", dominant="A")
+        h = self._heights(held)
+
+        assert free["B"] > free["A"]
+        assert h["B"] <= h["A"] * (1 + 1e-4)  # sampled maxima; the analytic heights are equal
+        assert not any(p.on_limit for p in free_fit.fitted_peaks)
+        assert {p.label: p.on_limit for p in held.fitted_peaks} == {"A": False, "B": True}
+
+    def test_when_the_dominant_peak_is_already_tallest_the_fit_does_not_move(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=self.N, peaks=((800.0, 900.0, 40.0), (1300.0, 300.0, 60.0)), noise_std=2.0)
+        free = fit_voigt_peaks(x, y, self._peaks(), mode="Raman")
+        held = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", dominant="A")
+
+        assert held.chi_squared == pytest.approx(free.chi_squared, rel=1e-3)
+        for a, b in zip(free.fitted_peaks, held.fitted_peaks):
+            assert b.center == pytest.approx(a.center, abs=0.05)
+            assert np.max(b.component_curve) == pytest.approx(np.max(a.component_curve), rel=1e-3)
+        assert [p.on_limit for p in held.fitted_peaks] == [p.on_limit for p in free.fitted_peaks]
+
+    def test_an_unknown_label_fits_freely(self, synthetic_spectrum):
+        x, y = synthetic_spectrum(n_points=self.N, peaks=((800.0, 500.0, 40.0), (1300.0, 800.0, 60.0)))
+        free = fit_voigt_peaks(x, y, self._peaks(), mode="Raman")
+        other = fit_voigt_peaks(x, y, self._peaks(), mode="Raman", dominant="nope")
+
+        assert other.chi_squared == free.chi_squared and other.nfev == free.nfev

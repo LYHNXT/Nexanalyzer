@@ -95,3 +95,23 @@ class TestParseExclusionRanges:
     def test_invalid_range_raises(self):
         with pytest.raises(ValueError):
             parse_exclusion_ranges("not-a-range-format-1")
+
+
+class TestDominantPeak:
+    """v5.26.0: `dominant_peak` round-trips, is omitted when unset, and must name a peak."""
+
+    def test_round_trips_and_is_omitted_when_unset(self):
+        block = _make_block()
+        assert "dominant_peak" not in block.to_dict()
+        block.dominant_peak = "Si"
+        assert TechniquePreset.from_dict(block.to_dict()).dominant_peak == "Si"
+
+    def test_must_name_one_of_the_blocks_peaks(self):
+        block = _make_block()
+        block.dominant_peak = "Si"
+        assert block.validate() == []
+        block.dominant_peak = "A0"
+        assert any("dominant_peak" in e for e in block.validate())
+
+    def test_committed_mos2_qc_holds_a0_dominant(self):
+        assert load_presets()["MoS2_QC"].pl.dominant_peak == "A0"

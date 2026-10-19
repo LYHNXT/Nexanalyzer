@@ -18,7 +18,7 @@ from scipy import signal
 from lmfit import Parameters
 from lmfit.models import VoigtModel
 import time
-from typing import List
+from typing import List, Optional
 from ..models.peak import MAX_PEAKS, PeakDefinition, FittedPeak, FitResult
 
 
@@ -92,6 +92,15 @@ _GAMMA_EXPR = (
     " / (1.0692 + sqrt(1.0692**2 - 4 * 0.06919716 * (1 - {p}gfrac**2)))"
 )
 
+# A Voigt's maximum per unit area, sigma*sqrt(2*pi) / Re[w(i*gamma / (sigma*sqrt(2)))]
+# being its inverse -- the expression lmfit's own VoigtModel uses for `height`.
+# With `dominant` set, the dominant peak's height is derived from its area, and
+# every other peak's area from `hratio` (its height over the dominant's, in
+# [0, 1]), so no other peak's fitted maximum can exceed the dominant's.
+_UNIT_HEIGHT_EXPR = "real(wofz((1j*{p}gamma)/(max(1e-12, {p}sigma)*sqrt(2)))) / (max(1e-12, {p}sigma)*sqrt(2*pi))"
+_HEIGHT_EXPR = "{p}amplitude * " + _UNIT_HEIGHT_EXPR
+_DOMINATED_AREA_EXPR = "{p}hratio * {d}hdom / (" + _UNIT_HEIGHT_EXPR + ")"
+
 
 def fit_voigt_peaks(
     x: np.ndarray,
@@ -100,6 +109,7 @@ def fit_voigt_peaks(
     mode: str = "Raman",
     max_iterations: int = 2000,
     starts: int = 1,
+    dominant: Optional[str] = None,
 ) -> FitResult:
     """
     Fit multiple Voigt profiles to spectrum data.
@@ -134,6 +144,15 @@ def fit_voigt_peaks(
         non-overlapping centre ranges, and the misses included E2g+A1g pinned
         at its width limit with 2LA taller. 1 keeps the single fit every
         preset had before.
+
+    dominant : str, optional
+        Label of a peak that must be the tallest (v5.26.0). Every other peak's
+        area is then derived from `hratio` -- its fitted maximum over the
+        dominant peak's, bounded to [0, 1] -- so the constraint is on the
+        *intensity* every surface reports, not on the area. A peak whose
+        `hratio` ends at 1 is held level with the dominant one by the
+        constraint and is flagged `on_limit`. None (or a label not in
+        `peak_table`) fits every area freely, as before.
 
     Returns
     -------
@@ -192,6 +211,10 @@ def fit_voigt_peaks(
     for peak in peak_table:
         peak.calculate_auto_bounds(mode, x_range, y_max, spectral_resolution)
 
+    dominant_index = next(
+        (i for i, peak in enumerate(peak_table) if dominant and peak.label == dominant), None
+    ) if len(peak_table) > 1 else None
+
     def _build(rng):
         """The composite model and its parameters, started from the preset (rng
         None) or from a perturbed point inside the same bounds."""
@@ -203,6 +226,8 @@ def fit_voigt_peaks(
         # Build composite model (sum of Voigt models)
         composite_model = None
         params = Parameters()
+        dominated = []  # (prefix, intensity_guess) of peaks whose area follows the dominant's
+        dominant_guess = None
 
         for i, peak in enumerate(peak_table):
             prefix = f"p{i}_"
@@ -265,14 +290,31 @@ def fit_voigt_peaks(
             else:
                 params.add(f"{prefix}center", value=center_guess,
                            min=peak.center_min, max=peak.center_max)
-            params.add(f"{prefix}amplitude", value=area_guess,
-                       min=0, max=area_max)
+            # Parameter order is the order Levenberg-Marquardt steps in, so a fit
+            # without a dominant peak keeps exactly the order it always had.
+            if dominant_index is not None and i != dominant_index:
+                dominated.append((prefix, intensity_guess))
+            else:
+                params.add(f"{prefix}amplitude", value=area_guess,
+                           min=0, max=area_max)
+                if i == dominant_index:
+                    dominant_guess = intensity_guess
             params.add(f"{prefix}vfwhm", value=fwhm_guess,
                        min=peak.width_min, max=peak.width_max)
             params.add(f"{prefix}gmix", value=gmix_guess, min=0.0, max=1.0)
             params.add(f"{prefix}gfrac", expr=_GFRAC_EXPR.format(p=prefix, fg_min=float(fg_min)))
             params.add(f"{prefix}sigma", expr=_SIGMA_EXPR.format(p=prefix))
             params.add(f"{prefix}gamma", expr=_GAMMA_EXPR.format(p=prefix))
+
+        # A dominated peak's area is an expression in the dominant peak's height,
+        # which lmfit can only parse once every peak's widths exist.
+        if dominant_index is not None:
+            d = f"p{dominant_index}_"
+            params.add(f"{d}hdom", expr=_HEIGHT_EXPR.format(p=d))
+            for prefix, intensity_guess in dominated:
+                params.add(f"{prefix}hratio", value=_start(min(intensity_guess / dominant_guess, 1.0), 0.0, 1.0),
+                           min=0.0, max=1.0)
+                params.add(f"{prefix}amplitude", expr=_DOMINATED_AREA_EXPR.format(p=prefix, d=d))
 
         return composite_model, params
 
@@ -421,6 +463,10 @@ def fit_voigt_peaks(
             return prm.vary and lim is not None and np.isfinite(lim) and abs(prm.value - lim) <= 1e-6 * max(1.0, abs(lim))
         c_prm, w_prm = result.params[f"{prefix}center"], result.params[f"{prefix}vfwhm"]
         on_limit = bool(_at(c_prm, "min") or _at(c_prm, "max") or _at(w_prm, "max"))
+        # Held level with the dominant peak: the constraint set this height, not the data.
+        h_prm = result.params.get(f"{prefix}hratio")
+        if h_prm is not None and _at(h_prm, "max"):
+            on_limit = True
 
         fitted_peaks.append(FittedPeak(
             label=peak.label,

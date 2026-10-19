@@ -339,6 +339,20 @@ def _render_technique_block(key_prefix: str, mode: str,
         key=f"{key_prefix}_peaks"
     )
 
+    # After the peak editor, so the choice lists the labels as edited.
+    labels = [str(v) for v in peaks_df["peak_label"].dropna().tolist() if str(v).strip()]
+    current_dominant = d.dominant_peak if d else None
+    dominant_options = ["(none)"] + labels + (
+        [current_dominant] if current_dominant and current_dominant not in labels else [])
+    dominant_peak = st.selectbox(
+        "Dominant peak (fits tallest)",
+        options=dominant_options,
+        index=dominant_options.index(current_dominant) if current_dominant in dominant_options else 0,
+        help="Every other peak's fitted maximum is held at or below this one's. "
+             "A peak held level with it is flagged on its limit. (none) fits every peak freely.",
+        key=f"{key_prefix}_dominant_peak",
+    )
+
     return TechniquePreset(
         x_range_enabled=x_range_enabled,
         x_min=x_min,
@@ -351,6 +365,7 @@ def _render_technique_block(key_prefix: str, mode: str,
         exclusion_ranges=exclusion_ranges.strip() or None,
         max_iterations=int(max_iterations),
         fit_starts=int(fit_starts),
+        dominant_peak=None if dominant_peak == "(none)" else dominant_peak,
         zero_line_calibration=bool(zero_line_calibration),
         peak_templates=_df_to_peaks(peaks_df),
         fit_windows=_df_to_windows(windows_df),

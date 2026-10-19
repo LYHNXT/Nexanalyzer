@@ -275,6 +275,11 @@ class TechniquePreset:
     #: fit from the preset, as before. Per fit window when the block has windows.
     fit_starts: int = 1
 
+    #: Label of the peak that must fit tallest (v5.26.0), or None. Every other
+    #: peak's fitted maximum is bounded to at most this one's; see
+    #: `fitting.fit_voigt_peaks(dominant=)`. MoS2 PL: A0 over A- and B.
+    dominant_peak: Optional[str] = None
+
     #: Raman only (v5.24.0): shift the axis so the laser line sits at 0 cm-1
     #: before anything else runs. See `processing/zero_line.py`. A spectrum with
     #: no clear line is left as recorded.
@@ -320,6 +325,10 @@ class TechniquePreset:
 
         if not (1 <= self.fit_starts <= 10):
             errors.append(f"fit_starts {self.fit_starts} out of range [1, 10]")
+
+        if self.dominant_peak is not None and self.dominant_peak not in {
+                t.peak_label for t in self.peak_templates}:
+            errors.append(f"dominant_peak {self.dominant_peak!r} is not one of this block's peak labels")
 
         # Baseline
         errors += _baseline_errors(self.baseline_algorithm, self.baseline_degree,
@@ -410,6 +419,7 @@ class TechniquePreset:
             # Omitted at 1 (and windows when empty), so a block that uses
             # neither serialises exactly as before and older versions read it.
             **({"fit_starts": self.fit_starts} if self.fit_starts != 1 else {}),
+            **({"dominant_peak": self.dominant_peak} if self.dominant_peak else {}),
             **({"zero_line_calibration": True} if self.zero_line_calibration else {}),
             # Omitted when empty, so a block without windows serialises exactly
             # as it did before v5.22.0 and older app versions can still read it.

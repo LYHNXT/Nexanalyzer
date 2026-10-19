@@ -127,7 +127,7 @@
           }
         ],
         "exclusion_ranges": null,
-        "max_iterations": 500,
+        "max_iterations": 10000,
         "zero_line_calibration": true
       },
       "pl": {
@@ -166,8 +166,9 @@
           }
         ],
         "exclusion_ranges": "590-760",
-        "max_iterations": 2100,
-        "fit_starts": 3
+        "max_iterations": 10000,
+        "fit_starts": 3,
+        "dominant_peak": "A0"
       },
       "optical": {
         "1L": {
@@ -968,7 +969,7 @@
           }
         ],
         "exclusion_ranges": null,
-        "max_iterations": 5700,
+        "max_iterations": 10000,
         "fit_starts": 3,
         "zero_line_calibration": true,
         "fit_windows": [
@@ -1029,7 +1030,7 @@
           }
         ],
         "exclusion_ranges": "650-880",
-        "max_iterations": 500,
+        "max_iterations": 10000,
         "fit_starts": 3
       },
       "optical": {

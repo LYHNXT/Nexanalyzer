@@ -420,7 +420,7 @@ def _fit_whole(spectrum: SpectrumFile, block) -> FitResult:
         return fit_voigt_peaks(
             X, Y_corrected, peak_definitions,
             mode=spectrum.mode, max_iterations=block.max_iterations,
-            starts=block.fit_starts,
+            starts=block.fit_starts, dominant=block.dominant_peak,
         )
     except Exception as e:
         raise WorkflowExecutionError(
@@ -492,7 +492,7 @@ def _fit_in_windows(spectrum: SpectrumFile, block) -> FitResult:
             window_fit = fit_voigt_peaks(
                 xw, yw_corrected, definitions,
                 mode=spectrum.mode, max_iterations=block.max_iterations,
-                starts=block.fit_starts,
+                starts=block.fit_starts, dominant=block.dominant_peak,
             )
         except Exception as e:
             raise WorkflowExecutionError(f"Peak fitting failed in {name}: {e}")

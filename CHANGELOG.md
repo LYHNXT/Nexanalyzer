@@ -5,6 +5,30 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.26.0] - 2026-10-18
+
+### Fitting
+
+- **A preset can name a dominant peak** (`dominant_peak`, per technique; the
+  Material Presets page has a selector under the peak table). Every other
+  peak's fitted maximum is then held at or below that peak's: the fit varies
+  each other peak's height as a fraction (`hratio`, 0-1) of the dominant
+  peak's height and derives its area from it, so the bound is on the
+  *intensity* every surface reports, not on the area. A peak held level with
+  the dominant one (`hratio` at 1) is the constraint's value, not the data's,
+  and is flagged `on_limit`, so ratios skip it as unmeasured. Unset, every
+  area fits freely as before; the golden-fit record does not move.
+
+### Presets
+
+- **`MoS2_QC` PL holds A0 dominant** over A- and B. The neutral exciton is the
+  main emission of these 1L films, but fitted freely A- came out taller
+  (QC_KRX261005 with the MoS2 preset: A- 1624 against A0 1460 on average, A0
+  found in 120 of 225 spectra). Numbers move for MoS2_QC PL.
+- **`WSe2_QC` and `MoS2_QC` get `max_iterations` = 10000** for Raman and PL
+  (were 5700/500 and 500/2100), so fits stop on convergence rather than on the
+  budget. Numbers move only for fits that used to run out.
+
 ## [5.25.0] - 2026-10-17
 
 ### Presets
