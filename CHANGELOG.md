@@ -5,6 +5,25 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.27.0] - 2026-10-19
+
+### Presets
+
+- **WSe2's bilayer (2L) "below" cut is now -7.8 %, up from -9.0 %** (the pair is
+  -7.8 / +4.5) in `WSe2`, `WSe2_QC` and `WSe2_QC_broad`. The "above" cut and the
+  1L pair (-6.0 / +4.2) do not change; the two cuts are independent, so Above 2L
+  does not move. Numbers move: Below 2L rises and Bilayer falls by the same
+  amount on every WSe2 wafer segmented on 2L; stored results from before this
+  version are not comparable on those two columns.
+  - Measured on 98 labelled 2L frames (12 HA wafers, HADH/HADI): in a 2L frame
+    the 2L film's own tail falls steeply to about -7.5 % and the monolayer forms
+    a flat band from about -8 to -10 % (pixel density 0.70-0.72 % per 1 %
+    contrast), so -9.0 sat in the middle of the monolayer and missed its upper
+    half. Median Below 2L over the frames: 0.47 % at -9.0, 0.76 % at -7.8;
+    HADH26 6.8 -> ~10.8 %, HADH38 8.3 -> ~10.5 %, HADH70 6.4 -> ~8.2 %.
+  - Noise: the frames' sigma_noise/mode is 1.1 % median, 2.0 % p90, 2.8 % max,
+    so -7.8 is >= 2.8x the noise on every frame (CLAUDE.md asks for ~2).
+
 ## [5.26.0] - 2026-10-18
 
 ### Fitting
