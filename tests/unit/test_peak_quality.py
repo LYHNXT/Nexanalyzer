@@ -121,7 +121,7 @@ class TestRamanPanelDefinitions:
             for _title, panels in PANEL_COLUMNS for panel in panels
         }
         assert specs["E₂g + A₁g"] == 7.0
-        assert specs["B₂g center"] == 308.0
+        assert specs["B₂g center"] is None  # presence criterion, stated in the title (v5.32.0)
         assert specs["Defect ratio"] == 0.13
 
     def test_the_stacking_ratio_is_the_two_interlayer_modes(self):
@@ -175,16 +175,21 @@ class TestPlPanelDefinitions:
         widths = [len(panels) for _title, panels in PL_PANEL_COLUMNS]
         assert widths == [2, 2, 2]
 
-    def test_the_only_pl_spec_is_the_forty_nanometre_fwhm(self):
-        """One PL reference line, on the FWHM panels, as the inherited script
-        gated it; at the customer spec's 40 nm since v5.31.0 (was 35)."""
+    def test_the_only_pl_spec_is_the_forty_nanometre_raw_fwhm(self):
+        """The customer PL spec is judged on the Raw spectrum (v5.32.0): one
+        40 nm line, on Raw FWHM; Exciton and Trion carry none."""
         specs = {
             panel.caption: panel.spec
             for _title, panels in PL_PANEL_COLUMNS for panel in panels
         }
-        assert specs["Exciton"] == 40.0
-        assert specs["Trion"] == 40.0
+        assert specs["Raw FWHM"] == 40.0
+        assert specs["Exciton"] is None and specs["Trion"] is None
         assert set(specs.values()) == {40.0, None}
+
+    def test_the_shared_raw_column_carries_no_line(self):
+        """MoS2's figure prepends RAW_COLUMN, and MoS2 has no customer spec."""
+        from modules.spectra.viz.peak_quality import RAW_COLUMN
+        assert all(panel.spec is None for panel in RAW_COLUMN[1])
 
     def test_the_centre_panels_carry_no_spec(self):
         """770 nm and 800 nm are fit-initialisation guesses in the material
@@ -444,17 +449,38 @@ class TestRobustCv:
     def test_nan_for_nothing_or_a_zero_median(self):
         assert np.isnan(robust_cv([])) and np.isnan(robust_cv([0.0, 0.0, 0.0]))
 
-    def test_sits_under_the_median_in_the_legend(self):
+    def test_the_legend_states_the_region_median_cv_the_title_states(self):
+        """v5.32.0: the legend's second line is the CV of the region medians --
+        the title's "Uniformity" -- not the pooled Robust CV."""
         import matplotlib.pyplot as plt
+        from modules.spectra.viz.peak_quality import region_median_cv
+        by_point = {1: np.array([9.0, 10, 11]), 2: np.array([11.0, 12, 13]), 3: np.array([10.0, 11, 12])}
         fig, ax = plt.subplots()
         try:
-            _draw_panel(ax, {1: np.array([8.0, 9, 10, 11, 12])}, [1],
-                        PeakPanel("E2g", "fwhm", "FWHM", "E2g"), is_bottom=True,
+            _draw_panel(ax, by_point, [1, 2, 3], PeakPanel("E2g", "fwhm", "FWHM", "E2g"), is_bottom=True,
                         rng=np.random.default_rng(0), statistic="mean", per_position_iqr=False)
             labels = [t.get_text() for t in ax.get_legend().get_texts()]
         finally:
             plt.close(fig)
-        assert labels == ["Median = 10.00", "Robust CV = 14.8%"]
+        cv = region_median_cv(by_point, False)
+        assert cv == pytest.approx(np.std([10, 12, 11], ddof=1) / 11 * 100)
+        assert labels == ["Median = 11.00", f"Uniformity = {cv:.2f} %"]
+
+    def test_ratio_panels_are_drawn_in_percent(self):
+        """v5.32.0: ratios read as the customer spec states them (7.9 %, spec 13)."""
+        import matplotlib.pyplot as plt
+        fig, ax = plt.subplots()
+        try:
+            _draw_panel(ax, {1: np.array([0.078, 0.079, 0.080])}, [1],
+                        RatioPanel("LA", "E2g+A1g", "I(LA) / I(E2g+A1g)", "Defect ratio", spec=0.13),
+                        is_bottom=True, rng=np.random.default_rng(0), statistic="mean", per_position_iqr=False)
+            labels = [t.get_text() for t in ax.get_legend().get_texts()]
+            texts = [t.get_text() for t in ax.texts]
+            ylabel = ax.get_ylabel()
+        finally:
+            plt.close(fig)
+        assert labels[0] == "Median = 7.9 %"
+        assert "13" in texts and ylabel.endswith("(%)")
 
 
 class TestBuildFigure:
@@ -632,7 +658,8 @@ class TestColumnsForAMaterialTheInheritedPanelsDoNotName:
 
 
 class TestCustomerSpecSummary:
-    """v5.31.0: the title states each customer-spec value beside its limit."""
+    """v5.31.0: the title states each customer-spec value beside its limit;
+    v5.32.0: value and limit only, no other detail."""
 
     @staticmethod
     def _raman(layer, centres=(250.0,) * 9, fwhm=5.0):
@@ -643,49 +670,142 @@ class TestCustomerSpecSummary:
                 fits.append((point, _fit([_peak("E2g+A1g", centre, 200.0, fwhm),
                                           _peak("B2g", 309.0, 20.0, 6.0),
                                           _peak("LA", 130.0, 20.0, 40.0)])))
-        records = _clean(_records(fits), RAMAN_CLEANING)
-        return spec_summary_lines(records, _records(fits), len(fits), "Raman", layer, True)
+        return spec_summary_lines(_clean(_records(fits), RAMAN_CLEANING), "Raman", layer, True)
 
     def test_2l_states_b2g_fwhm_and_la_ratio_with_their_limits(self):
         line = self._raman("2L")[0]
-        assert line.startswith("2L spec:")
-        assert "B₂g at 309.0 cm⁻¹, above 3× noise in 27/27 spectra (spec: present, ~308)" in line
-        assert "E₂g+A₁g FWHM 5.00 cm⁻¹ (spec < 7)" in line
-        assert "I(LA)/I(E₂g+A₁g) 10.0 % (spec < 13 %)" in line
+        assert line == ("2L spec:  B₂g 309.00 cm⁻¹ (spec ~308)   ·   E₂g+A₁g FWHM 5.00 cm⁻¹ (spec < 7)"
+                        "   ·   I(LA)/I(E₂g+A₁g) 10.0 % (spec < 13 %)")
 
-    def test_1l_states_presence_near_250(self):
-        assert "E₂g+A₁g at 250.0 cm⁻¹, above 3× noise in 27/27 spectra (spec: present, ~250)" in self._raman("1L")[0]
+    def test_1l_states_only_the_e2g_position(self):
+        assert self._raman("1L")[0] == "1L spec:  E₂g+A₁g 250.00 cm⁻¹ (spec ~250)"
 
-    def test_a_peak_on_its_width_cap_still_counts_as_present(self):
-        """B2g's width ends on its cap in nearly every WSe2 spectrum; present means above the noise."""
-        from modules.spectra.viz.peak_quality import spec_summary_lines
-        b2g = _peak("B2g", 309.0, 20.0, 6.0)
-        b2g.on_limit = True
-        fits = [(1, _fit([_peak("E2g+A1g", 250.0, 200.0, 5.0), b2g]))]
-        line = spec_summary_lines(_records(fits), _records(fits), 1, "Raman", "2L", True)[0]
-        assert "in 1/1 spectra" in line
-
-    def test_no_verdict_is_written(self):
+    def test_no_verdict_or_detail_is_written(self):
         text = " ".join(self._raman("2L"))
-        assert not any(word in text for word in ("PASS", "FAIL", "✓", "✗"))
+        assert not any(word in text for word in ("PASS", "FAIL", "✓", "✗", "noise", "spectra", "region"))
 
     def test_uniformity_is_the_cv_of_the_region_medians(self):
         centres = (249.0, 250.0, 251.0, 249.0, 250.0, 251.0, 249.0, 250.0, 251.0)
         line = self._raman("2L", centres=centres)[-1]
         expected = np.std(centres, ddof=1) / np.mean(centres) * 100
-        assert f"position {expected:.2f} % (spec ≤ 0.5 %)" in line
-        assert "FWHM 0.0 % (spec ≤ 20 %)" in line
-        assert "CV of 9 region medians" in line
+        assert line == (f"Uniformity:  E₂g+A₁g position {expected:.2f} % (spec ≤ 0.5 %)   ·   "
+                        "FWHM 0.00 % (spec ≤ 20 %)")
 
-    def test_pl_1l_states_exciton_fwhm_against_forty(self):
+    def test_pl_1l_states_the_raw_fwhm_against_forty(self):
         from modules.spectra.viz.peak_quality import spec_summary_lines
-        fits = [(p, _pl_fit(exciton_fwhm=32.0)) for p in range(1, 10)]
-        records = _clean(_records(fits), PL_CLEANING)
-        lines = spec_summary_lines(records, _records(fits), len(fits), "PL", "1L", False)
-        assert "Exciton FWHM 32.0 nm (spec ≤ 40)" in lines[0]
+        fits = [(p, _fit([_peak("Raw", 766.0, 1.0, 36.0), _peak("Exciton", 765.0, 200.0, 30.0)]))
+                for p in range(1, 10)]
+        lines = spec_summary_lines(_records(fits), "PL", "1L", False)
+        assert lines[0] == "1L spec:  Raw FWHM 36.00 nm (spec ≤ 40)"
+        assert lines[1].startswith("Uniformity:  Raw position ")
         assert "(spec ≤ 1.5 %)" in lines[1] and "(spec ≤ 25 %)" in lines[1]
+
+    def test_a_raw_column_alone_does_not_make_a_summary(self):
+        """Raw is in every PL figure; the material comes from its fitted peaks."""
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        fits = [(1, _fit([_peak("Raw", 600.0, 1.0, 40.0), _peak("X", 600.0, 200.0, 33.0)]))]
+        assert spec_summary_lines(_records(fits), "PL", "1L", False) == []
 
     def test_a_material_without_the_main_peak_gets_no_summary(self):
         from modules.spectra.viz.peak_quality import spec_summary_lines
-        fits = [(1, _fit([_peak("E2g", 384.0), _peak("A1g", 405.0)]))]
-        assert spec_summary_lines(_records(fits), _records(fits), 1, "Raman", "1L", True) == []
+        fits = [(1, _fit([_peak("Si", 520.0)]))]
+        assert spec_summary_lines(_records(fits), "Raman", "1L", True) == []
+
+    def test_the_pl_title_no_longer_lists_its_cleaning(self, monkeypatch):
+        import modules.spectra.viz.peak_quality as pq
+        titles = []
+        real = pq.plt.Figure.suptitle
+        monkeypatch.setattr(pq.plt.Figure, "suptitle", lambda self, t, **k: (titles.append(t), real(self, t, **k))[1])
+        build_peak_quality_figure([(1, _pl_fit())], sample_name="s", spec=PL_QUALITY)
+        assert "excludes" not in titles[0] and "summary table" not in titles[0]
+
+
+class TestRatiosAndLayer:
+    """v5.32.0: LA and 2LA ratios from every spectrum; B2g panels hidden on 1L."""
+
+    def test_la_ratio_counts_a_peak_under_the_noise_gate(self):
+        la = _peak("LA", 130.0, 10.0, 40.0)
+        la.on_limit = True
+        fits = [(1, _fit([_peak("E2g+A1g", 250.0, 200.0, 5.0), la, _peak("B2g", 309.0, 20.0, 6.0)]))]
+        records = _records(fits)
+        assert _ratio_values(records, RatioPanel("LA", "E2g+A1g", "", ""))[1].tolist() == [0.05]
+
+    def test_b2g_ratio_counts_a_peak_on_its_width_cap(self):
+        """B2g's width ends on its cap in nearly every spectrum; a 2L report shows all 25."""
+        b2g = _peak("B2g", 309.0, 20.0, 6.0)
+        b2g.on_limit = True
+        fits = [(1, _fit([_peak("E2g+A1g", 250.0, 200.0, 5.0), b2g]))]
+        assert _ratio_values(_records(fits), RatioPanel("B2g", "E2g+A1g", "", ""))[1].tolist() == [0.1]
+
+    def test_a_gated_ratio_still_drops_unmeasured_peaks(self):
+        lb = _peak("LB", 30.0, 20.0, 6.0)
+        lb.on_limit = True
+        fits = [(1, _fit([_peak("C", 17.0, 80.0, 5.0), lb]))]
+        assert _ratio_values(_records(fits), RatioPanel("C", "LB", "", "")) == {}
+
+    def test_summary_table_agrees(self):
+        from modules.spectra.processing.peak_metrics import compute_peak_intensity_ratio
+        la = _peak("LA", 130.0, 10.0, 40.0)
+        la.on_limit = True
+        median, _, n = compute_peak_intensity_ratio([_fit([_peak("E2g+A1g", 250.0, 200.0, 5.0), la])], "LA", "E2g+A1g")
+        assert (median, n) == (0.05, 1)
+
+    def test_1l_drops_b2g_centre_and_bilayer_ratio(self):
+        from modules.spectra.viz.peak_quality import _drop_bilayer_panels
+        columns = _drop_bilayer_panels(_drop_unfitted_ratios(PANEL_COLUMNS, {"E2g+A1g", "2LA", "B2g", "LA", "2ZA(M)"}))
+        names = [(p.numerator, p.denominator) if isinstance(p, RatioPanel) else (p.peak, p.metric)
+                 for _, panels in columns for p in panels]
+        assert not any("B2g" in n for n in names)
+        assert ("E2g+A1g", "fwhm") in names and ("LA", "E2g+A1g") in names
+
+
+class TestLayerSpecLines:
+    """v5.32.0: a spec line is drawn only for the report layer's criteria."""
+
+    def _specs(self, columns, technique, layer):
+        from modules.spectra.viz.peak_quality import _layer_spec_lines
+        return {p.caption: p.spec for _, ps in _layer_spec_lines(columns, technique, layer) for p in ps if p.spec}
+
+    def test_raman_2l_keeps_fwhm_and_defect_ratio(self):
+        assert self._specs(PANEL_COLUMNS, "Raman", "2L") == {"E₂g + A₁g": 7.0, "Defect ratio": 0.13}
+
+    def test_raman_1l_draws_none(self):
+        """Quote §6.5: 1L WSe2 Raman has only "present ~250"; FWHM 7 and LA 13 % are 2L (§6.6)."""
+        assert self._specs(PANEL_COLUMNS, "Raman", "1L") == {}
+
+    def test_pl_1l_keeps_raw_fwhm_and_2l_draws_none(self):
+        assert self._specs(PL_PANEL_COLUMNS, "PL", "1L") == {"Raw FWHM": 40.0}
+        assert self._specs(PL_PANEL_COLUMNS, "PL", "2L") == {}
+
+
+def test_an_every_spectrum_ratio_drops_values_outside_the_wafer_fence():
+    """v5.32.0: one weak spectrum at 20 % among ~10 % is dropped even when its region is spread wide."""
+    fits = [(p, _fit([_peak("E2g+A1g", 250.0, 100.0, 5.0), _peak("LA", 130.0, la, 40.0)]))
+            for p, la in [(1, 10.0), (1, 11.0), (2, 9.0), (2, 10.0), (3, 10.5), (3, 12.0), (3, 20.0)]]
+    values = _ratio_values(_records(fits), RatioPanel("LA", "E2g+A1g", "", ""))
+    assert 0.2 not in np.concatenate(list(values.values()))
+    assert sum(v.size for v in values.values()) == 6
+
+
+class TestMoS2Spec:
+    """v5.32.0: MoS2's customer spec (quote 20261009W001 §6.4, 6.9)."""
+
+    def test_raman_1l_states_delta_omega_against_twenty(self):
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        fits = [(p, _fit([_peak("E2g", 383.4, 100.0, 4.5), _peak("A1g", 404.2, 110.0, 6.0)])) for p in range(1, 10)]
+        lines = spec_summary_lines(_records(fits), "Raman", "1L", True)
+        assert lines[0] == "1L spec:  |E₂g−A₁g| 20.80 cm⁻¹ (spec ~20)"
+        assert "(spec ≤ 0.5 %)" in lines[1] and "(spec ≤ 20 %)" in lines[1]
+
+    def test_pl_1l_states_raw_fwhm_and_draws_its_line(self):
+        from modules.spectra.viz.peak_quality import spec_summary_lines, _mos2_spec_lines, panels_for_labels, RAW_COLUMN
+        fits = [(p, _fit([_peak("Raw", 686.0, 1.0, 40.7), _peak("A0", 684.0, 200.0, 33.0)])) for p in range(1, 10)]
+        assert spec_summary_lines(_records(fits), "PL", "1L", False)[0] == "1L spec:  Raw FWHM 40.70 nm (spec ~40)"
+        columns = _mos2_spec_lines((RAW_COLUMN,) + panels_for_labels(["A0"], "PL"), "PL", "1L")
+        assert {p.caption: (p.spec, p.spec_nominal) for _, ps in columns for p in ps if p.spec} == {"Raw FWHM": (40.0, True)}
+
+
+def test_mos2_pl_shows_only_raw_a0_and_a_minus():
+    from modules.spectra.viz.peak_quality import _mos2_pl_panels, panels_for_labels, RAW_COLUMN
+    columns = _mos2_pl_panels((RAW_COLUMN,) + panels_for_labels(["A0", "A-", "B"], "PL"))
+    assert {p.peak for _, ps in columns for p in ps} == {"Raw", "A0", "A-"}

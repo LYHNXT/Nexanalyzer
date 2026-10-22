@@ -26,6 +26,25 @@ _NAME_RE = re.compile(r"^(?P<prefix>.+)[-_](?P<point>\d+)$")
 #: count as Raman / PL point 3 instead of being ignored.
 _MAPPING_RE = re.compile(r"[-_]MAPPING$", re.IGNORECASE)
 _IMAGE_EXTENSIONS = {".bmp", ".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+#: A wafer ID inside a folder name: tool-series letters then digits (HADH82,
+#: VABD42, VM2610012), dropped from the middle of a folder name only.
+_WAFER_ID_RE = re.compile(r"^[A-Z]{2,4}\d{2,8}$")
+
+
+def sample_title(folder_name: str) -> str:
+    """The report title for a sample folder: its name without the wafer ID (v5.32.0).
+
+    Customer folders are named ``<sample ID>_<wafer ID>_<layer or material>``,
+    e.g. ``KRX261001_HADH82_2L`` or ``KRX261005_VM2610012_MoS2``; the report
+    is titled ``KRX261001_2L`` / ``KRX261005_MoS2``. Only a *middle* token that
+    looks like a wafer ID is dropped -- never the first or the last, so
+    ``QC_KRX261001`` keeps its sample ID; a name with none is returned as is.
+    """
+    tokens = folder_name.split("_")
+    if len(tokens) < 3:
+        return folder_name
+    middle = [token for token in tokens[1:-1] if not _WAFER_ID_RE.match(token)]
+    return "_".join([tokens[0], *middle, tokens[-1]])
 
 
 def scan_sample_folder(folder: str) -> SampleScan:
@@ -41,7 +60,7 @@ def scan_sample_folder(folder: str) -> SampleScan:
     if not folder_path.is_dir():
         raise FileNotFoundError(f"Sample folder not found: {folder}")
 
-    scan = SampleScan(folder=str(folder_path.resolve()), sample_name=folder_path.name)
+    scan = SampleScan(folder=str(folder_path.resolve()), sample_name=sample_title(folder_path.name))
 
     for entry in sorted(os.listdir(folder_path)):
         entry_path = folder_path / entry

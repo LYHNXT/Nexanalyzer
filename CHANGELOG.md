@@ -5,7 +5,73 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.31.0] - 2026-10-22
+## [5.32.0] - 2026-10-22
+
+### QC Report
+
+- **The customer-spec lines under the quality-figure titles carry the value
+  and the limit only.** The presence count ("above 3x noise in N/M spectra")
+  and the "(CV of 9 region medians)" note are gone, e.g. "2L spec:  B2g 308.9
+  cm-1 (spec ~308) · E2g+A1g FWHM 5.12 cm-1 (spec < 7) · I(LA)/I(E2g+A1g)
+  7.9 % (spec < 13 %)" and "Uniformity:  E2g+A1g position 0.04 % (spec <=
+  0.5 %) · FWHM 2.38 % (spec <= 20 %)". Uniformity is still the CV of the
+  region medians; positions and widths carry the panels' two decimals.
+- **Each panel's legend states "Uniformity = x %", the CV of the region
+  medians -- the same number as the title**, in place of the pooled "Robust
+  CV" (v5.28.0), which also counted scatter within a region (KRX261001:
+  E2g+A1g position 0.06 % pooled against 0.04 % across regions). Title and
+  panels now print one value for each quantity.
+- **Ratio panels are drawn in percent**, as the customer spec states them:
+  I(LA)/I(E2g+A1g) "Median = 7.9 %", spec line at 13.
+- **I(LA)/I(E2g+A1g) and I(2LA)/I(E2g+A1g) are formed from every spectrum
+  in the figure, the title and the summary table**
+  (`peak_metrics.RATIO_FROM_EVERY_SPECTRUM`); they were gated by
+  `peak_is_measured`. A 1.5x IQR fence over the whole wafer, then the region's
+  own, drop broken fits (one 2LA ratio at 260 %; a KRX261003 LA ratio at 20 %
+  from a half-intensity spectrum in a widely spread region), so most regions
+  keep 23-25 of their 25. On weak regions LA sits just
+  under 3x the fit noise, so the gate kept only the strongest few and biased
+  them high: KRX261001 point 7 read 9.7 % from 5 of 25 spectra, 8.3 % from all
+  25; the other regions' medians move by <= 0.3 %. Where LA sits on a fit limit
+  across a region it now shows (KRX261004 point 2: 18 % against ~12.5 %).
+  Numbers move for these ratios.
+- **A 1L report's Raman figure hides B2g** -- its centre panel and the bilayer
+  ratio (`BILAYER_ONLY_PEAKS`); a monolayer has no B2g. On a 2L report the
+  bilayer ratio is formed from every spectrum too (25 per region; the gate kept
+  3-19 because B2g's width ends on its cap).
+- **Spec lines are red dashed** (were solid grey), and the **B2g centre line at
+  308 is gone**: "~308" is a presence criterion, stated in the title. Three
+  spec lines remain: E2g+A1g FWHM 7, LA ratio 13 %, PL Raw FWHM 40.
+- **The PL spec is judged on the Raw spectrum** (each spectrum's own maximum
+  and half-height width, no fit): the title states Raw FWHM against 40 nm and
+  Raw position / FWHM uniformity, and the 40 nm line moves from the Exciton and
+  Trion FWHM panels to Raw FWHM.
+- **MoS2 carries its quote spec** (20261009W001 §6.4, 6.9, 6.10; `MOS2_SPEC`):
+  the Raman title states |E2g-A1g| against ~20 cm-1 and E2g/A1g position and
+  FWHM uniformity; the PL title Raw FWHM against ~40 nm and Raw uniformity. The
+  two values are drawn as nominal targets -- "~" and grey dashed
+  (`spec_nominal`) -- though the quote writes "<="; uniformity stays a limit.
+  The Δω line is drawn by the Samsung runner, which owns the Δω panel.
+- **MoS2 PL figures show only A0 and A-** beside the Raw column
+  (`MOS2_PL_SHOWN`); B is still fitted, not drawn. 2 | 2 | 2 grid.
+- **Spec lines follow the report's layer** (`LAYER_SPEC_LINES`), as the title
+  does: the customer spec lists FWHM < 7 and LA < 13 % under 2L and Raw FWHM
+  <= 40 nm under 1L, so a 1L Raman figure draws no line and a 2L PL figure
+  none. KRX261003 (1L) reads I(LA)/I(E2g+A1g) 13.2 %, where 13 % is a 2L
+  limit; its value has read ~13.4 % in every version, so the line is what
+  changed, not the number.
+- **New doc, docs/QC_Report_Spec.md**: the customer spec, what the figure
+  shows, how each value is computed, the ratio rule and the title rule.
+- **The PL quality figure's title no longer lists its extra cleaning**
+  ("excludes FWHM <= 5 and widest 5% per peak, unlike the summary table"). The
+  cleaning itself is unchanged (`PL_CLEANING`). No numbers move.
+- **A sample is titled by its folder name without the wafer ID**
+  (`sample_scanner.sample_title`): `KRX261001_HADH82_2L` -> `KRX261001_2L`,
+  `KRX261005_VM2610012_MoS2` -> `KRX261005_MoS2`. Only a middle token that
+  looks like a wafer ID (letters then digits: HADH82, VABD42, VM2610012) is
+  dropped; first and last tokens are kept, and a folder without one keeps its
+  name. The title also names the saved report files.
+
 
 ### QC Report
 

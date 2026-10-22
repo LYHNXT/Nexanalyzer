@@ -353,6 +353,17 @@ def peak_is_measured(peak, fit: FitResult) -> bool:
     return peak_intensity(peak) >= MEASURED_SNR * fit_noise(fit)
 
 
+#: Ratios formed from every spectrum, measured or not (v5.32.0): the report
+#: shows 25 per region. LA and 2LA are present on every WSe2 film, but on a
+#: weak region LA sits just under 3x the noise and the gate kept only its
+#: strongest few -- KRX261001 point 7 read 9.7 % against ~8 % elsewhere from 5
+#: of 25 spectra. With every spectrum the region medians barely move where the
+#: signal is good. B2g/E2g+A1g too: its width ends on the cap in nearly every
+#: spectrum, so the gate kept 3-19 of 25 on a 2L film. On a monolayer B2g is
+#: absent; a 1L report hides its panels (peak_quality.BILAYER_ONLY_PEAKS)
+#: rather than show a bilayer signal formed from noise fits.
+RATIO_FROM_EVERY_SPECTRUM = frozenset({("LA", "E2g+A1g"), ("2LA", "E2g+A1g"), ("B2g", "E2g+A1g")})
+
 RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (
     ("LA", "E2g+A1g"), ("2LA", "E2g+A1g"), ("C", "LB"), ("B2g", "E2g+A1g"),
 )
@@ -412,13 +423,16 @@ def compute_peak_intensity_ratio(
 
     Points missing either peak (or with a zero denominator) are skipped, and so
     are points where either peak is not measured (`peak_is_measured`, v5.23.0):
-    on a fit limit, or under 3x the fit's noise. `n` counts the points used.
+    on a fit limit, or under 3x the fit's noise -- except for the pairs in
+    `RATIO_FROM_EVERY_SPECTRUM` (v5.32.0), formed from every spectrum that has
+    both peaks. `n` counts the points used.
     Returns (median, mad, n), or None if no point has both peaks measured.
     """
+    every = (numerator_label, denominator_label) in RATIO_FROM_EVERY_SPECTRUM
     ratios = []
     for fit_result in fit_results:
         intensities = {peak.label: peak_intensity(peak) for peak in fit_result.fitted_peaks
-                       if peak_is_measured(peak, fit_result)}
+                       if every or peak_is_measured(peak, fit_result)}
         numerator = intensities.get(numerator_label)
         denominator = intensities.get(denominator_label)
         if numerator is not None and denominator:

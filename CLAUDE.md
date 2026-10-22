@@ -73,16 +73,26 @@ The full reasoning is in the
   metric), `C/LB` and `B2g/E2g+A1g` (restored in v5.25.0); only LA has a spec line. The
   figure skips a ratio whose peaks a preset does not fit, as the table already does. The quality figure and the QC Report's summary
   table both read it; don't write the pair out again.
-- **Spec lines are drawn and never evaluated, and there are only four.**
-  `peak_quality` carries Raman's `E2g+A1g` FWHM = 7, `B2g` centre = 308,
-  `LA/E2g+A1g` = 0.13, and PL's Exciton/Trion FWHM = 40 (35 until v5.31.0).
+- **Spec lines are drawn and never evaluated, and there are only three**
+  (red dashed since v5.32.0). `peak_quality` carries Raman's `E2g+A1g` FWHM =
+  7 and `LA/E2g+A1g` = 0.13 (drawn as 13 %), and PL's Raw FWHM = 40 (on
+  Exciton/Trion at 35 until v5.31.0, at 40 in v5.31.0; the PL spec is judged on
+  the Raw spectrum since v5.32.0). The `B2g` centre line at 308 was removed in v5.32.0:
+  "~308" is a presence criterion, stated in the title. A line is drawn only
+  on a report of the layer whose criteria include it (`LAYER_SPEC_LINES`):
+  FWHM 7 and LA 13 % on Raman 2L, Raw FWHM 40 on PL 1L -- a 1L Raman figure
+  has none, as Samsung's quote 20261009W001 §6.5-6.6 lists them. MoS2 adds two
+  *nominal* values, grey dashed and "~" in the title (`MOS2_SPEC`,
+  `spec_nominal`): |E2g-A1g| ~20 cm-1 and Raw FWHM ~40 nm; the quote writes
+  both as "<=", the report states them as targets by Nexstrom's choice.
   The first three are inherited literals from the wafer-comparison scripts;
   40 and the title's spec lines come from the customer QC spec
   (`peak_quality.CUSTOMER_SPEC`), not preset data. The quality figures'
-  titles state each customer-spec value beside its limit -- value and limit,
-  **no verdict**. Uniformity there is the CV of the 9 region medians, not the
-  panels' pooled Robust CV; "present" is above 3x noise, not
-  `peak_is_measured` (B2g's width always ends on its cap). **PL has no
+  titles state each customer-spec value beside its limit -- value and limit
+  only, **no verdict and no other detail**. Uniformity is the CV of the 9
+  region medians, and each panel's legend states the same number ("Uniformity
+  = x %", v5.32.0; the pooled Robust CV is gone), so title and panels agree.
+  Ratio panels are drawn in percent. **PL has no
   centre spec and no ratio spec** — the ancestor gates its only PL reference
   line on the FWHM panel, and the preset's 755/780 nm are *fit-initialisation*
   guesses. Promoting those to `spec=` would invent a tolerance nobody measured.
@@ -107,10 +117,18 @@ The full reasoning is in the
   `max_nfev = max_iterations * (variables + 1)` -- iterations, as its name says
   and as lmfit's own default scales it; passing it straight through gave an
   8-peak fit 1/33 of its budget and a fifth of real WSe2 spectra stopped on it.
-- **A ratio is formed only from measured peaks.** `peak_metrics.peak_is_measured`
-  (not `FittedPeak.on_limit`, and at least 3x the fit's residual noise) gates
-  both `compute_peak_intensity_ratio` and the quality figure's ratio panels; a
-  new ratio surface must use it too, or the table and figure disagree. Multiple
+- **A ratio is formed only from measured peaks -- except LA, 2LA and B2g.**
+  `peak_metrics.peak_is_measured` (not `FittedPeak.on_limit`, and at least 3x
+  the fit's residual noise) gates both `compute_peak_intensity_ratio` and the
+  quality figure's ratio panels; a new ratio surface must use it too, or the
+  table and figure disagree. The pairs in `RATIO_FROM_EVERY_SPECTRUM`
+  (LA, 2LA and B2g over E2g+A1g, v5.32.0) are formed from every spectrum, then
+  a wafer-wide and the region's IQR fence drop only broken fits (most regions
+  keep 23-25 of 25): the gate kept only the strongest LA on weak regions and biased them
+  high, and dropped most B2g, whose width ends on its cap. A 1L figure hides
+  B2g's panels, so no bilayer ratio from noise fits is shown on a monolayer.
+  Only C/LB is still gated.
+  The criteria and rules are in [docs/QC_Report_Spec.md](docs/QC_Report_Spec.md). Multiple
   starts (`TechniquePreset.fit_starts`) are opt-in per preset so the golden fit,
   whose frozen preset uses one start, never moves with them.
 - **The preset owns position and width; the data owns intensity.** `fit_voigt_peaks()`
@@ -198,6 +216,8 @@ The full reasoning is in the
 ## Doc trust levels
 
 - [docs/Summary.md](docs/Summary.md) — current.
+- [docs/QC_Report_Spec.md](docs/QC_Report_Spec.md) — current as of v5.32.0:
+  the customer spec and how the QC Report's stats figures state it.
 - [docs/Runcard_Matching.md](docs/Runcard_Matching.md) — current as of v5.7.0; its
   validation numbers were measured on HA1P01 on 2026-09-28.
 - [docs/Fitting_Algo.md](docs/Fitting_Algo.md) — §1–§4 verified against the code at

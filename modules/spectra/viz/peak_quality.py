@@ -15,12 +15,16 @@ marker statistic travelling together so a caller cannot pair Raman's panels
 with PL's cleaning. `results_excel.TechniqueResults` made the same choice for
 the workbook; this is that pattern applied to the figure.
 
-**The spec lines.** Grey horizontal references, drawn and never evaluated —
-this figure reports, it does not judge. They are inherited literals, not preset
-data, and there are only four in the whole lineage:
+**The spec lines.** Red dashed horizontal references (grey solid until
+v5.32.0), drawn and never evaluated — this figure reports, it does not judge.
+They are literals, not preset data, and there are only three:
 
-    Raman  E2g+A1g FWHM = 7      B2g centre = 308     LA/E2g+A1g = 0.13
-    PL     Exciton & Trion FWHM = 40   (35 until v5.31.0; 40 is the customer QC spec)
+    Raman  E2g+A1g FWHM = 7      LA/E2g+A1g = 0.13 (drawn as 13 %)
+    PL     Raw FWHM = 40   (the customer spec, judged on the Raw spectrum since v5.32.0;
+           on Exciton & Trion at 35 until v5.31.0)
+
+The B2g centre line at 308 was removed in v5.32.0: the customer spec's "~308"
+is a presence criterion, which the title states.
 
 There is deliberately **no PL centre spec and no PL ratio spec**. The ancestor
 gates its only PL reference line on `if col == "FWHM"`, so the centre panels
@@ -36,18 +40,15 @@ fits?), and that decision is not encoded here.
 
 **The customer QC spec under the title (v5.31.0).** A WSe2 figure states the
 summarized value of each criterion of the customer spec (`CUSTOMER_SPEC`)
-beside its limit -- value and limit, never a verdict. The layer criteria follow
-the report's reference layer: Raman 1L, E2g+A1g present near 250 cm-1; Raman
-2L, B2g present near 308, E2g+A1g FWHM < 7, I(LA)/I(E2g+A1g) < 13 %; PL 1L,
-Exciton FWHM <= 40 nm. Uniformity, for every layer, is the coefficient of
-variation (sample std / mean) of the *region medians* of the main peak's
-position and FWHM (E2g+A1g, Exciton), so scatter within a region does not count
-as wafer non-uniformity; the panels' Robust CV, over all pooled points, is a
-different number. Every value comes from the cleaned records the panels draw,
-so title and panels cannot disagree. "Present" counts spectra whose peak stands
-above MEASURED_SNR x the fit's noise -- the signal half of `peak_is_measured`
-only, since B2g's width ends on its cap in nearly every WSe2 spectrum and the
-full test would call it absent.
+beside its limit -- value and limit only, never a verdict or other detail
+(v5.32.0). The layer criteria follow the report's reference layer: Raman 1L,
+E2g+A1g position (~250 cm-1); Raman 2L, B2g position (~308), E2g+A1g FWHM < 7,
+I(LA)/I(E2g+A1g) < 13 %; PL 1L, Exciton FWHM <= 40 nm. Uniformity, for every
+layer, is the coefficient of variation (sample std / mean) of the *region
+medians* of the main peak's position and FWHM (E2g+A1g, Exciton), so scatter
+within a region does not count as wafer non-uniformity; the panels' Robust CV,
+over all pooled points, is a different number. Every value comes from the
+cleaned records the panels draw, so title and panels cannot disagree.
 
 **Cleaning differs by technique, on purpose.** Raman takes the same 1.5x IQR
 cut within each position that `peak_metrics.aggregate_fit_results` takes, so
@@ -65,6 +66,7 @@ mark itself and silently moves every point on the figure.
 """
 
 import io
+import dataclasses
 from dataclasses import dataclass
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple, Union
 
@@ -80,10 +82,9 @@ from matplotlib import gridspec  # noqa: E402
 
 from ..models.peak import FitResult  # noqa: E402
 from ..processing.peak_metrics import (  # noqa: E402
-    MEASURED_SNR,
     NEAR_ZERO_FRACTION,
     RAMAN_RATIO_PAIRS,
-    fit_noise,
+    RATIO_FROM_EVERY_SPECTRUM,
     iqr_mask,
     peak_intensity,
     peak_is_measured,
@@ -123,6 +124,9 @@ class PeakPanel:
     ylabel: str
     caption: str
     spec: Optional[float] = None
+    #: True draws the spec as a nominal value ("~x", grey dashed) rather than a
+    #: limit (red dashed) -- MoS2's targets, v5.32.0.
+    spec_nominal: bool = False
 
 
 @dataclass(frozen=True)
@@ -134,6 +138,7 @@ class RatioPanel:
     ylabel: str
     caption: str
     spec: Optional[float] = None
+    spec_nominal: bool = False
 
 
 Panel = Union[PeakPanel, RatioPanel]
@@ -232,7 +237,9 @@ PANEL_COLUMNS: PanelColumns = (
     ) + tuple(p for p in _raman_ratio_panels() if (p.numerator, p.denominator) in _UNDER_FWHM)),
     ("Peak Centers", (
         PeakPanel("E2g+A1g", "center", "Raman shift (cm⁻¹)", "E₂g + A₁g center"),
-        PeakPanel("B2g", "center", "Raman shift (cm⁻¹)", "B₂g center", spec=308.0),
+        # No spec line since v5.32.0: the customer spec's "~308" is a presence
+        # criterion, stated in the title, not a limit to plot against.
+        PeakPanel("B2g", "center", "Raman shift (cm⁻¹)", "B₂g center"),
     )),
     ("Diagnostic Ratios", tuple(p for p in _raman_ratio_panels()
                                 if (p.numerator, p.denominator) not in _UNDER_FWHM)),
@@ -260,11 +267,16 @@ RAW_COLUMN = ("Raw Spectrum", (
     PeakPanel(RAW_LABEL, "center", "Wavelength (nm)", "Raw center"),
 ))
 PL_PANEL_COLUMNS: PanelColumns = (
-    RAW_COLUMN,
+    # The customer PL spec is judged on the Raw spectrum (v5.32.0), so its 40 nm
+    # line sits on Raw FWHM and nowhere else. RAW_COLUMN itself carries no line:
+    # MoS2's figure prepends it, and MoS2 has no customer spec.
+    (RAW_COLUMN[0], (
+        PeakPanel(RAW_LABEL, "fwhm", "FWHM (nm)", "Raw FWHM", spec=40.0),
+        RAW_COLUMN[1][1],
+    )),
     ("FWHM", (
-        # 40 nm is the customer QC spec (v5.31.0); the inherited line was 35.
-        PeakPanel("Exciton", "fwhm", "FWHM (nm)", "Exciton", spec=40.0),
-        PeakPanel("Trion", "fwhm", "FWHM (nm)", "Trion", spec=40.0),
+        PeakPanel("Exciton", "fwhm", "FWHM (nm)", "Exciton"),
+        PeakPanel("Trion", "fwhm", "FWHM (nm)", "Trion"),
     )),
     ("Peak Centers", (
         PeakPanel("Exciton", "center", "Wavelength (nm)", "Exciton center"),
@@ -384,13 +396,58 @@ CUSTOMER_SPEC = {
         "fwhm_max": 7.0,
         "la_ratio_max": 0.13,
     },
+    # PL is judged on the Raw spectrum (each spectrum's own maximum and
+    # half-height width, no fit), v5.32.0; Exciton marks the material as WSe2.
     "PL": {
-        "main": "Exciton",
+        "main": RAW_LABEL,
+        "material_peak": "Exciton",
         "position_cv_max": 1.5,
         "fwhm_cv_max": 25.0,
         "fwhm_max": 40.0,
     },
 }
+
+#: Peaks a monolayer does not have: B2g is the bilayer mode (v5.32.0).
+BILAYER_ONLY_PEAKS = frozenset({"B2g"})
+
+
+def _drop_bilayer_panels(columns: PanelColumns) -> PanelColumns:
+    """`columns` without B2g's panels -- its centre and the bilayer ratio -- for a 1L report (v5.32.0).
+
+    On a monolayer B2g is absent; its centre panel plots where the fit parked a
+    component on noise. A column left with no panels is dropped.
+    """
+    out = []
+    for title, panels in columns:
+        kept = tuple(p for p in panels if not (
+            {p.numerator, p.denominator} & BILAYER_ONLY_PEAKS if isinstance(p, RatioPanel)
+            else p.peak in BILAYER_ONLY_PEAKS))
+        if kept:
+            out.append((title, kept))
+    return tuple(out)
+
+
+#: Which spec lines each layer's criteria draw (v5.32.0), as the quote
+#: (20261009W001 §6.5-6.9) lists them: FWHM < 7 and LA < 13 % are 2L WSe2
+#: criteria (1L WSe2 Raman has only "E2g & A1g present ~250"), Raw FWHM <=
+#: 40 nm is 1L PL. A line is drawn only on a report of that layer -- as the
+#: title states only that layer's criteria. Keyed by (technique, layer);
+#: values are panel captions.
+LAYER_SPEC_LINES = {
+    ("Raman", "2L"): frozenset({"E₂g + A₁g", "Defect ratio"}),
+    ("PL", "1L"): frozenset({"Raw FWHM"}),
+}
+
+
+def _layer_spec_lines(columns: PanelColumns, technique: str, layer: str) -> PanelColumns:
+    """`columns` with every spec line removed that the layer's criteria do not include."""
+    keep = LAYER_SPEC_LINES.get((technique, layer), frozenset())
+    return tuple(
+        (title, tuple(p if p.spec is None or p.caption in keep else dataclasses.replace(p, spec=None)
+                      for p in panels))
+        for title, panels in columns
+    )
+
 
 RAMAN_QUALITY = QualityFigureSpec("Raman", PANEL_COLUMNS, RAMAN_CLEANING, "mean")
 PL_QUALITY = QualityFigureSpec("PL", PL_PANEL_COLUMNS, PL_CLEANING, "median")
@@ -411,10 +468,6 @@ class _PeakRecord(NamedTuple):
     fwhm: float
     intensity: float
     measured: bool = True    # peak_metrics.peak_is_measured; ratios use only measured peaks
-    # The signal half of that test alone (>= MEASURED_SNR x the fit's noise):
-    # the customer spec's "present". A peak whose width always ends on its cap
-    # (B2g) is present without being measured.
-    above_noise: bool = True
 
 
 def _records(fits_by_point: Sequence[Tuple[int, FitResult]]) -> List[_PeakRecord]:
@@ -430,7 +483,6 @@ def _records(fits_by_point: Sequence[Tuple[int, FitResult]]) -> List[_PeakRecord
                 fwhm=peak.width_fwhm,
                 intensity=peak_intensity(peak),
                 measured=peak_is_measured(peak, fit),
-                above_noise=peak_intensity(peak) >= MEASURED_SNR * fit_noise(fit),
             ))
     return out
 
@@ -496,12 +548,14 @@ def _ratio_values(records: Sequence[_PeakRecord], panel: RatioPanel) -> Dict[int
     Per spectrum first, never mean(numerator)/mean(denominator): only the
     per-spectrum form has a spread that means anything.
     """
+    every = (panel.numerator, panel.denominator) in RATIO_FROM_EVERY_SPECTRUM
     by_spectrum: Dict[int, Tuple[int, Dict[str, float]]] = {}
     for record in records:
         point, intensities = by_spectrum.setdefault(record.spectrum, (record.point, {}))
         # Same rule as the summary table's ratio (peak_metrics.peak_is_measured):
-        # a peak on a fit limit or under 3x the noise forms no ratio.
-        if record.measured:
+        # a peak on a fit limit or under 3x the noise forms no ratio -- except
+        # for RATIO_FROM_EVERY_SPECTRUM (v5.32.0), formed from every spectrum.
+        if every or record.measured:
             intensities[record.label] = record.intensity
 
     out: Dict[int, list] = {}
@@ -510,7 +564,27 @@ def _ratio_values(records: Sequence[_PeakRecord], panel: RatioPanel) -> Dict[int
         denominator = intensities.get(panel.denominator)
         if numerator is not None and denominator:
             out.setdefault(point, []).append(numerator / denominator)
-    return {p: np.asarray(v, float) for p, v in out.items()}
+    values = {p: np.asarray(v, float) for p, v in out.items()}
+    if every:
+        values = _wafer_fence(values)
+    return values
+
+
+def _wafer_fence(by_point: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
+    """Drop ratios outside the 1.5x IQR fence of the whole wafer (v5.32.0).
+
+    A ratio formed from every spectrum can come from a weak spectrum whose
+    region is itself spread wide, so the per-region fence keeps it (KRX261003
+    point 5: 20 % from a spectrum at half the usual E2g+A1g intensity, against
+    8-16 % in its region and a 19.7 % wafer fence). The per-region fence still
+    applies after this one, where the panel draws.
+    """
+    pooled = np.concatenate([v for v in by_point.values() if v.size]) if by_point else np.array([])
+    if pooled.size < 4:
+        return by_point
+    q1, q3 = np.percentile(pooled, [25, 75])
+    lo, hi = q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1)
+    return {p: v[(v >= lo) & (v <= hi)] for p, v in by_point.items()}
 
 
 def robust_cv(values) -> float:
@@ -547,19 +621,19 @@ def _pooled_median(by_point: Dict[int, np.ndarray], per_position_iqr: bool) -> f
     return float(np.median(pooled)) if pooled else float("nan")
 
 
-def spec_summary_lines(records: Sequence[_PeakRecord], all_records: Sequence[_PeakRecord],
-                       n_spectra: int, technique: str, layer: Optional[str],
+def spec_summary_lines(records: Sequence[_PeakRecord], technique: str, layer: Optional[str],
                        per_position_iqr: bool) -> List[str]:
-    """The customer-spec lines under a WSe2 figure's suptitle; empty for another material.
+    """The customer-spec lines under a WSe2 or MoS2 figure's suptitle; empty for another material.
 
     `records` are the cleaned records the panels draw, so every value here is
-    one a panel shows; `all_records` are the uncleaned ones, used only to count
-    the spectra a peak is present in -- above MEASURED_SNR x the fit's noise,
-    whether or not its width ended on the cap.
+    one a panel shows. Each criterion is its value and its limit, nothing else.
     """
+    labels = {r.label for r in records}
+    if is_mos2(labels, technique):
+        return _mos2_summary_lines(records, technique, layer, per_position_iqr)
     spec = CUSTOMER_SPEC.get(technique)
     main = spec["main"] if spec else None
-    if not spec or not any(r.label == main for r in records):
+    if not spec or main not in labels or spec.get("material_peak", main) not in labels:
         return []
 
     def values(label, metric):
@@ -568,50 +642,139 @@ def spec_summary_lines(records: Sequence[_PeakRecord], all_records: Sequence[_Pe
     def median(label, metric):
         return _pooled_median(values(label, metric), per_position_iqr)
 
-    def present(label):
-        return len({r.spectrum for r in all_records if r.label == label and r.above_noise})
-
     unit = "cm⁻¹" if technique == "Raman" else "nm"
     criteria = []
     if technique == "Raman" and layer == "1L":
-        criteria.append(f"E₂g+A₁g at {median('E2g+A1g', 'center'):.1f} {unit}, above {MEASURED_SNR:g}× noise in "
-                        f"{present('E2g+A1g')}/{n_spectra} spectra (spec: present, ~{spec['near']['E2g+A1g']:g})")
+        # Quote §6.5: the only 1L WSe2 Raman criterion.
+        criteria.append(f"E₂g+A₁g {median('E2g+A1g', 'center'):.2f} {unit} (spec ~{spec['near']['E2g+A1g']:g})")
     elif technique == "Raman" and layer == "2L":
         b2g = median("B2g", "center")
-        b2g_text = f"B₂g at {b2g:.1f} {unit}" if np.isfinite(b2g) else "B₂g"
-        criteria.append(f"{b2g_text}, above {MEASURED_SNR:g}× noise in {present('B2g')}/{n_spectra} spectra "
-                        f"(spec: present, ~{spec['near']['B2g']:g})")
+        if np.isfinite(b2g):
+            criteria.append(f"B₂g {b2g:.2f} {unit} (spec ~{spec['near']['B2g']:g})")
         criteria.append(f"E₂g+A₁g FWHM {median('E2g+A1g', 'fwhm'):.2f} {unit} (spec < {spec['fwhm_max']:g})")
-        ratio = _pooled_median(_ratio_values(records, RatioPanel("LA", "E2g+A1g", "", "")),
-                               per_position_iqr)
+        la_panel = RatioPanel("LA", "E2g+A1g", "", "")
+        ratio = _pooled_median(_ratio_values(records, la_panel), per_position_iqr)
         if np.isfinite(ratio):
             criteria.append(f"I(LA)/I(E₂g+A₁g) {ratio * 100:.1f} % (spec < {spec['la_ratio_max'] * 100:g} %)")
     elif technique == "PL" and layer == "1L":
-        criteria.append(f"Exciton FWHM {median('Exciton', 'fwhm'):.1f} {unit} (spec ≤ {spec['fwhm_max']:g})")
+        criteria.append(f"Raw FWHM {median(RAW_LABEL, 'fwhm'):.2f} {unit} (spec ≤ {spec['fwhm_max']:g})")
 
     lines = [f"{layer} spec:  " + "   ·   ".join(criteria)] if criteria else []
     centres = values(main, "center")
     lines.append(
-        f"Uniformity (CV of {len(_region_values(centres, per_position_iqr))} region medians):  "
-        f"{'E₂g+A₁g' if main == 'E2g+A1g' else main} position "
-        f"{region_median_cv(centres, per_position_iqr):.2f} % (spec ≤ {spec['position_cv_max']:g} %)   ·   "
-        f"FWHM {region_median_cv(values(main, 'fwhm'), per_position_iqr):.1f} % "
+        f"Uniformity:  {'E₂g+A₁g' if main == 'E2g+A1g' else main} position "
+        f"{_pct(region_median_cv(centres, per_position_iqr))} (spec ≤ {spec['position_cv_max']:g} %)   ·   "
+        f"FWHM {_pct(region_median_cv(values(main, 'fwhm'), per_position_iqr))} "
         f"(spec ≤ {spec['fwhm_cv_max']:g} %)"
     )
     return lines
 
 
+#: The MoS2 customer spec (quote 20261009W001 §6.4, 6.7, 6.9, 6.10; v5.32.0):
+#: 1L Raman |E2g - A1g| 20 cm-1, 1L PL FWHM 40 nm (judged on Raw, as WSe2's),
+#: and the same uniformity limits as WSe2. The quote writes the first two as
+#: "<="; the report states them as nominal values ("~20", "~40", grey dashed)
+#: at Nexstrom's choice (2026-10-22). Uniformity stays a limit.
+MOS2_SPEC = {
+    "Raman": {"delta_max": 20.0, "position_cv_max": 0.5, "fwhm_cv_max": 20.0},
+    "PL": {"fwhm_max": 40.0, "position_cv_max": 1.5, "fwhm_cv_max": 25.0},
+}
+#: The Δω panel's label, as the MoS2 Raman figure names it.
+DELTA_LABEL = "Δω (A1g − E2g)"
+
+
+def is_mos2(labels, technique: str) -> bool:
+    """MoS2 by its own peaks: E2g and A1g fitted apart (Raman), A0 (PL)."""
+    return {"E2g", "A1g"} <= set(labels) if technique == "Raman" else "A0" in labels
+
+
+def delta_omega_by_point(records: Sequence[_PeakRecord]) -> Dict[int, np.ndarray]:
+    """A1g centre - E2g centre per spectrum, collected by position."""
+    by_spectrum: Dict[int, Tuple[int, Dict[str, float]]] = {}
+    for r in records:
+        by_spectrum.setdefault(r.spectrum, (r.point, {}))[1][r.label] = r.center
+    out: Dict[int, list] = {}
+    for point, centres in by_spectrum.values():
+        if "A1g" in centres and "E2g" in centres:
+            out.setdefault(point, []).append(centres["A1g"] - centres["E2g"])
+    return {p: np.asarray(v, float) for p, v in out.items()}
+
+
+def _mos2_summary_lines(records, technique, layer, per_position_iqr) -> List[str]:
+    spec = MOS2_SPEC[technique]
+
+    def values(label, metric):
+        return _peak_values(records, PeakPanel(label, metric, "", ""))
+
+    def cv(label, metric):
+        return _pct(region_median_cv(values(label, metric), per_position_iqr))
+
+    lines = []
+    if technique == "Raman":
+        delta = _pooled_median(delta_omega_by_point(records), per_position_iqr)
+        if layer == "1L" and np.isfinite(delta):
+            lines.append(f"1L spec:  |E₂g−A₁g| {delta:.2f} cm⁻¹ (spec ~{spec['delta_max']:g})")
+        lines.append(
+            f"Uniformity:  position E₂g {cv('E2g', 'center')} · A₁g {cv('A1g', 'center')} "
+            f"(spec ≤ {spec['position_cv_max']:g} %)   ·   FWHM E₂g {cv('E2g', 'fwhm')} · A₁g {cv('A1g', 'fwhm')} "
+            f"(spec ≤ {spec['fwhm_cv_max']:g} %)")
+    elif any(r.label == RAW_LABEL for r in records):
+        if layer == "1L":
+            raw_fwhm = _pooled_median(values(RAW_LABEL, "fwhm"), per_position_iqr)
+            lines.append(f"1L spec:  Raw FWHM {raw_fwhm:.2f} nm (spec ~{spec['fwhm_max']:g})")
+        lines.append(
+            f"Uniformity:  Raw position {cv(RAW_LABEL, 'center')} (spec ≤ {spec['position_cv_max']:g} %)   ·   "
+            f"FWHM {cv(RAW_LABEL, 'fwhm')} (spec ≤ {spec['fwhm_cv_max']:g} %)")
+    return lines
+
+
+#: The MoS2 PL peaks the figure shows (v5.32.0): the A exciton and A- trion.
+#: B (~632 nm) is still fitted -- the fit needs it -- but not drawn.
+MOS2_PL_SHOWN = frozenset({"A0", "A-"})
+
+
+def _mos2_pl_panels(columns: PanelColumns) -> PanelColumns:
+    """MoS2 PL columns with only the Raw, A0 and A- panels; a column left empty is dropped."""
+    out = []
+    for title, panels in columns:
+        kept = tuple(p for p in panels if isinstance(p, RatioPanel) or p.peak in MOS2_PL_SHOWN | {RAW_LABEL})
+        if kept:
+            out.append((title, kept))
+    return tuple(out)
+
+
+def _mos2_spec_lines(columns: PanelColumns, technique: str, layer: Optional[str]) -> PanelColumns:
+    """MoS2 1L PL: the 40 nm line on Raw FWHM (RAW_COLUMN itself carries none)."""
+    if technique != "PL" or layer != "1L":
+        return columns
+    return tuple(
+        (title, tuple(dataclasses.replace(p, spec=MOS2_SPEC["PL"]["fwhm_max"], spec_nominal=True)
+                      if isinstance(p, PeakPanel) and p.peak == RAW_LABEL and p.metric == "fwhm" else p
+                      for p in panels))
+        for title, panels in columns
+    )
+
+
+def _pct(value: float) -> str:
+    """A percentage as the title and the legends both print it."""
+    return f"{value:.2f} %" if value < 10 else f"{value:.1f} %"
+
+
 def _draw_panel(ax, by_point: Dict[int, np.ndarray], positions: Sequence[int],
                 panel: Panel, is_bottom: bool, rng: np.random.Generator,
                 statistic: str, per_position_iqr: bool) -> None:
-    pooled = []
+    # Ratios are drawn in percent (v5.32.0), as the customer spec states them.
+    is_ratio = isinstance(panel, RatioPanel)
+    scale = 100.0 if is_ratio else 1.0
+    pooled, region_medians = [], []
     for index, position in enumerate(positions):
         values = by_point.get(position)
         if values is None or values.size == 0:
             continue
-        clean = values[iqr_mask(values)] if per_position_iqr else values
+        clean = (values[iqr_mask(values)] if per_position_iqr else values) * scale
         if clean.size == 0:
             continue
+        region_medians.append(float(np.median(clean)))
         colour = POSITION_COLORS[index % len(POSITION_COLORS)]
         jitter = position + rng.uniform(-_JITTER, _JITTER, size=clean.size)
         ax.scatter(jitter, clean, color=colour, s=18, alpha=0.5,
@@ -627,13 +790,14 @@ def _draw_panel(ax, by_point: Dict[int, np.ndarray], positions: Sequence[int],
     if pooled:
         median = float(np.median(pooled))
         ax.axhline(median, color="black", linestyle="--", linewidth=1.3,
-                   alpha=0.8, zorder=2, label=f"Median = {median:.2f}")
-        # Robust CV under the median (v5.28.0): 1.4826 * MAD / |median|, the
-        # normal-equivalent spread of the same pooled points the line is drawn from.
-        cv = robust_cv(pooled)
-        if np.isfinite(cv):
-            ax.plot([], [], linestyle="none",
-                    label=f"Robust CV = {cv:.2f}%" if cv < 10 else f"Robust CV = {cv:.1f}%")
+                   alpha=0.8, zorder=2,
+                   label=f"Median = {median:.1f} %" if is_ratio else f"Median = {median:.2f}")
+        # Uniformity under the median (v5.32.0, was the pooled Robust CV): the
+        # CV of the region medians, the same number the title's "Uniformity"
+        # states (`region_median_cv`), so title and panel cannot disagree.
+        if len(region_medians) >= 2 and np.mean(region_medians) != 0:
+            cv = float(np.std(region_medians, ddof=1) / abs(np.mean(region_medians)) * 100.0)
+            ax.plot([], [], linestyle="none", label=f"Uniformity = {_pct(cv)}")
         ax.legend(loc="upper right", fontsize=_FS_REFTEXT, framealpha=0.85)
     else:
         ax.text(0.5, 0.5, f"no {getattr(panel, 'peak', 'data')} fits",
@@ -641,17 +805,21 @@ def _draw_panel(ax, by_point: Dict[int, np.ndarray], positions: Sequence[int],
                 fontsize=_FS_LABEL, color="#999999")
 
     if panel.spec is not None:
-        ax.axhline(panel.spec, color="grey", linewidth=1.2, alpha=0.6, zorder=1)
+        spec = panel.spec * scale
+        # A limit is red dashed (v5.32.0, was solid grey), so it reads apart
+        # from the black dashed median; a nominal value ("~x", MoS2) grey dashed.
+        colour = "grey" if panel.spec_nominal else "red"
+        ax.axhline(spec, color=colour, linestyle="--", linewidth=1.3, alpha=0.8, zorder=1)
         # Value at the right edge in axes-fraction x, data y, so it tracks the
         # line without a second legend entry competing with the median's.
-        ax.text(1.005, panel.spec, f"{panel.spec:g}", transform=ax.get_yaxis_transform(),
-                va="center", ha="left", fontsize=_FS_REFTEXT, color="grey")
+        ax.text(1.005, spec, f"{spec:g}", transform=ax.get_yaxis_transform(),
+                va="center", ha="left", fontsize=_FS_REFTEXT, color=colour)
 
     ax.text(0.02, 0.95, panel.caption, transform=ax.transAxes, va="top", ha="left",
             fontsize=_FS_PANEL, fontweight="bold",
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.85, lw=0))
 
-    ax.set_ylabel(panel.ylabel, fontsize=_FS_LABEL)
+    ax.set_ylabel(f"{panel.ylabel} (%)" if is_ratio else panel.ylabel, fontsize=_FS_LABEL)
     ax.grid(axis="y", alpha=0.3, linestyle="--")
     ax.set_xticks(list(positions))
     ax.tick_params(axis="both", labelsize=_FS_TICK)
@@ -705,8 +873,7 @@ def build_peak_quality_figure(
     if not spec.columns:
         raise ValueError("build_peak_quality_figure needs at least one panel column")
 
-    all_records = _records(fits_by_point)
-    records = _clean(all_records, spec.cleaning)
+    records = _clean(_records(fits_by_point), spec.cleaning)
     raw = [_PeakRecord(point=point, spectrum=-1 - i, label=RAW_LABEL, center=float(center),
                        fwhm=float(fwhm), intensity=1.0)
            for i, (point, center, fwhm) in enumerate(raw_by_point or ()) if fwhm is not None]
@@ -720,11 +887,19 @@ def build_peak_quality_figure(
     # result.
     labels = [peak.label for _, fit in fits_by_point for peak in fit.fitted_peaks]
     columns = _drop_unfitted_ratios(spec.columns_for(labels), set(labels))
+    if layer == "1L":
+        columns = _drop_bilayer_panels(columns)
+    if layer is not None:
+        columns = _layer_spec_lines(columns, spec.technique, layer)
     has_raw_column = any(title == RAW_COLUMN[0] for title, _ in columns)
     if raw and not has_raw_column and spec.technique == "PL":
         columns = (RAW_COLUMN,) + tuple(columns)
     elif not raw and has_raw_column:
         columns = tuple(c for c in columns if c[0] != RAW_COLUMN[0])
+    if is_mos2(labels, spec.technique):
+        columns = _mos2_spec_lines(columns, spec.technique, layer)
+        if spec.technique == "PL":
+            columns = _mos2_pl_panels(columns)
 
     # Positions come from the fits, not from the surviving records: a position
     # whose every fit was cleaned away keeps its tick and shows as a gap, which
@@ -740,9 +915,9 @@ def build_peak_quality_figure(
     try:
         # Lower top edge when the customer-spec lines sit under the suptitle,
         # so they do not crowd the column titles.
-        has_summary = any(r.label == CUSTOMER_SPEC.get(spec.technique, {}).get("main") for r in records)
+        summary = spec_summary_lines(records, spec.technique, layer, spec.cleaning.per_position_iqr)
         grid = gridspec.GridSpec(n_rows, n_cols, figure=fig, hspace=0.0, wspace=0.30,
-                                 top=0.85 if has_summary else None)
+                                 top=0.85 if summary else None)
 
         for column, (title, panels) in enumerate(columns):
             top = None
@@ -771,22 +946,14 @@ def build_peak_quality_figure(
 
         per_position = spectra / len(positions) if positions else 0
         marker = "median ± std" if spec.statistic == "median" else "mean ± std"
-        # Say what the figure drops that the summary table does not, or the
-        # two disagree about n with nothing on the page to explain it.
-        cuts = []
-        if spec.cleaning.fwhm_floor is not None:
-            cuts.append(f"FWHM ≤ {spec.cleaning.fwhm_floor:g}")
-        if spec.cleaning.fwhm_top_fraction:
-            cuts.append(f"widest {spec.cleaning.fwhm_top_fraction:.0%} per peak")
-        cut_note = f"; excludes {' and '.join(cuts)}, unlike the summary table" if cuts else ""
+        # PL's extra cleaning (FWHM floor, widest 5 %) is no longer spelled out
+        # in the title (v5.32.0); PL_CLEANING documents it.
         fig.suptitle(
             f"{sample_name}  {material_name} — {spec.technique} quality analysis "
             f"({len(positions)} positions × {per_position:.0f} spectra, "
-            f"{marker} per position{cut_note})",
+            f"{marker} per position)",
             fontsize=_FS_SUPTITLE, fontweight="bold", y=1.0,
         )
-        summary = spec_summary_lines(records, all_records, spectra, spec.technique, layer,
-                                     spec.cleaning.per_position_iqr)
         if summary:
             # Between the suptitle and the column titles; bbox_inches="tight"
             # grows the canvas to take it.

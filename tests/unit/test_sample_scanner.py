@@ -119,3 +119,26 @@ class TestMappingFileNames:
 
         assert sorted(scan.raman_files) == [1, 2] and sorted(scan.pl_files) == [1, 2]
         assert not scan.ignored_files
+
+
+class TestSampleTitle:
+    """v5.32.0: the report is titled by the folder name without its wafer ID."""
+
+    @pytest.mark.parametrize("folder, title", [
+        ("KRX261001_HADH82_2L", "KRX261001_2L"),
+        ("KRX261003_VABD75_1L", "KRX261003_1L"),
+        ("KRX261005_VM2610012_MoS2", "KRX261005_MoS2"),
+        ("IMC260801_VABD42_1L", "IMC260801_1L"),
+        ("VABE14_1L", "VABE14_1L"),
+        ("VM2610020_deliver", "VM2610020_deliver"),
+        ("HADH71", "HADH71"),
+        ("QC_KRX261001", "QC_KRX261001"),
+    ])
+    def test_the_wafer_id_is_dropped_and_nothing_else(self, folder, title):
+        from modules.spectra.processing.sample_scanner import sample_title
+        assert sample_title(folder) == title
+
+    def test_the_scan_carries_the_title(self, tmp_path):
+        folder = tmp_path / "KRX261001_HADH82_2L"
+        folder.mkdir()
+        assert scan_sample_folder(str(folder)).sample_name == "KRX261001_2L"

@@ -1078,7 +1078,7 @@ if scan is not None:
                         # also drops widths under 5 nm and the widest 5 % per
                         # peak (inherited cleaning, PL_CLEANING), which this
                         # table does not, so the figure shows fewer points than
-                        # the table's n; its title says so.
+                        # the table's n (no longer spelled out in its title, v5.32.0).
                         pl_stats = aggregate_fit_results(
                             pl_pairs, relative_intensity_floor=NEAR_ZERO_FRACTION
                         ) if pl_pairs else []
