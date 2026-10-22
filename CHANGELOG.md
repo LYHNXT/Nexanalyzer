@@ -72,6 +72,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `redraw_stats.py` redraws a report's Raman/PL stats figures from its workbook
   with no refit (fit limits and noise rebuilt from the preset and χ²), and on
   KRX261001 reproduces the delivered figure byte for byte. Not part of the app.
+- **`scripts/qc_report/redraw_om.py`**: redraws a report's OM and OM-diagnostic
+  figures under a new title by re-segmenting its frames with the preset's
+  optical parameters (seconds, no spectral fit). Used to retitle the Samsung-Oct
+  and IMEC-Nov OM figures; coverage matches each workbook.
 - **The PL quality figure's title no longer lists its extra cleaning**
   ("excludes FWHM <= 5 and widest 5% per peak, unlike the summary table"). The
   cleaning itself is unchanged (`PL_CLEANING`). No numbers move.
