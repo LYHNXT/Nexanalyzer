@@ -104,8 +104,8 @@ then digits) is dropped; the first and last tokens always stay.
 
 ## Redrawing without a refit
 
-The stats figures can be redrawn from a report's workbook alone (the
-Samsung-Oct `redraw_stats.py` script): the Raman/PL sheets hold every kept
+The stats figures can be redrawn from a report's workbook alone
+(`scripts/qc_report/redraw_stats.py REPORT_DIR NEW_TITLE LAYER MATERIAL OUT_DIR`): the Raman/PL sheets hold every kept
 spectrum's centre, FWHM, intensity, R² and χ², and the fit-limit flags and noise
 are rebuilt from the preset bounds and √(χ²/N). On KRX261001 it reproduced the
 original panels exactly. The fit-grid and summary images need a refit.

@@ -62,6 +62,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   changed, not the number.
 - **New doc, docs/QC_Report_Spec.md**: the customer spec, what the figure
   shows, how each value is computed, the ratio rule and the title rule.
+
+### Scripts
+
+- **`scripts/qc_report/`**: the batch QC-report helpers used for Samsung-Oct
+  and IMEC-Nov. `run_qc_wse2.py` / `run_qc_mos2.py` drive the real QC Report
+  page per sample folder with a process pool (`--layer`, `--name`, `--suffix`);
+  `run_qc_mos2.py` also draws MoS2's Raman layout with the Δω panel.
+  `redraw_stats.py` redraws a report's Raman/PL stats figures from its workbook
+  with no refit (fit limits and noise rebuilt from the preset and χ²), and on
+  KRX261001 reproduces the delivered figure byte for byte. Not part of the app.
 - **The PL quality figure's title no longer lists its extra cleaning**
   ("excludes FWHM <= 5 and widest 5% per peak, unlike the summary table"). The
   cleaning itself is unchanged (`PL_CLEANING`). No numbers move.
