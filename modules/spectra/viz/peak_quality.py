@@ -180,6 +180,7 @@ PL_CLEANING = CleaningRule(
 #: than silently going missing from the figure while appearing in the table.
 _RAMAN_RATIO_PRESENTATION = {
     ("LA", "E2g+A1g"): ("I(LA) / I(E₂g+A₁g)", "Defect ratio", 0.13),
+    ("2LA", "E2g+A1g"): ("I(2LA) / I(E₂g+A₁g)", "Layer / resonance ratio", None),
     ("C", "LB"): ("I(C) / I(LB)", "Stacking ratio", None),
     ("B2g", "E2g+A1g"): ("I(B₂g) / I(E₂g+A₁g)", "Bilayer ratio", None),
 }
@@ -199,18 +200,25 @@ def _raman_ratio_panels(
     return tuple(panels)
 
 
+#: Ratios drawn in the FWHM column rather than the ratio column.
+_UNDER_FWHM = {("B2g", "E2g+A1g")}
+
 #: Raman's panels. Column order and titles match the inherited script so the
 #: output is recognisable to people already reading these reports.
 PANEL_COLUMNS: PanelColumns = (
+    # 2LA's FWHM panel was dropped in v5.29.0: on most VA films the width sits
+    # on its 12 cm-1 cap (it absorbs the second-order continuum), so the panel
+    # plotted the limit. Its intensity ratio is in the ratio column instead.
+    # The bilayer ratio sits under it (v5.29.0), so a WSe2_QC figure is 2 | 2 | 2.
     ("FWHM", (
         PeakPanel("E2g+A1g", "fwhm", "FWHM (cm⁻¹)", "E₂g + A₁g", spec=7.0),
-        PeakPanel("2LA", "fwhm", "FWHM (cm⁻¹)", "2LA(M)"),
-    )),
+    ) + tuple(p for p in _raman_ratio_panels() if (p.numerator, p.denominator) in _UNDER_FWHM)),
     ("Peak Centers", (
         PeakPanel("E2g+A1g", "center", "Raman shift (cm⁻¹)", "E₂g + A₁g center"),
         PeakPanel("B2g", "center", "Raman shift (cm⁻¹)", "B₂g center", spec=308.0),
     )),
-    ("Diagnostic Ratios", _raman_ratio_panels()),
+    ("Diagnostic Ratios", tuple(p for p in _raman_ratio_panels()
+                                if (p.numerator, p.denominator) not in _UNDER_FWHM)),
 )
 
 #: PL's panels. Two peaks, so the ratio column holds one panel where the others
@@ -224,7 +232,18 @@ PANEL_COLUMNS: PanelColumns = (
 #: The column titles are Raman's, not the ancestor's: the two figures are read
 #: side by side in one report, and matching headers are worth more than
 #: fidelity to strings the PL script never needed to write down.
+#: The Raw column (v5.29.0) is the spectrum's own maximum and half-height
+#: width, no fit involved -- the Raw row the PL summary table leads with -- as
+#: the MoS2 reports drew it. It replaces the Exciton/Trion ratio column, so the
+#: figure is 2 | 2 | 2. Raw values come in through `build_peak_quality_figure`'s
+#: `raw_by_point`; without them the column is left out.
+RAW_LABEL = "Raw"
+RAW_COLUMN = ("Raw Spectrum", (
+    PeakPanel(RAW_LABEL, "fwhm", "FWHM (nm)", "Raw FWHM"),
+    PeakPanel(RAW_LABEL, "center", "Wavelength (nm)", "Raw center"),
+))
 PL_PANEL_COLUMNS: PanelColumns = (
+    RAW_COLUMN,
     ("FWHM", (
         PeakPanel("Exciton", "fwhm", "FWHM (nm)", "Exciton", spec=35.0),
         PeakPanel("Trion", "fwhm", "FWHM (nm)", "Trion", spec=35.0),
@@ -232,9 +251,6 @@ PL_PANEL_COLUMNS: PanelColumns = (
     ("Peak Centers", (
         PeakPanel("Exciton", "center", "Wavelength (nm)", "Exciton center"),
         PeakPanel("Trion", "center", "Wavelength (nm)", "Trion center"),
-    )),
-    ("Diagnostic Ratios", (
-        RatioPanel("Exciton", "Trion", "I(Exciton) / I(Trion)", "Exciton / Trion"),
     )),
 )
 
@@ -317,6 +333,24 @@ class QualityFigureSpec:
         if not present:
             return self.columns
         return panels_for_labels(tuple(present), self.technique)
+
+
+def _drop_unfitted_ratios(columns: PanelColumns, present) -> PanelColumns:
+    """`columns` without the ratio panels whose peaks no fit carries (v5.29.0).
+
+    A preset that does not fit LB or C (WSe2_QC since v5.29.0) would otherwise
+    draw an empty "C / LB" panel; the summary table already omits that ratio
+    (`compute_peak_intensity_ratio` returns None), so the two keep agreeing.
+    Peak panels are left alone: an empty peak panel is a missing fit worth
+    seeing. A column left with no panels is dropped.
+    """
+    out = []
+    for title, panels in columns:
+        kept = tuple(p for p in panels
+                     if not isinstance(p, RatioPanel) or {p.numerator, p.denominator} <= present)
+        if kept:
+            out.append((title, kept))
+    return tuple(out)
 
 
 RAMAN_QUALITY = QualityFigureSpec("Raman", PANEL_COLUMNS, RAMAN_CLEANING, "mean")
@@ -513,6 +547,7 @@ def build_peak_quality_figure(
     material_name: str = "WSe₂",
     spec: QualityFigureSpec = RAMAN_QUALITY,
     dpi: int = REPORT_DPI,
+    raw_by_point: Optional[Sequence[Tuple[int, float, Optional[float]]]] = None,
 ) -> bytes:
     """
     Render one technique's quality figure and return it as PNG bytes.
@@ -529,6 +564,14 @@ def build_peak_quality_figure(
     them — so a column with fewer panels than its neighbours simply leaves its
     bottom cell empty rather than having its last panel silently dropped.
 
+    `raw_by_point` is `(position, centre, FWHM)` per spectrum from
+    `peak_metrics.raw_peak_stats` (PL). It fills the Raw column, cleaned apart
+    from the fitted peaks: in one pool the raw maximum -- taller than any single
+    component -- would become each spectrum's strongest peak and the relative
+    floor would drop weak fitted peaks the figure otherwise keeps. Without it the
+    Raw column is left out; a material whose own peaks build the columns gets it
+    prepended.
+
     Returns bytes rather than a Figure so a caller cannot leak the canvas.
     """
     if not fits_by_point:
@@ -537,6 +580,10 @@ def build_peak_quality_figure(
         raise ValueError("build_peak_quality_figure needs at least one panel column")
 
     records = _clean(_records(fits_by_point), spec.cleaning)
+    raw = [_PeakRecord(point=point, spectrum=-1 - i, label=RAW_LABEL, center=float(center),
+                       fwhm=float(fwhm), intensity=1.0)
+           for i, (point, center, fwhm) in enumerate(raw_by_point or ()) if fwhm is not None]
+    records += _clean(raw, spec.cleaning)
 
     # Resolved from the fits, not from `spec`: a material whose peaks the
     # inherited columns never name gets columns built from its own. Taken
@@ -544,9 +591,13 @@ def build_peak_quality_figure(
     # than of how well this particular sample fitted — a sample cleaned down to
     # nothing keeps its panels and shows them empty, which is the honest
     # result.
-    columns = spec.columns_for(
-        [peak.label for _, fit in fits_by_point for peak in fit.fitted_peaks]
-    )
+    labels = [peak.label for _, fit in fits_by_point for peak in fit.fitted_peaks]
+    columns = _drop_unfitted_ratios(spec.columns_for(labels), set(labels))
+    has_raw_column = any(title == RAW_COLUMN[0] for title, _ in columns)
+    if raw and not has_raw_column and spec.technique == "PL":
+        columns = (RAW_COLUMN,) + tuple(columns)
+    elif not raw and has_raw_column:
+        columns = tuple(c for c in columns if c[0] != RAW_COLUMN[0])
 
     # Positions come from the fits, not from the surviving records: a position
     # whose every fit was cleaned away keeps its tick and shows as a gap, which

@@ -171,6 +171,15 @@ class TestPageFlow:
         assert [f.point for f in frames] == list(range(1, 10))
         assert all(f.labels == ("Below 2L", "Bilayer", "Above 2L") for f in frames)
 
+    def test_a_tenth_point_is_left_out_of_the_3x3_grid(self, tmp_path):
+        """v5.29.0: HADH71/75 carry a 10th position; the report keeps 1-9."""
+        at, _scan = _generated(tmp_path, points=range(1, 11))
+        state = at.session_state["qc_report"]
+
+        assert [f.point for f in state["frames"]] == list(range(1, 10))
+        assert {point for point, _ in state["batch_result"].raman_spectra} == set(range(1, 10))
+        assert any("left out" in c.value and "10" in c.value for c in at.caption)
+
     def test_coverage_percentages_are_a_partition(self, tmp_path):
         at, _scan = _generated(tmp_path)
 

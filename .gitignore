@@ -60,6 +60,8 @@ tests/fixtures/*.txt
 # Except the golden-fit pair (HKU-20230524-2), cleared for the repo on 2026-10-09:
 # the commit/push hooks refit them, so every clone must have them.
 !tests/fixtures/golden_fit/*.txt
+# And DDAA10 RM_1..3, the WSe2_QC golden set (v5.30.0, 2026-10-22).
+!tests/fixtures/golden_fit/DDAA10/RM_[123].txt
 
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).

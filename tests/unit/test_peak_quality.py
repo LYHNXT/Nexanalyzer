@@ -30,6 +30,7 @@ from modules.spectra.viz.peak_quality import (
     QualityFigureSpec,
     RatioPanel,
     _clean,
+    _drop_unfitted_ratios,
     _peak_values,
     _raman_ratio_panels,
     _ratio_values,
@@ -80,10 +81,32 @@ def _pl_fit(exciton=200.0, trion=100.0, exciton_fwhm=30.0, trion_fwhm=50.0):
 
 class TestRamanPanelDefinitions:
     def test_the_grid_is_three_columns(self):
-        """Two peak panels per column, and one ratio panel per entry of
-        RAMAN_RATIO_PAIRS (three since v5.25.0 restored B2g/E2g+A1g)."""
+        """E2g+A1g FWHM with the bilayer ratio under it (v5.29.0; 2LA's capped
+        width dropped), two centre panels, and the other ratios -- so a preset
+        without LB/C (WSe2_QC) draws 2 | 2 | 2."""
         assert len(PANEL_COLUMNS) == 3
-        assert [len(panels) for _title, panels in PANEL_COLUMNS] == [2, 2, len(RAMAN_RATIO_PAIRS)]
+        assert [len(panels) for _title, panels in PANEL_COLUMNS] == [2, 2, len(RAMAN_RATIO_PAIRS) - 1]
+        fwhm = dict(PANEL_COLUMNS)["FWHM"]
+        assert isinstance(fwhm[1], RatioPanel) and (fwhm[1].numerator, fwhm[1].denominator) == ("B2g", "E2g+A1g")
+
+    def test_2la_is_a_layer_ratio_not_a_defect_ratio(self):
+        """2LA(M) is a two-phonon band that needs no defects: it is drawn as a
+        ratio to E2g+A1g, labelled for what it indicates, with no spec line."""
+        panel = next(
+            p for _t, panels in PANEL_COLUMNS for p in panels
+            if isinstance(p, RatioPanel) and p.numerator == "2LA"
+        )
+        assert panel.denominator == "E2g+A1g"
+        assert panel.caption == "Layer / resonance ratio"
+        assert panel.spec is None
+
+    def test_ratios_whose_peaks_were_not_fitted_are_not_drawn(self):
+        """WSe2_QC fits no LB or C: no empty C / LB panel, every other ratio kept."""
+        columns = _drop_unfitted_ratios(PANEL_COLUMNS, {"E2g+A1g", "2LA", "B2g", "LA", "2ZA(M)"})
+        ratios = {(p.numerator, p.denominator) for _title, panels in columns
+                  for p in panels if isinstance(p, RatioPanel)}
+        assert ratios == set(RAMAN_RATIO_PAIRS) - {("C", "LB")}
+        assert [len(panels) for _title, panels in columns] == [2, 2, 2]
 
     def test_column_titles_match_the_inherited_figure(self):
         assert [title for title, _ in PANEL_COLUMNS] == [
@@ -124,11 +147,11 @@ class TestRamanPanelDefinitions:
         a comment saying they had to agree — which is not a mechanism. This
         compares against `peak_metrics`, not against hardcoded strings, so it
         fails if the figure ever stops reading the constant."""
-        drawn = next(
-            panels for title, panels in PANEL_COLUMNS if title == "Diagnostic Ratios"
-        )
+        drawn = [(p.numerator, p.denominator) for _title, panels in PANEL_COLUMNS
+                 for p in panels if isinstance(p, RatioPanel)]
 
-        assert tuple((p.numerator, p.denominator) for p in drawn) == RAMAN_RATIO_PAIRS
+        # Every pair once, wherever it is drawn (the bilayer ratio sits under FWHM).
+        assert sorted(drawn) == sorted(RAMAN_RATIO_PAIRS)
 
     def test_a_ratio_added_to_the_constant_gains_a_panel(self):
         """An unlabelled pair still gets drawn, with a derived caption. The
@@ -143,17 +166,14 @@ class TestRamanPanelDefinitions:
 
 
 class TestPlPanelDefinitions:
-    def test_the_columns_match_ramans_so_the_two_read_side_by_side(self):
-        assert [title for title, _ in PL_PANEL_COLUMNS] == [
-            title for title, _ in PANEL_COLUMNS
-        ]
+    def test_raw_then_fwhm_then_centres(self):
+        """v5.29.0: the fit-free Raw column first, as the MoS2 reports drew it,
+        then the fitted peaks; the Exciton/Trion ratio column is gone."""
+        assert [title for title, _ in PL_PANEL_COLUMNS] == ["Raw Spectrum", "FWHM", "Peak Centers"]
 
-    def test_the_ratio_column_is_one_panel_short_and_that_is_deliberate(self):
-        """PL defines exactly one ratio. Filling the empty cell would mean
-        inventing a second, or putting an amplitude panel in a column titled
-        "Diagnostic Ratios"."""
+    def test_the_grid_is_two_by_three(self):
         widths = [len(panels) for _title, panels in PL_PANEL_COLUMNS]
-        assert widths == [2, 2, 1]
+        assert widths == [2, 2, 2]
 
     def test_the_only_pl_spec_is_the_thirty_five_nanometre_fwhm(self):
         """The inherited script draws exactly one PL reference line, gated on
@@ -172,20 +192,28 @@ class TestPlPanelDefinitions:
         would invent a judgment the lineage never made."""
         centres = [
             panel for _title, panels in PL_PANEL_COLUMNS for panel in panels
-            if isinstance(panel, PeakPanel) and panel.metric == "center"
+            if isinstance(panel, PeakPanel) and panel.metric == "center" and panel.peak != "Raw"
         ]
         assert len(centres) == 2
         assert all(panel.spec is None for panel in centres)
 
-    def test_the_ratio_panel_carries_no_spec(self):
-        """The ancestor's unity line is grey dotted with no legend entry and is
-        never called a spec, unlike every line it does label "(Spec)"."""
-        ratio = next(
-            panel for _title, panels in PL_PANEL_COLUMNS for panel in panels
-            if isinstance(panel, RatioPanel)
-        )
-        assert (ratio.numerator, ratio.denominator) == ("Exciton", "Trion")
-        assert ratio.spec is None
+    def test_no_pl_ratio_panel(self):
+        assert not any(isinstance(panel, RatioPanel)
+                       for _title, panels in PL_PANEL_COLUMNS for panel in panels)
+
+    def test_raw_values_fill_the_raw_column_and_without_them_it_goes(self, monkeypatch):
+        """Drawn from `raw_by_point`; a caller that passes none gets no empty column."""
+        import modules.spectra.viz.peak_quality as pq
+        seen = []
+        real = pq._draw_panel
+        monkeypatch.setattr(pq, "_draw_panel", lambda ax, by_point, *a, **k: (seen.append((a[1].caption, by_point)), real(ax, by_point, *a, **k)))
+        fits = [(1, _fit([_peak("Exciton", 760.0, 100.0, 30.0), _peak("Trion", 780.0, 40.0, 40.0)]))]
+        build_peak_quality_figure(fits, sample_name="s", spec=PL_QUALITY, raw_by_point=[(1, 765.0, 41.0)])
+        raw = dict(seen)
+        assert raw["Raw FWHM"][1].tolist() == [41.0] and raw["Raw center"][1].tolist() == [765.0]
+        seen.clear()
+        build_peak_quality_figure(fits, sample_name="s", spec=PL_QUALITY)
+        assert "Raw FWHM" not in dict(seen)
 
     def test_the_units_are_nanometres_not_wavenumbers(self):
         labels = {

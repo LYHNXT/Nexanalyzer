@@ -19,13 +19,15 @@ streamlit run app.py     # or start.bat, which also creates venv and pulls updat
 
 `.githooks/` (enable per clone: `git config core.hooksPath .githooks`) runs
 [tests/unit/test_golden_fit.py](tests/unit/test_golden_fit.py) before every
-commit and push: HKU-20230524-2's RM_1 and PL_1, fitted with a frozen copy of the
-WSe2 preset, must reproduce `tests/fixtures/golden_fit/expected.json` to 1e-5.
+commit and push two golden sets, each fitted with its own frozen preset and
+reproducing its `expected.json` to 1e-5: HKU-20230524-2's RM_1 and PL_1 (the
+WSe2 preset, `tests/fixtures/golden_fit/`) and DDAA10's RM_1..3 (WSe2_QC's
+Raman block at v5.30.0, `tests/fixtures/golden_fit/DDAA10/`).
 A failure means the parser, despike, baseline or fit changed. Preset edits don't
 trip it. Moving the numbers on purpose: `python tests/unit/test_golden_fit.py
---regenerate` in the same commit, and say so in CHANGELOG. The two `.txt`
-spectra are committed through a `.gitignore` exception — the only measurement
-data in the repo; don't widen it.
+--regenerate [SET]` in the same commit, and say so in CHANGELOG. The five `.txt`
+spectra are committed through `.gitignore` exceptions — the only measurement
+data in the repo; don't widen them further.
 
 **CI repeats this on every pull request** (`.github/workflows/ci.yml`), on the
 versions pinned in `requirements-lock.txt`, and adds `scripts/check_algo_change.py`:
@@ -67,7 +69,9 @@ The full reasoning is in the
 - **`modules/*` may import `core`; `core` never imports `modules`.** See "The one
   rule" in docs/Summary.md.
 - **The diagnostic ratios live in one constant.** `peak_metrics.RAMAN_RATIO_PAIRS`
-  is `LA/E2g+A1g`, `C/LB` and `B2g/E2g+A1g` (the last restored in v5.25.0, no spec line). The quality figure and the QC Report's summary
+  is `LA/E2g+A1g` (defect), `2LA/E2g+A1g` (layer/resonance, v5.29.0, not a defect
+  metric), `C/LB` and `B2g/E2g+A1g` (restored in v5.25.0); only LA has a spec line. The
+  figure skips a ratio whose peaks a preset does not fit, as the table already does. The quality figure and the QC Report's summary
   table both read it; don't write the pair out again.
 - **Spec lines are drawn and never evaluated, and there are only four.**
   `peak_quality` carries Raman's `E2g+A1g` FWHM = 7, `B2g` centre = 308,

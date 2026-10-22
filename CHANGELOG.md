@@ -5,6 +5,107 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.30.0] - 2026-10-22
+
+### Presets
+
+- **`WSe2_QC` 2ZA(M) starts at 3.0 cm-1, was 1.64, so its width cap is 9 (was
+  4.92).** The cap is 3x the starting width (`calculate_auto_bounds`), and
+  2ZA(M) sat on 4.92 in every spectrum. Numbers move for every WSe2_QC Raman
+  fit: on Samsung-Oct QC_KRX261001/02 (450 spectra) E2g+A1g FWHM drops
+  5.43/5.17 -> 4.78/4.63 cm-1, its intensity ~9 % lower, LA/E2g+A1g rises
+  0.076/0.067 -> 0.085/0.074, chi2 -13 %.
+  - 2ZA(M) still sits on its cap at every value tried (7.5, 9, 10.5, 12, 15:
+    100 % up to 12), so its width remains a fit bound, not a measurement. 9 is
+    the widest cap that keeps its centre off the E2g+A1g side: from 10.5 the
+    median centre moves to the 246 bound (61-97 % of spectra) and the band
+    takes E2g+A1g's wings. Uncapped it runs to 17-68 cm-1 and is background.
+- **`WSe2_QC` E2g+A1g is held to 249 +- 5 (244-254), was 250.5 +- 3.5
+  (247-254), and 2ZA(M) to 240 +- 3 (237-243), was 243 +- 3**, so the two
+  windows still do not overlap. On films whose main peak sits at 246-247.5
+  cm-1 (Samsung-Oct QC_KRX261003/04, VA films) E2g+A1g could not reach it: the
+  fit gave the main peak to 2ZA(M) and left "E2g+A1g" a flat band on the 247
+  bound and its 9 cm-1 width cap (11 of 324 and 48 of 324 spectra at v5.30's
+  cap, 28 and 79 of 225 reported at v5.29), so the reported E2g+A1g intensity,
+  FWHM and LA ratio were 2ZA(M)'s. With the new windows none is on the cap and
+  R2 rises (0.939/0.935 -> 0.946/0.948). Not a calibration error: the laser
+  line sits near +1 cm-1 on these films as on QC_KRX261001/02; their weak line
+  is found on only part of the spectra, which leaves a ~1 cm-1 mix of corrected
+  and uncorrected spectra (not addressed here).
+  - On films at ~250 (QC_KRX261001/02) 2ZA(M) moves off E2g+A1g's flank and
+    gives part of the cap-9 change back: E2g+A1g FWHM 4.78/4.63 -> 5.12/4.95,
+    intensity +7-10 %, LA/E2g+A1g 0.085/0.074 -> 0.079/0.070. Against v5.29 the
+    net change is FWHM -0.3/-0.2, LA ratio +0.003.
+  - On 03/04 2ZA(M) now sits on its 237 lower bound; like its width, its
+    position there is a fit bound.
+  - `WSe2_QC_broad` and `WSe2` are unchanged.
+
+### Tests
+
+- **A second golden-fit set: DDAA10 RM_1..RM_3** (`tests/fixtures/golden_fit/DDAA10/`),
+  fitted with a frozen copy of WSe2_QC's Raman block at v5.30.0
+  (`wse2_qc_preset.json`), so the QC preset's path -- single 100-315 window,
+  zero-line calibration, E2g+A1g/2ZA(M) windows, 2ZA(M) cap -- is locked by the commit/push hooks and
+  CI as well. The three spectra are committed through a new `.gitignore`
+  exception. The HKU-20230524-2 golden record is unchanged (regenerated
+  byte-identical). `test_golden_fit.py --regenerate` now takes set names, so
+  adding a set cannot rewrite another's record.
+
+## [5.29.0] - 2026-10-21
+
+### Presets
+
+- **`WSe2_QC` Raman fits 100-315 cm-1 in one window on one baseline**, was
+  -5-330 in three windows (-5-40, 40-210 with a straight line under LA,
+  210-330). The block's ALS baseline (lambda 50000, p 0.005) runs once over the
+  whole range. The low-frequency peaks -- LB, C and the laser-line `center` --
+  are gone, and with them the C/LB ratio, which WSe2_QC reports no longer
+  carry. Zero-line calibration stays on: it reads the laser line from the whole
+  spectrum before the x-range crop. B2g is held to 308 +- 5 (was 310 +- 10) so
+  it cannot park on the new 315 edge. Numbers move for every WSe2_QC Raman fit.
+  `WSe2_QC_broad` is unchanged.
+  - Range and background were chosen on 16 samples (IMEC-Nov, DDAA10/12,
+    HADG38/HADH04/HADH12, VBAC21/VBBF00/VBAD00; 377 spectra). Against 80-350,
+    100-315 leaves E2g+A1g within +-0.04 cm-1 and its within-point spread
+    unchanged; R2 rises because the 315-350 tail, where ALS drooped below the
+    data, is no longer scored. A deg-2 polynomial anchored on flat ground
+    removed ALS's tilt but cut into the peaks after 2LA on high-signal samples,
+    so ALS stays.
+  - Shoulder widths were tested and left alone: 2ZA(M), B2g and 2LA grow to
+    whatever cap they are given, and uncapped they turn into background (2LA
+    28-135 cm-1, B2g 135) and take 1.2-1.4 cm-1 off E2g+A1g. A broad
+    second-order continuum peak freed 2LA but itself sat on its limits and took
+    the uncertainties with it. Their widths are fit bounds, not measurements.
+- **`WSe2_QC` PL Exciton starts at 765 nm, was 755** (tolerance still 15, so
+  750-780). On IMEC-Nov 1L films the Exciton sat on its 770 nm upper bound in
+  80-99 % of IMC260801/02/05 spectra; at 765 it is 0-6 %.
+
+### QC Report
+
+- **The Raman quality figure shows I(2LA)/I(E2g+A1g) instead of 2LA FWHM.**
+  2LA's width sits on its 12 cm-1 cap on most VA films, so the panel plotted the
+  limit. 2LA(M) is a two-phonon double-resonance band that needs no defects;
+  its ratio to E2g+A1g follows resonance and layer number (1L 0.24-0.37, 2L
+  0.10-0.13 on the samples above) and is labelled "Layer / resonance ratio",
+  with no spec line. It is added to `peak_metrics.RAMAN_RATIO_PAIRS`, so the
+  summary table and workbook carry it too. The defect ratio stays
+  I(LA)/I(E2g+A1g).
+- **The Raman quality figure is 2 | 2 | 2 for WSe2_QC:** E2g+A1g FWHM with the
+  bilayer ratio I(B2g)/I(E2g+A1g) under it, the E2g+A1g and B2g centres, then
+  the defect and layer ratios. The bilayer ratio is still read from
+  `RAMAN_RATIO_PAIRS`; only where it is drawn moved.
+- **The PL quality figure is Raw | FWHM | centres (2 | 2 | 2), as the MoS2
+  reports were:** a Raw Spectrum column (each spectrum's own maximum and
+  half-height width, no fit -- the summary table's Raw row), then Exciton and
+  Trion FWHM and centres. The Exciton/Trion ratio column is gone. Raw is cleaned
+  apart from the fitted peaks, so their panels are unchanged. A material whose
+  own peaks build the columns (MoS2) gets the Raw column too.
+- **The QC Report keeps grid points 1-9.** A folder measured at more positions
+  (HADH71/75 carry a 10th) has the extra ones left out of every figure, table
+  and the workbook, and the page names them.
+- **A ratio whose peaks a preset does not fit is no longer drawn** as an empty
+  panel (C/LB under WSe2_QC); the summary table already left it out.
+
 ## [5.28.0] - 2026-10-19
 
 ### QC Report

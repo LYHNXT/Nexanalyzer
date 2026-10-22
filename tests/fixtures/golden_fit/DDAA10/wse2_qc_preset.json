@@ -1,0 +1,61 @@
+{
+  "material_name": "WSe2_QC (frozen v5.30.0)",
+  "enabled": true,
+  "description": "Frozen copy of WSe2_QC's Raman block at v5.30.0 for the DDAA10 golden fit. Do not edit: tune data/materials.json instead.",
+  "raman": {
+    "x_range_enabled": true,
+    "x_min": 100.0,
+    "x_max": 315.0,
+    "despike_threshold": 100.0,
+    "baseline_algorithm": "ALS",
+    "baseline_degree": null,
+    "baseline_lambda": 50000.0,
+    "baseline_p": 0.005,
+    "peak_templates": [
+      {
+        "peak_label": "E2g+A1g",
+        "center": 249.0,
+        "center_tolerance": 5.0,
+        "width_fwhm": 3.0,
+        "shape": 0.3,
+        "color": "#EF482E"
+      },
+      {
+        "peak_label": "2LA",
+        "center": 260.5,
+        "center_tolerance": 5.5,
+        "width_fwhm": 4.0,
+        "shape": 0.3,
+        "color": "#D5EF2E"
+      },
+      {
+        "peak_label": "2ZA(M)",
+        "center": 240.0,
+        "center_tolerance": 3.0,
+        "width_fwhm": 3.0,
+        "shape": 0.3,
+        "color": "#FF7F0E"
+      },
+      {
+        "peak_label": "B2g",
+        "center": 308.0,
+        "center_tolerance": 5.0,
+        "width_fwhm": 2.0,
+        "shape": 0.3,
+        "color": "#2ED5EF"
+      },
+      {
+        "peak_label": "LA",
+        "center": 127.0,
+        "center_tolerance": 8.0,
+        "width_fwhm": 30.0,
+        "shape": 0.3,
+        "color": "#76EC32"
+      }
+    ],
+    "exclusion_ranges": null,
+    "max_iterations": 10000,
+    "zero_line_calibration": true,
+    "fit_windows": []
+  }
+}

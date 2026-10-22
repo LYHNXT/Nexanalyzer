@@ -56,6 +56,7 @@ run; docs/OM_Contrast_Algo.md says when each is worth moving. A layer with no
 block of its own runs the algorithm's own defaults, and the page says so.
 """
 
+import dataclasses
 import io
 import json
 import os
@@ -120,6 +121,7 @@ from modules.spectra.processing.peak_metrics import (
     aggregate_raw_peak_stats,
     compute_peak_intensity_ratio,
     filter_fits_by_quality,
+    raw_peak_stats,
 )
 from modules.spectra.processing.sample_batch import SampleBatchResult, run_sample_batch
 from modules.spectra.processing.spectrum_selection import SPECTRA_PER_POINT, select_spectra_per_point
@@ -307,9 +309,31 @@ if picked:
     reset_results(state)
     st.rerun()
 
-scan = state["scan"]
+#: The QC grid is 3 x 3 (v5.29.0). A folder measured at more positions (HADH71
+#: and HADH75 carry a 10th) keeps points 1-9; the rest are left out of every
+#: figure, table and the workbook, and the page says which.
+GRID_POINTS = 9
+
+
+def _grid_points_only(full):
+    """`full` with its spectra and frames limited to points 1..GRID_POINTS, and the points dropped."""
+    if full is None:
+        return None, []
+    keep = lambda d: {p: v for p, v in d.items() if 1 <= p <= GRID_POINTS}  # noqa: E731
+    dropped = sorted({p for d in (full.raman_files, full.pl_files, *full.image_files.values())
+                      for p in d if not 1 <= p <= GRID_POINTS})
+    if not dropped:
+        return full, []
+    return dataclasses.replace(full, raman_files=keep(full.raman_files), pl_files=keep(full.pl_files),
+                               image_files={m: keep(d) for m, d in full.image_files.items()}), dropped
+
+
+scan, _dropped_points = _grid_points_only(state["scan"])
 
 if scan is not None:
+    if _dropped_points:
+        st.caption(f"Point(s) {', '.join(map(str, _dropped_points))} left out: the QC grid is 3 × 3, "
+                   f"points 1–{GRID_POINTS}.")
     n_images = sum(len(v) for v in scan.image_files.values())
     st.success(
         f"**{scan.sample_name}** — {len(scan.raman_files)} Raman, "
@@ -1062,9 +1086,18 @@ if scan is not None:
                         )
                         state["pl_stats"] = ([raw_stat] + pl_stats) if raw_stat else pl_stats
                     if pl_pairs:
+                        # The Raw column: each spectrum's own maximum and
+                        # half-height width, the summary table's Raw row.
+                        pl_raw = [
+                            (point, r.center, r.fwhm)
+                            for point, s in batch_result.pl_spectra
+                            for r in [raw_peak_stats(s.processed_data.X, s.processed_data.Y)]
+                            if r is not None
+                        ]
                         state["pl_stats_png"] = build_peak_quality_figure(
                             pl_pairs, sample_name=scan.sample_name,
                             material_name=state["material"], spec=PL_QUALITY,
+                            raw_by_point=pl_raw,
                         )
 
                     # ------------------------------------- Summary + workbook

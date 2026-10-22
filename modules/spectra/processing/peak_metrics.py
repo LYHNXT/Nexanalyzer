@@ -354,11 +354,19 @@ def peak_is_measured(peak, fit: FitResult) -> bool:
 
 
 RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (
-    ("LA", "E2g+A1g"), ("C", "LB"), ("B2g", "E2g+A1g"),
+    ("LA", "E2g+A1g"), ("2LA", "E2g+A1g"), ("C", "LB"), ("B2g", "E2g+A1g"),
 )
 """The WSe2 bilayer quality indicators, as (numerator, denominator) labels.
 
 - ``LA / E2g+A1g`` — the defect ratio: disorder relative to the in-plane mode.
+  LA(M) is a zone-edge mode that only becomes Raman-active where defects
+  break momentum conservation, as graphene's D band does.
+- ``2LA / E2g+A1g`` — the layer / resonance ratio (v5.29.0): 2LA(M) is a
+  two-phonon double-resonance band, so it needs no defects; its strength
+  follows the laser's resonance with the exciton and the layer number (1L
+  0.24-0.37 against 2L 0.10-0.13 on IMEC-Nov and HA/VB, 2026-10-21). Not a
+  defect metric, and laser-dependent: compare within one tool. It replaced
+  the 2LA FWHM panel, whose width sits on its cap on most VA films.
 - ``C / LB`` — the stacking ratio: the shear mode against the layer-breathing
   mode. Both are interlayer vibrations, so their ratio speaks directly to how
   the two layers sit on each other, which is what a bilayer wafer is judged on.
