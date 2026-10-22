@@ -1042,6 +1042,7 @@ if scan is not None:
                         state["raman_stats_png"] = build_peak_quality_figure(
                             raman_pairs, sample_name=scan.sample_name,
                             material_name=state["material"], spec=RAMAN_QUALITY,
+                            layer=state["reference_layer"],
                         )
                         raman_fits = [fit for _, fit in raman_pairs]
                         state["raman_ratios"] = [
@@ -1097,7 +1098,7 @@ if scan is not None:
                         state["pl_stats_png"] = build_peak_quality_figure(
                             pl_pairs, sample_name=scan.sample_name,
                             material_name=state["material"], spec=PL_QUALITY,
-                            raw_by_point=pl_raw,
+                            raw_by_point=pl_raw, layer=state["reference_layer"],
                         )
 
                     # ------------------------------------- Summary + workbook

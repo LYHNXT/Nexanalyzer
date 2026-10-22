@@ -175,16 +175,16 @@ class TestPlPanelDefinitions:
         widths = [len(panels) for _title, panels in PL_PANEL_COLUMNS]
         assert widths == [2, 2, 2]
 
-    def test_the_only_pl_spec_is_the_thirty_five_nanometre_fwhm(self):
-        """The inherited script draws exactly one PL reference line, gated on
-        `if col == "FWHM"`, and labels it "FWHM = 35 (Spec)"."""
+    def test_the_only_pl_spec_is_the_forty_nanometre_fwhm(self):
+        """One PL reference line, on the FWHM panels, as the inherited script
+        gated it; at the customer spec's 40 nm since v5.31.0 (was 35)."""
         specs = {
             panel.caption: panel.spec
             for _title, panels in PL_PANEL_COLUMNS for panel in panels
         }
-        assert specs["Exciton"] == 35.0
-        assert specs["Trion"] == 35.0
-        assert set(specs.values()) == {35.0, None}
+        assert specs["Exciton"] == 40.0
+        assert specs["Trion"] == 40.0
+        assert set(specs.values()) == {40.0, None}
 
     def test_the_centre_panels_carry_no_spec(self):
         """770 nm and 800 nm are fit-initialisation guesses in the material
@@ -629,3 +629,63 @@ class TestColumnsForAMaterialTheInheritedPanelsDoNotName:
             fits, "MoS2-01", material_name="MoS₂", spec=RAMAN_QUALITY)
 
         assert png.startswith(b"\x89PNG")
+
+
+class TestCustomerSpecSummary:
+    """v5.31.0: the title states each customer-spec value beside its limit."""
+
+    @staticmethod
+    def _raman(layer, centres=(250.0,) * 9, fwhm=5.0):
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        fits = []
+        for point, centre in enumerate(centres, start=1):
+            for _ in range(3):
+                fits.append((point, _fit([_peak("E2g+A1g", centre, 200.0, fwhm),
+                                          _peak("B2g", 309.0, 20.0, 6.0),
+                                          _peak("LA", 130.0, 20.0, 40.0)])))
+        records = _clean(_records(fits), RAMAN_CLEANING)
+        return spec_summary_lines(records, _records(fits), len(fits), "Raman", layer, True)
+
+    def test_2l_states_b2g_fwhm_and_la_ratio_with_their_limits(self):
+        line = self._raman("2L")[0]
+        assert line.startswith("2L spec:")
+        assert "B₂g at 309.0 cm⁻¹, above 3× noise in 27/27 spectra (spec: present, ~308)" in line
+        assert "E₂g+A₁g FWHM 5.00 cm⁻¹ (spec < 7)" in line
+        assert "I(LA)/I(E₂g+A₁g) 10.0 % (spec < 13 %)" in line
+
+    def test_1l_states_presence_near_250(self):
+        assert "E₂g+A₁g at 250.0 cm⁻¹, above 3× noise in 27/27 spectra (spec: present, ~250)" in self._raman("1L")[0]
+
+    def test_a_peak_on_its_width_cap_still_counts_as_present(self):
+        """B2g's width ends on its cap in nearly every WSe2 spectrum; present means above the noise."""
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        b2g = _peak("B2g", 309.0, 20.0, 6.0)
+        b2g.on_limit = True
+        fits = [(1, _fit([_peak("E2g+A1g", 250.0, 200.0, 5.0), b2g]))]
+        line = spec_summary_lines(_records(fits), _records(fits), 1, "Raman", "2L", True)[0]
+        assert "in 1/1 spectra" in line
+
+    def test_no_verdict_is_written(self):
+        text = " ".join(self._raman("2L"))
+        assert not any(word in text for word in ("PASS", "FAIL", "✓", "✗"))
+
+    def test_uniformity_is_the_cv_of_the_region_medians(self):
+        centres = (249.0, 250.0, 251.0, 249.0, 250.0, 251.0, 249.0, 250.0, 251.0)
+        line = self._raman("2L", centres=centres)[-1]
+        expected = np.std(centres, ddof=1) / np.mean(centres) * 100
+        assert f"position {expected:.2f} % (spec ≤ 0.5 %)" in line
+        assert "FWHM 0.0 % (spec ≤ 20 %)" in line
+        assert "CV of 9 region medians" in line
+
+    def test_pl_1l_states_exciton_fwhm_against_forty(self):
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        fits = [(p, _pl_fit(exciton_fwhm=32.0)) for p in range(1, 10)]
+        records = _clean(_records(fits), PL_CLEANING)
+        lines = spec_summary_lines(records, _records(fits), len(fits), "PL", "1L", False)
+        assert "Exciton FWHM 32.0 nm (spec ≤ 40)" in lines[0]
+        assert "(spec ≤ 1.5 %)" in lines[1] and "(spec ≤ 25 %)" in lines[1]
+
+    def test_a_material_without_the_main_peak_gets_no_summary(self):
+        from modules.spectra.viz.peak_quality import spec_summary_lines
+        fits = [(1, _fit([_peak("E2g", 384.0), _peak("A1g", 405.0)]))]
+        assert spec_summary_lines(_records(fits), _records(fits), 1, "Raman", "1L", True) == []

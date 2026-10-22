@@ -75,8 +75,14 @@ The full reasoning is in the
   table both read it; don't write the pair out again.
 - **Spec lines are drawn and never evaluated, and there are only four.**
   `peak_quality` carries Raman's `E2g+A1g` FWHM = 7, `B2g` centre = 308,
-  `LA/E2g+A1g` = 0.13, and PL's Exciton/Trion FWHM = 35. They are inherited
-  literals from the wafer-comparison scripts, not preset data. **PL has no
+  `LA/E2g+A1g` = 0.13, and PL's Exciton/Trion FWHM = 40 (35 until v5.31.0).
+  The first three are inherited literals from the wafer-comparison scripts;
+  40 and the title's spec lines come from the customer QC spec
+  (`peak_quality.CUSTOMER_SPEC`), not preset data. The quality figures'
+  titles state each customer-spec value beside its limit -- value and limit,
+  **no verdict**. Uniformity there is the CV of the 9 region medians, not the
+  panels' pooled Robust CV; "present" is above 3x noise, not
+  `peak_is_measured` (B2g's width always ends on its cap). **PL has no
   centre spec and no ratio spec** — the ancestor gates its only PL reference
   line on the FWHM panel, and the preset's 755/780 nm are *fit-initialisation*
   guesses. Promoting those to `spec=` would invent a tolerance nobody measured.

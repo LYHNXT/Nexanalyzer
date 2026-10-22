@@ -5,7 +5,30 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.30.0] - 2026-10-22
+## [5.31.0] - 2026-10-22
+
+### QC Report
+
+- **The Raman and PL quality figures state the customer QC spec under the
+  title** (`peak_quality.CUSTOMER_SPEC`, `spec_summary_lines`): each criterion's
+  summarized value beside its limit, with no pass/fail verdict. The layer
+  criteria follow the report's reference layer:
+  - Raman 1L: E2g+A1g position, and in how many spectra it stands above 3x
+    the fit's noise (spec: present, ~250 cm-1).
+  - Raman 2L: B2g position and presence (spec: present, ~308), E2g+A1g FWHM
+    (spec < 7 cm-1), I(LA)/I(E2g+A1g) (spec < 13 %).
+  - PL 1L: Exciton FWHM (spec <= 40 nm).
+  - Every layer, uniformity: the CV (sample std / mean) of the 9 region
+    medians of the main peak's position and FWHM -- Raman E2g+A1g (spec <=
+    0.5 % / 20 %), PL Exciton (spec <= 1.5 % / 25 %). This is not the panels'
+    Robust CV, which pools all spectra and so includes scatter within a region.
+  Values come from the same cleaned records the panels draw. "Present" counts
+  the signal half of `peak_is_measured` only: B2g's width ends on its cap in
+  nearly every spectrum, and the full test reported it absent on QC_KRX261001,
+  where it is clearly there (197/224 above noise).
+- **The PL FWHM spec line is at 40 nm, was 35** -- the customer spec's 1L limit.
+  No fitted numbers move in this release.
+
 
 ### Presets
 
