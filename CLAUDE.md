@@ -188,6 +188,14 @@ The full reasoning is in the
   types: `is_circular()` decides that per image at runtime, so a preset cannot
   address one of them. `ff_divisor` is a divisor, not a sigma — larger means a
   smaller blur.
+- **The OpenBLAS kernel is pinned, and only before numpy loads.** Kernels
+  round differently, and an ill-conditioned fit (golden RM_1) moves by ~1e-4
+  between CPUs, so `core/blas.py` sets `OPENBLAS_CORETYPE=Haswell` and one
+  thread from `core/__init__.py`. Anything that imports numpy before `core`
+  defeats it silently: keep `import core` first in `tests/conftest.py` and
+  `test_golden_fit.py`, and launch via `python -m core.launch`, not a bare
+  `streamlit run` (Streamlit loads numpy before app.py). `test_blas.py` reads
+  back the loaded kernel.
 - **`core/version.py` is the single source of truth for the version.** Bump it and
   add a CHANGELOG entry in the same change as any user-visible behaviour change;
   note explicitly when numbers don't move (renames) versus when they do.

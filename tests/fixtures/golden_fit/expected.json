@@ -1,127 +1,127 @@
 {
   "RM_1.txt": {
     "mode": "Raman",
-    "r_squared": 0.8962493046973284,
-    "chi_squared": 28637.109262402388,
+    "r_squared": 0.8962481115053412,
+    "chi_squared": 28637.438606468168,
     "converged": true,
     "peaks": {
       "E2g+A1g": {
-        "center": 252.9230023684721,
+        "center": 252.9229969067836,
         "center_stderr": NaN,
-        "intensity": 264.000913831093,
+        "intensity": 264.0041312785707,
         "intensity_stderr": NaN,
-        "area": 1272.4870403443906,
+        "area": 1272.5660453363882,
         "area_stderr": NaN,
-        "fwhm": 3.469056804712423,
+        "fwhm": 3.469064334367867,
         "fwhm_stderr": NaN,
-        "shape": 0.5723608518999241
+        "shape": 0.5724516007443201
       },
       "2LA": {
-        "center": 264.13105668998287,
+        "center": 264.13119847679155,
         "center_stderr": NaN,
-        "intensity": 62.14206237871371,
+        "intensity": 62.14182288067746,
         "intensity_stderr": NaN,
-        "area": 806.9563788637399,
+        "area": 806.8943666095323,
         "area_stderr": NaN,
-        "fwhm": 8.333951966604452,
+        "fwhm": 8.333457601008453,
         "fwhm_stderr": NaN,
-        "shape": 0.8771515541113104
+        "shape": 0.8770540766960477
       },
       "2ZA(M)": {
-        "center": 245.68789646639962,
+        "center": 245.68713478400198,
         "center_stderr": NaN,
-        "intensity": 28.892919596355622,
+        "intensity": 28.892585692907485,
         "intensity_stderr": NaN,
-        "area": 223.57734391061416,
+        "area": 223.55527601576108,
         "area_stderr": NaN,
         "fwhm": 4.91999999964127,
         "fwhm_stderr": NaN,
         "shape": 0.8233880168281495
       },
       "B2g": {
-        "center": 318.3279143761008,
+        "center": 318.32022819799295,
         "center_stderr": NaN,
-        "intensity": 4.904067310987835,
+        "intensity": 4.905359455784684,
         "intensity_stderr": NaN,
-        "area": 46.61856617219751,
+        "area": 46.61407404811832,
         "area_stderr": NaN,
         "fwhm": 5.999999998587177,
         "fwhm_stderr": NaN,
         "shape": 0.8530399384735118
       },
       "LB": {
-        "center": 31.319901402860555,
+        "center": 31.312705482029948,
         "center_stderr": NaN,
-        "intensity": 0.7604782996937655,
+        "intensity": 0.758350066252742,
         "intensity_stderr": NaN,
-        "area": 7.1360574912339105,
+        "area": 7.1193204812607,
         "area_stderr": NaN,
         "fwhm": 5.999999999943487,
         "fwhm_stderr": NaN,
-        "shape": 0.8530399385040812
+        "shape": 0.8530399385040908
       },
       "LA": {
-        "center": 128.96957795103452,
+        "center": 128.96944946501222,
         "center_stderr": NaN,
-        "intensity": 17.609747226264513,
+        "intensity": 17.609848279804034,
         "intensity_stderr": NaN,
-        "area": 1241.9896847313175,
+        "area": 1241.9970296001284,
         "area_stderr": NaN,
         "fwhm": 44.99999999942171,
         "fwhm_stderr": NaN,
         "shape": 0.9334377217849705
       },
       "C": {
-        "center": 12.922675429415557,
+        "center": 12.953726724402959,
         "center_stderr": NaN,
-        "intensity": 3.365028265668744,
+        "intensity": 3.360988369337381,
         "intensity_stderr": NaN,
-        "area": 78.89347420666022,
+        "area": 78.75143699613842,
         "area_stderr": NaN,
-        "fwhm": 14.932211465687509,
+        "fwhm": 14.928576969381336,
         "fwhm_stderr": NaN,
-        "shape": 0.9331501249688781
+        "shape": 0.9331347905598695
       },
       "center": {
-        "center": 2.9999999976729583,
+        "center": 2.9999999976729246,
         "center_stderr": NaN,
-        "intensity": 94.52915702603319,
+        "intensity": 94.53522211848377,
         "intensity_stderr": NaN,
-        "area": 318.517437535609,
+        "area": 318.57298033850964,
         "area_stderr": NaN,
-        "fwhm": 3.0249089694851925,
+        "fwhm": 3.0252231923048836,
         "fwhm_stderr": NaN,
-        "shape": 0.0004312034466398831
+        "shape": 0.00047632395449698916
       }
     }
   },
   "PL_1.txt": {
     "mode": "PL",
-    "r_squared": 0.9992106997196669,
-    "chi_squared": 940866.4244759766,
+    "r_squared": 0.999210699739197,
+    "chi_squared": 940866.4082195341,
     "converged": true,
     "peaks": {
       "Exciton": {
-        "center": 755.8611687529775,
-        "center_stderr": 0.09760961571226878,
-        "intensity": 3908.5811282116497,
-        "intensity_stderr": 76.12075929325738,
-        "area": 106618.51349099465,
-        "area_stderr": 2076.426696908885,
-        "fwhm": 23.413688675012967,
-        "fwhm_stderr": 0.15899738478870223,
-        "shape": 0.23102880846476376
+        "center": 755.8611687093144,
+        "center_stderr": 0.0976096608840349,
+        "intensity": 3908.5811106176134,
+        "intensity_stderr": 76.12078577435561,
+        "area": 106618.51325124445,
+        "area_stderr": 2076.427423939488,
+        "fwhm": 23.41368860453568,
+        "fwhm_stderr": 0.1589974732969268,
+        "shape": 0.23102882030684072
       },
       "Trion": {
-        "center": 774.5052195309976,
-        "center_stderr": 0.5088838960169222,
-        "intensity": 1386.0886157794762,
-        "intensity_stderr": 42.57539773984599,
-        "area": 69174.73099413828,
-        "area_stderr": 2124.7860000394485,
-        "fwhm": 32.87466723916691,
-        "fwhm_stderr": 0.5520192210860608,
-        "shape": 0.7772188755274146
+        "center": 774.5052192481521,
+        "center_stderr": 0.5088839789325653,
+        "intensity": 1386.088639330099,
+        "intensity_stderr": 42.57541825954503,
+        "area": 69174.73324243109,
+        "area_stderr": 2124.787057061772,
+        "fwhm": 32.874667719278634,
+        "fwhm_stderr": 0.5520192045796044,
+        "shape": 0.7772188786066289
       }
     }
   }

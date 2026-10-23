@@ -207,5 +207,6 @@ echo The app will open in your browser at http://localhost:%APP_PORT%
 echo Press Ctrl+C in this window to stop the server.
 echo.
 :: Port pinned explicitly so the check above, the URL printed here and the
-:: server all refer to the same one.
-streamlit run app.py --server.port %APP_PORT%
+:: server all refer to the same one. core.launch is `streamlit run` with the
+:: OpenBLAS kernel pinned first, so fits match every other PC (core/blas.py).
+python -m core.launch app.py --server.port %APP_PORT%

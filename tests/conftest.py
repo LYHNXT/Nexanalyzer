@@ -1,5 +1,6 @@
 """Shared pytest fixtures for the NexAnalyzer test suite."""
 
+import core  # noqa: F401  first: pins the OpenBLAS kernel before numpy loads (core/blas.py)
 import numpy as np
 import pytest
 

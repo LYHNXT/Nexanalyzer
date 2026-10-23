@@ -38,11 +38,14 @@ import os
 import sys
 from pathlib import Path
 
-import numpy as np
-import pytest
-
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+# Before numpy: the record holds on one OpenBLAS kernel (core/blas.py), and
+# --regenerate must write it on that kernel too.
+import core  # noqa: E402, F401
+import numpy as np  # noqa: E402
+import pytest  # noqa: E402
 
 from modules.spectra.models.preset import MaterialPreset  # noqa: E402
 from modules.spectra.models.spectrum import ProcessingSettings, SpectrumFile  # noqa: E402

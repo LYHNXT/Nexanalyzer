@@ -5,6 +5,29 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.33.0] - 2026-10-23
+
+### Reproducibility
+
+- **One OpenBLAS kernel on every machine** (`core/blas.py`). numpy and scipy
+  each pick an OpenBLAS kernel for the CPU they find, and the kernels round
+  differently: the golden RM_1 fit (8 peaks, R2 0.896) settled at chi-squared
+  28637.11 on the SkylakeX laptop that wrote the record, 28637.44 under
+  Haswell and 28641.97 on a GitHub runner, so the tripwire held on one PC and
+  failed on the next, and two PCs could disagree on the same spectrum. The
+  kernel is now pinned to Haswell (AVX2) with one thread, before numpy loads:
+  `core/__init__.py` does it for any entry point that imports `core` or
+  `modules` first, and `start.bat` / `start.sh` launch through
+  `python -m core.launch` because Streamlit loads numpy before app.py runs.
+  A CPU without AVX2 keeps its own kernel rather than fault.
+  `tests/unit/test_blas.py` reads back the kernel that actually loaded.
+- **Numbers move, Raman only, below any instrument resolution.** The
+  golden-fit record is regenerated on the pinned kernel (both sets,
+  `HKU-20230524-2` and `DDAA10`); PL_1 is unchanged. Largest moves: the weak
+  C centre 12.92 -> 12.95 cm-1, LB intensity 0.3 %, everything else <= 0.1 %.
+  `test_golden_fit.py` imports `core` before numpy so `--regenerate` writes
+  on the same kernel.
+
 ## [5.32.0] - 2026-10-22
 
 ### QC Report
