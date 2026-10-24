@@ -18,13 +18,15 @@ sys.path.insert(0, str(APP))
 def main(sample_dir, title, layer, material, magnification, out_dir):
     from modules.optical.processing.contrast import analyse_frame
     from modules.optical.viz.om_grid import build_om_grid_figure
+    from modules.qc_report.processing.build import grid_points_only
     from modules.spectra.io.preset_store import load_presets
     from modules.spectra.processing.sample_scanner import scan_sample_folder
 
     scan = scan_sample_folder(sample_dir)
-    # Grid points 1-9 only, as the report's spectra (v5.29.0): a wafer measured at a
+    # Grid points 1..GRID_POINTS only, as the report (v5.29.0): a wafer measured at a
     # 10th position (HADH71/75) has it left out of the OM figure too.
-    om_paths = {p: path for p, path in scan.image_files.get(magnification, {}).items() if 1 <= p <= 9}
+    scan, _dropped = grid_points_only(scan)
+    om_paths = dict(scan.image_files.get(magnification, {}))
     if not om_paths:
         sys.exit(f"No {magnification} OM frames at points 1-9 in {sample_dir}")
     optical = load_presets()[material].optical.get(layer)

@@ -265,7 +265,8 @@ class TestPageFlow:
     ):
         """Figure 4's title runs its own pooled split; the checkbox must reach
         it too, or an unticked box still gets a small/large title."""
-        import modules.optical.viz.domain_grid as domain_grid_module
+        # Looked up where the pipeline calls it (modules.qc_report, v5.35.0).
+        import modules.qc_report.processing.build as domain_grid_module
 
         seen = []
         real = domain_grid_module.build_domain_grid_figure
@@ -678,7 +679,8 @@ class TestProgress:
     ):
         """Without the `with` form, an exception leaves the status spinning
         forever — indistinguishable from the hang it exists to rule out."""
-        import core.report.summary_figure as summary_module
+        # Looked up where the pipeline calls it (modules.qc_report, v5.35.0).
+        import modules.qc_report.processing.build as summary_module
 
         def _boom(*_args, **_kwargs):
             raise RuntimeError("composition failed")

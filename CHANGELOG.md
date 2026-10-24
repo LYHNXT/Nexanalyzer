@@ -5,6 +5,34 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.36.0] - 2026-10-24
+
+### QC Report
+
+- **The QC Report pipeline is a module, `modules/qc_report/processing/build.py`.**
+  The ~480 lines behind the page's "Generate" button -- segmentation, domain
+  sizing, fitting, selection, quality gate, ratios, figures, summary page and
+  workbook -- moved out of `pages/2_QC_Report.py` (1,401 lines to about 900)
+  into `build_qc_report(QcReportInputs, progress, warn, run_batch)`, which
+  returns the artifacts under the page's own state keys. `save_report()` and
+  `REPORT_FIGURES` (the numbered file set) moved with it, so the page, OneNote
+  and the scripts share one list. `GRID_POINTS` / `grid_points_only` and the
+  noise-threshold warning live there too. **No number moves**: the code moved,
+  it did not change (golden fit 5/5, strict; the QC Report flow tests pass
+  unchanged apart from where two of them patch a function).
+- **The batch runners call the pipeline instead of driving the page.**
+  `run_qc_wse2.py` and `run_qc_mos2.py` used AppTest, a faked save dialog and
+  button clicks by label, and aborted a whole wafer on any page message
+  containing "failed"; they now share `scripts/qc_report/_runner.py`
+  (`run_report`, and the process-pool batch passed as `run_batch`). A
+  per-point fit error is printed and the report is still saved.
+  `redraw_om.py` uses the shared grid filter.
+- The algorithm-change guard covers `modules/qc_report/processing/`.
+- New tests: `test_qc_report_build.py` (the pipeline with no page: artifacts,
+  warnings, a replaced batch runner, saving, the grid filter, the noise
+  check) and `tests/scripts/test_qc_runners.py` (a runner end to end in a
+  subprocess, with a process pool).
+
 ## [5.35.0] - 2026-10-24
 
 ### Golden fit

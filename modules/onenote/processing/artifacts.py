@@ -22,10 +22,10 @@ RUNCARD = "Runcard"
 DATALOG = "Datalog"
 
 #: The QC Report's eight figures, in the order they are shown on the page and
-#: written to disk. Same ordering rationale as `_ARTIFACTS` in
-#: pages/2_QC_Report.py: alphabetical order would put Summary last and
+#: written to disk. Same ordering rationale as `qc_report.processing.build.
+#: REPORT_FIGURES`: alphabetical order would put Summary last and
 #: interleave the two techniques, so a reader would meet them in an order
-#: nobody chose. All eight go inline. Keep in step with `_ARTIFACTS`: the
+#: nobody chose. All eight go inline. Keep in step with `REPORT_FIGURES`: the
 #: domain-size grid was added there in v5.16.0 and missed here until v5.18.0.
 _QC_FIGURES = (
     ("Summary", "summary_png"),

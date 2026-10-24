@@ -46,7 +46,7 @@ def test_all_eight_figures_go_inline():
 def test_figures_keep_the_page_s_own_order():
     """Summary first, then OM, then Raman, then PL — never alphabetical.
 
-    Same rationale as `_ARTIFACTS` in pages/2_QC_Report.py: alphabetical order
+    Same rationale as `REPORT_FIGURES` (modules/qc_report): alphabetical order
     puts Summary last and interleaves the two techniques, so a reader meets
     them in an order nobody chose.
     """
@@ -120,15 +120,9 @@ def test_is_empty_reports_a_payload_with_nothing_in_it():
 
 def test_qc_figures_match_the_qc_report_page():
     """The domain-size grid joined the QC Report at v5.16.0 and was missing here."""
-    import re
-    from core.paths import PROJECT_ROOT
+    from modules.qc_report.processing.build import REPORT_FIGURES
 
-    page = (PROJECT_ROOT / "pages" / "2_QC_Report.py").read_text(encoding="utf-8")
-    page = page[page.index("_ARTIFACTS = ("):]
-    page = page[:page.index("\n)\n")]
-    page_keys = re.findall(r'\(\d+, "[^"]+", "(\w+_png)"\)', page)
-
-    assert page_keys == [key for _, key in artifacts._QC_FIGURES]
+    assert [key for _, _, key in REPORT_FIGURES] == [key for _, key in artifacts._QC_FIGURES]
 
 
 def test_a_report_built_for_another_wafer_is_not_ready(tmp_path):

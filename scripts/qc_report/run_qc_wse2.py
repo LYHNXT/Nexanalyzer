@@ -1,7 +1,7 @@
 """WSe2 QC Reports for customer sample folders (written for Samsung-Oct KRX261001..04), fitting in parallel.
 
-Drives the real QC Report page (pages/2_QC_Report.py) through streamlit.testing.v1.AppTest, like
-run_qc_mos2.py beside it, whose process-pool batch it reuses (same per-spectrum workflow, serial order).
+Runs the QC Report page's own pipeline (modules.qc_report, v5.35.0) through _runner.run_report, fitting
+in a process pool (same per-spectrum workflow, serial order).
 Preset WSe2_QC, reference layer 2L, domain size off, population split off; OM 100x where the folder has it,
 else 50X. Everything else -- outlier removal and 25 spectra per point, Robust CV, Raw PL column -- is the
 app's own (v5.28.0+). Output goes to <sample>/QC_Report_<date>/.
@@ -61,16 +61,8 @@ def main():
         raise SystemExit("not a folder: " + ", ".join(missing))
 
     os.chdir(APP)
-    import core.io.export as export_module
-    import modules.optical.ui.qc_report_state as state_module
-    import modules.spectra.processing.sample_batch as batch_module
     from modules.spectra.processing.sample_scanner import scan_sample_folder
-    from streamlit.testing.v1 import AppTest
-    from run_qc_mos2 import make_parallel_batch
-
-    settings = APP / "data" / "report_settings.json"
-    backup = settings.read_bytes() if settings.exists() else None
-    batch_module.run_sample_batch = make_parallel_batch(args.workers)
+    from _runner import run_report
 
     def run_one(sample):
         t0 = time.time()
@@ -82,55 +74,18 @@ def main():
         magnification = next((m for m in mags if m.lower() == "100x"), next(iter(mags), "50X"))
         print(f"{scan.sample_name}: {len(scan.raman_files)} Raman, {len(scan.pl_files)} PL, "
               f"OM {magnification} of {mags}, {args.workers} workers", flush=True)
-
         out = sample / f"QC_Report_{date.today().isoformat()}{args.suffix}"
-        out.mkdir(exist_ok=True)
-        target = out / f"{scan.sample_name}_QC_Report.png"
-        export_module.prompt_save_path = lambda default_dir, default_filename, **kw: str(target)
-
-        store = {}
-        real_st = state_module.st
-        state_module.st = type("_St", (), {"session_state": store})()
-        try:
-            state_module.initialize_qc_report_state()
-        finally:
-            state_module.st = real_st
-        state = store["qc_report"]
-        state.update(folder=str(sample), scan=scan, material=MATERIAL, magnification=magnification,
-                     reference_layer=args.layer, layer_source="operator", measure_domain_size=False,
-                     split_size_populations=False, low_coverage=False)
-
-        at = AppTest.from_file(str(APP / "pages" / "2_QC_Report.py"), default_timeout=3600)
-        at.session_state["qc_report"] = state
-        at.run()
-        assert not at.exception, [e.value for e in at.exception]
-        next(b for b in at.button if "Generate QC Report" in b.label).click().run()
-        assert not at.exception, [e.value for e in at.exception]
-        for w in list(at.warning) + list(at.error) + list(at.info):
-            print("  page:", w.value)
-            if "failed" in str(w.value):
-                raise RuntimeError(w.value)
-        next(b for b in at.button if "Save QC Report" in b.label).click().run()
-        assert not at.exception, [e.value for e in at.exception]
-        s = at.session_state["qc_report"]
-        for t in ("raman", "pl"):
-            print(f"  {t}: fitted {s.get(t + '_fitted')}, dropped {s.get(t + '_dropped')}, "
-                  f"unconverged {s.get(t + '_unconverged')}, errors {len(s.get(t + '_errors') or [])}, "
-                  f"selection {s.get(t + '_selection')}")
+        run_report(scan, MATERIAL, args.layer, magnification, out, args.workers)
         print(f"  {time.time() - t0:.0f} s -> {out}\n  " +
               "\n  ".join(sorted(p.name for p in out.iterdir())), flush=True)
 
     failed = []
-    try:
-        for sample in samples:
-            try:
-                run_one(sample)
-            except Exception as e:
-                print(f"  FAILED {sample.name}: {type(e).__name__}: {e}", flush=True)
-                failed.append(sample.name)
-    finally:
-        if backup is not None:
-            settings.write_bytes(backup)
+    for sample in samples:
+        try:
+            run_one(sample)
+        except Exception as e:
+            print(f"  FAILED {sample.name}: {type(e).__name__}: {e}", flush=True)
+            failed.append(sample.name)
     if failed:
         raise SystemExit("failed: " + ", ".join(failed))
 

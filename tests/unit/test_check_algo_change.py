@@ -93,6 +93,7 @@ def test_a_locked_record_moved_and_stated_passes(repo):
     "core/report/summary_figure.py",
     "modules/spectra/io/results_excel.py",
     "modules/spectra/io/results_csv.py",
+    "modules/qc_report/processing/build.py",
 ])
 def test_report_number_code_outside_processing_is_guarded(repo, path):
     """These compute what a report prints (fences, uniformity CV, tables, the

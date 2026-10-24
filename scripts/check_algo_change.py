@@ -27,6 +27,7 @@ ALGO_PATHS = (
     "modules/optical/processing/",
     "modules/runcard/processing/",
     "modules/datalog/processing/",
+    "modules/qc_report/processing/",
     # Outside processing/ but still deciding reported numbers: the quality
     # figures' fences, uniformity CV and title values, the summary page's
     # tables and the workbook.
