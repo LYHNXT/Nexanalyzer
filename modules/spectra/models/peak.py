@@ -224,14 +224,6 @@ class FittedPeak:
         This peak's contribution to total fit (same length as X).
     color : str
         Peak color for plotting (hex #RRGGBB), copied from PeakDefinition.
-    width_fwhm_v1 : Optional[float]
-        `2.355 * sigma` -- the Gaussian-only width the app reported before
-        v3.4.0, which silently dropped gamma and understated every width by
-        59-108%. Kept only so the on-screen table and, optionally, the
-        QC Report can show it next to the correct value for comparison;
-        nothing else in the app should read this field. None for a
-        `FittedPeak` built outside `fitting.fit_voigt_peaks` (there is no
-        sigma/gamma to compute it from).
     """
 
     label: str
@@ -244,7 +236,6 @@ class FittedPeak:
     shape: float
     component_curve: np.ndarray
     color: str = "#1f77b4"  # Default color
-    width_fwhm_v1: Optional[float] = None
     #: True when the fit left this peak's centre on its range edge or its width
     #: on its ceiling (v5.23.0): its numbers are where the bound stopped them,
     #: not a measurement, and ratios leave it out (peak_metrics.peak_is_measured).
@@ -264,7 +255,6 @@ class FittedPeak:
             "component_curve": self.component_curve.tolist() if self.component_curve is not None else None,
             "color": self.color,
             "on_limit": self.on_limit,
-            "width_fwhm_v1": self.width_fwhm_v1,
         }
 
     @classmethod
@@ -283,7 +273,6 @@ class FittedPeak:
             component_curve=component_curve,
             color=data.get("color", "#1f77b4"),  # Default color if not present
             on_limit=bool(data.get("on_limit", False)),
-            width_fwhm_v1=data.get("width_fwhm_v1"),
         )
 
 

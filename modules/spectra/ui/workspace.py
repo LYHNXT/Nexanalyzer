@@ -794,9 +794,6 @@ def render_fit_results() -> None:
                 "Intensity": f"{raw.intensity:.0f}",
                 "Area": "—",
                 "Status": "Unfitted spectrum",
-                # No fit, so there is no sigma/gamma the pre-v3.4.0 formula
-                # could be computed from.
-                "FWHM (v1)": "—",
             })
     for peak in fit.fitted_peaks:
         rows.append({
@@ -806,7 +803,6 @@ def render_fit_results() -> None:
             "Intensity": f"{peak_intensity(peak):.0f}",
             "Area": f"{peak.area:.0f}",
             "Status": _peak_status(peak, fit),
-            "FWHM (v1)": f"{peak.width_fwhm_v1:.2f}" if peak.width_fwhm_v1 is not None else "—",
         })
 
     with st.container(border=True):

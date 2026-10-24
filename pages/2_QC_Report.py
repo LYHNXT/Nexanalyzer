@@ -584,15 +584,6 @@ if scan is not None:
                 "will be skipped, and the summary page's image grid will be empty."
             )
 
-        show_fwhm_v1 = st.checkbox(
-            "Include legacy FWHM (v1) column",
-            value=False,
-            help="Adds the pre-v3.4.0 Gaussian-only FWHM (2.355 x sigma) next to the "
-                 "correct Voigt FWHM, in both the summary tables and the .xlsx sheets. "
-                 "The v1 value understated real peak widths and is included here only "
-                 "for comparison against older reports.",
-        )
-
         will_fit_raman = bool(scan.raman_files and raman_preset)
         will_fit_pl = bool(scan.pl_files and pl_preset)
         has_segmentation = bool(om_paths) and selected is not None
@@ -656,7 +647,6 @@ if scan is not None:
                             domain_target=state["domain_target"],
                             split_size_populations=bool(state["split_size_populations"]),
                             um_per_px=um_per_px,
-                            show_fwhm_v1=show_fwhm_v1,
                         ),
                         progress,
                         warn=st.warning,

@@ -227,7 +227,7 @@ def aggregate_fit_results(
                 continue
             label = peak.label
             if label not in metrics:
-                metrics[label] = {"center": {}, "intensity": {}, "fwhm": {}, "fwhm_v1": {}}
+                metrics[label] = {"center": {}, "intensity": {}, "fwhm": {}}
                 counts[label] = 0
                 order.append(label)
             counts[label] += 1
@@ -237,21 +237,12 @@ def aggregate_fit_results(
                 ("fwhm", peak.width_fwhm),
             ):
                 metrics[label][key].setdefault(point, []).append(value)
-            # None for a FittedPeak built outside fit_voigt_peaks -- excluded
-            # rather than pooled as 0.0, same as the "Raw" row's unmeasurable
-            # fwhm.
-            if peak.width_fwhm_v1 is not None:
-                metrics[label]["fwhm_v1"].setdefault(point, []).append(peak.width_fwhm_v1)
 
     stats = []
     for label in order:
         center_mean, center_std = _mean_std(_clean_pool(metrics[label]["center"]))
         intensity_mean, intensity_std = _mean_std(_clean_pool(metrics[label]["intensity"]))
         fwhm_mean, fwhm_std = _mean_std(_clean_pool(metrics[label]["fwhm"]))
-        if metrics[label]["fwhm_v1"]:
-            fwhm_v1_mean, fwhm_v1_std = _mean_std(_clean_pool(metrics[label]["fwhm_v1"]))
-        else:
-            fwhm_v1_mean, fwhm_v1_std = None, None
         stats.append(PeakStat(
             label=label,
             n=counts[label],
@@ -261,8 +252,6 @@ def aggregate_fit_results(
             intensity_std=intensity_std,
             fwhm_mean=fwhm_mean,
             fwhm_std=fwhm_std,
-            fwhm_v1_mean=fwhm_v1_mean,
-            fwhm_v1_std=fwhm_v1_std,
         ))
 
     return stats

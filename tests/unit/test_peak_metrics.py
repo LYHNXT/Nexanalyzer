@@ -561,16 +561,19 @@ class TestRatiosUseOnlyMeasuredPeaks:
         assert compute_peak_intensity_ratio([self._fit(20.0, 2.0)], "C", "LB") is None
 
 
-def test_the_legacy_fwhm_survives_a_save_and_reload():
-    """`to_dict` dropped it, so a reloaded fit lost its FWHM (v1) column."""
+def test_a_save_carrying_the_removed_legacy_fwhm_still_loads():
+    """v5.43.0 removed `width_fwhm_v1` (the pre-v3.4.0 2.355 x sigma width).
+    A fit saved before then still carries the key, and must load anyway."""
     peak = FittedPeak(
         label="A", center=1.0, center_stderr=0.1, area=2.0, area_stderr=0.2,
-        width_fwhm=3.0, width_stderr=0.3, shape=0.5, component_curve=None, width_fwhm_v1=2.5,
+        width_fwhm=3.0, width_stderr=0.3, shape=0.5, component_curve=None,
     )
-    assert FittedPeak.from_dict(peak.to_dict()).width_fwhm_v1 == 2.5
-    legacy = peak.to_dict()
-    del legacy["width_fwhm_v1"]
-    assert FittedPeak.from_dict(legacy).width_fwhm_v1 is None
+    saved = peak.to_dict()
+    assert "width_fwhm_v1" not in saved
+    saved["width_fwhm_v1"] = 2.5
+    loaded = FittedPeak.from_dict(saved)
+    assert loaded.width_fwhm == 3.0
+    assert not hasattr(loaded, "width_fwhm_v1")
 
 
 class TestTableAndFigureAgree:

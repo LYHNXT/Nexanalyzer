@@ -34,9 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed `test_workspace_*`; `test_spectra_workspace.py` covers the new
   switcher, the baseline switch and the table's columns.
 
-No numbers move: nothing here touches parsing, fitting or the exports'
-contents. The table's Intensity is still `peak_intensity()`, the same number
-both CSVs carry.
+### Removed
+
+- **The legacy FWHM (v1)** -- the pre-v3.4.0 `2.355 x sigma` width that
+  dropped the Lorentzian half and understated every width by 59-108 %. Gone
+  from everywhere it could still appear: the QC Report's "Include legacy FWHM
+  (v1) column" option (summary figure tables and the workbook's
+  `FWHM_v1`/`FWHM_v1_Stderr`/`FWHM_v1_Mean`/`FWHM_v1_Std` columns), the
+  Spectra page's Fit Results column, `FittedPeak.width_fwhm_v1`, its
+  computation in `fit_voigt_peaks`, and `PeakStat.fwhm_v1_mean`/`fwhm_v1_std`.
+  A fit saved with the old key still loads; the key is ignored.
+
+No numbers move: nothing here touches parsing, the fit itself or any reported
+value. The fit no longer computes the removed v1 width, which nothing reported
+by default; FWHM is still the Voigt FWHM. The table's Intensity is still
+`peak_intensity()`, the same number both CSVs carry.
 
 ## [5.42.0] - 2026-10-24
 

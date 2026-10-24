@@ -94,11 +94,7 @@ class TechniqueResults(NamedTuple):
 
 # One row per fitted peak per point. Mode isn't a column: the sheet name is
 # the mode, which is what keeps these tables pivotable as they stand.
-#
-# `show_fwhm_v1` inserts FWHM_v1/FWHM_v1_Stderr right after FWHM/FWHM_Stderr
-# -- the pre-v3.4.0 Gaussian-only width, see FittedPeak.width_fwhm_v1. Off by
-# default: every other reporting surface shows only the correct width.
-def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
+def _point_columns() -> Sequence[_Column]:
     columns = [
         _Column("Point", "0", 7),
         _Column("Source_File", None, 24),
@@ -114,13 +110,6 @@ def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
         _Column("Intensity_Stderr", "0.000", 17),
         _Column("FWHM", "0.00", 10),
         _Column("FWHM_Stderr", "0.000", 13),
-    ]
-    if show_fwhm_v1:
-        columns += [
-            _Column("FWHM_v1", "0.00", 10),
-            _Column("FWHM_v1_Stderr", "0.000", 13),
-        ]
-    columns += [
         _Column("Shape", "0.00", 8),
         _Column("R_Squared", "0.0000", 11),
         _Column("Chi_Squared", "General", 13),
@@ -138,8 +127,8 @@ def _point_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
 
 # Mean and std as separate numeric columns, not one "250.3 ± 0.4" string: the
 # whole point of a workbook is that the next person can compute with it.
-def _summary_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
-    columns = [
+def _summary_columns() -> Sequence[_Column]:
+    return [
         _Column("Peak", None, 16),
         _Column("N", "0", 5),
         _Column("Center_Mean", "0.00", 13),
@@ -149,12 +138,6 @@ def _summary_columns(show_fwhm_v1: bool) -> Sequence[_Column]:
         _Column("FWHM_Mean", "0.00", 12),
         _Column("FWHM_Std", "0.000", 11),
     ]
-    if show_fwhm_v1:
-        columns += [
-            _Column("FWHM_v1_Mean", "0.00", 13),
-            _Column("FWHM_v1_Std", "0.000", 12),
-        ]
-    return columns
 
 _RATIO_COLUMNS: Sequence[_Column] = (
     _Column("Ratio", None, 22),
@@ -225,7 +208,7 @@ _HEADING_FONT = Font(bold=True)
 _TITLE_FONT = Font(bold=True, size=14)
 
 
-def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
+def _point_rows(technique: TechniqueResults) -> List[list]:
     """`technique`'s data-sheet rows, ordered by point then by fit order."""
     source_files = technique.source_files or {}
     rows: List[list] = []
@@ -245,12 +228,8 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
                 row = [
                     point, source, getattr(spectrum, "filename", None), RAW_STAT_LABEL,
                     raw.center, None, raw.intensity, None, raw.fwhm, None,
+                    None, None, None, None, getattr(spectrum, "zero_offset", None), None,
                 ]
-                if show_fwhm_v1:
-                    # No fit, so there is no sigma/gamma the v1 formula could
-                    # come from.
-                    row += [None, None]
-                row += [None, None, None, None, getattr(spectrum, "zero_offset", None), None]
                 rows.append(row)
 
         for peak in (fit.fitted_peaks if fit else []):
@@ -260,19 +239,15 @@ def _point_rows(technique: TechniqueResults, show_fwhm_v1: bool) -> List[list]:
                 peak.center, peak.center_stderr,
                 intensity, intensity_stderr,
                 peak.width_fwhm, peak.width_stderr,
+                peak.shape, fit.r_squared, fit.chi_squared, fit.converged,
+                getattr(spectrum, "zero_offset", None), fit.convergence_time,
             ]
-            if show_fwhm_v1:
-                # No stderr computed for the deprecated formula -- left
-                # blank rather than fabricated.
-                row += [peak.width_fwhm_v1, None]
-            row += [peak.shape, fit.r_squared, fit.chi_squared, fit.converged,
-                    getattr(spectrum, "zero_offset", None), fit.convergence_time]
             rows.append(row)
 
     return rows
 
 
-def _summary_rows(stats: Optional[Sequence[PeakStat]], show_fwhm_v1: bool) -> List[list]:
+def _summary_rows(stats: Optional[Sequence[PeakStat]]) -> List[list]:
     rows = []
     for stat in (stats or []):
         row = [
@@ -283,8 +258,6 @@ def _summary_rows(stats: Optional[Sequence[PeakStat]], show_fwhm_v1: bool) -> Li
             # same cell the .pptx dashes out.
             stat.fwhm_mean, stat.fwhm_std,
         ]
-        if show_fwhm_v1:
-            row += [stat.fwhm_v1_mean, stat.fwhm_v1_std]
         rows.append(row)
     return rows
 
@@ -325,14 +298,14 @@ def _set_widths(ws, columns: Sequence[_Column]) -> None:
         ws.column_dimensions[letter].width = column.width
 
 
-def _add_data_sheet(wb: Workbook, technique: TechniqueResults, show_fwhm_v1: bool) -> None:
+def _add_data_sheet(wb: Workbook, technique: TechniqueResults) -> None:
     """One technique's per-point sheet, or nothing when it produced no fits —
     an empty sheet named "PL" claims a technique that was never measured."""
-    rows = _point_rows(technique, show_fwhm_v1)
+    rows = _point_rows(technique)
     if not rows:
         return
 
-    columns = _point_columns(show_fwhm_v1)
+    columns = _point_columns()
     ws = wb.create_sheet(title=technique.label)
     _write_table(ws, columns, rows)
     _set_widths(ws, columns)
@@ -433,12 +406,11 @@ def _add_summary_sheet(
     material_name: str,
     report_date: str,
     techniques: Sequence[TechniqueResults],
-    show_fwhm_v1: bool,
 ) -> None:
     """The reading sheet: identity block, then each technique's summary table
     and ratios, then whatever was excluded."""
     ws = wb.create_sheet(title="Summary", index=0)
-    summary_columns = _summary_columns(show_fwhm_v1)
+    summary_columns = _summary_columns()
 
     ws["A1"] = "NexAnalyzer sample results"
     ws["A1"].font = _TITLE_FONT
@@ -458,7 +430,7 @@ def _add_summary_sheet(
         if technique.stats:
             ws.cell(row=row, column=1, value=_summary_caption(technique)).font = _HEADING_FONT
             row = _write_table(
-                ws, summary_columns, _summary_rows(technique.stats, show_fwhm_v1), start_row=row + 1
+                ws, summary_columns, _summary_rows(technique.stats), start_row=row + 1
             )
             row += 1
 
@@ -500,7 +472,6 @@ def build_sample_results_xlsx(
     optical_threshold_pair=None,
     domain_stat: Optional[DomainSizeStat] = None,
     domain_class_label: Optional[str] = None,
-    show_fwhm_v1: bool = False,
 ) -> bytes:
     """
     The sample's results as .xlsx bytes: a `Summary` sheet, one per-point sheet
@@ -521,11 +492,6 @@ def build_sample_results_xlsx(
     class its domains were split from. None (no domain-size analysis ran)
     omits the `Domain_Size` sheet entirely rather than writing an empty one.
 
-    `show_fwhm_v1` adds FWHM_v1/FWHM_v1_Stderr to each per-point sheet and
-    FWHM_v1_Mean/FWHM_v1_Std to the Summary sheet — the pre-v3.4.0
-    Gaussian-only width, kept only for this opt-in comparison. Off by default,
-    since every other reporting surface shows only the correct width.
-
     Returns
     -------
     bytes
@@ -538,9 +504,9 @@ def build_sample_results_xlsx(
     # created with their titles below.
     wb.remove(wb.active)
 
-    _add_summary_sheet(wb, sample_name, material_name, report_date, techniques, show_fwhm_v1)
+    _add_summary_sheet(wb, sample_name, material_name, report_date, techniques)
     for technique in techniques:
-        _add_data_sheet(wb, technique, show_fwhm_v1)
+        _add_data_sheet(wb, technique)
     _add_optical_sheets(wb, optical_frames, optical_threshold_pair)
     _add_domain_sheet(wb, domain_stat, domain_class_label)
 
