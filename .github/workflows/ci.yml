@@ -61,6 +61,9 @@ jobs:
       - name: Golden fit (must not skip)
         env:
           NEXANALYZER_REQUIRE_GOLDEN: "1"
+          # Not the machine that wrote the record: compare what rounding cannot
+          # move (tests/unit/test_golden_fit.py, PORTABLE).
+          NEXANALYZER_GOLDEN_PORTABLE: "1"
         run: python -m pytest tests/unit/test_golden_fit.py -q -p no:cacheprovider
       - name: Locked algorithm numbers
         run: >

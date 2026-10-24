@@ -46,20 +46,17 @@ import os
 import sys
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-
-# Before numpy: the record holds on one OpenBLAS kernel (core/blas.py), and
-# --regenerate must write it on that kernel too.
-import core  # noqa: E402, F401
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
 
 from modules.spectra.models.preset import MaterialPreset  # noqa: E402
 from modules.spectra.models.spectrum import ProcessingSettings, SpectrumFile  # noqa: E402
 from modules.spectra.processing.auto_workflow import execute_auto_workflow  # noqa: E402
 from modules.spectra.processing.parser import detect_mode_from_filename, parse_spectrum  # noqa: E402
-from modules.spectra.processing.peak_metrics import peak_intensity_and_stderr  # noqa: E402
+from modules.spectra.processing.peak_metrics import peak_intensity_and_stderr, peak_is_measured  # noqa: E402
 
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "golden_fit"
 #: (set name, folder holding the spectra, preset and expected.json, preset file, spectra)
@@ -74,6 +71,23 @@ CASES = [(name, filename) for name, _, _, spectra in GOLDEN_SETS for filename in
 # is for a numpy/scipy/lmfit upgrade reordering floating-point sums, which moves
 # the 8th digit, never the 5th. A real algorithm change moves far more.
 RTOL = 1e-5
+
+# On another machine (CI, a second PC) the same code fits to different last
+# digits, and an ill-conditioned fit amplifies them: on the retired HKU RM_1 a
+# 1-ulp change in the Voigt function moved chi-squared by ~1e-4 and the
+# unmeasured C and LB peaks by ~3 %, with the BLAS kernel pinned or not. With
+# NEXANALYZER_GOLDEN_PORTABLE=1 (set by CI) the fit is compared at
+# PORTABLE_FIT_RTOL and only the peaks the record marks measured
+# (peak_metrics.peak_is_measured) at PORTABLE_PEAK_RTOL, on PORTABLE_PEAK_KEYS:
+# rounding drifts those by <= 1e-3, a real algorithm change by percent. Shape is
+# left out (it drifts freely near 0) and so are the stderrs (whether lmfit can
+# estimate an ill-conditioned covariance at all flips with the last digit).
+# The strict comparison still runs in the git hooks, on the machine that wrote
+# the record.
+PORTABLE = os.environ.get("NEXANALYZER_GOLDEN_PORTABLE") == "1"
+PORTABLE_FIT_RTOL = 1e-3
+PORTABLE_PEAK_RTOL = 1e-2
+PORTABLE_PEAK_KEYS = ("center", "intensity", "area", "fwhm", "measured")
 
 
 def _golden_set(name: str):
@@ -110,6 +124,8 @@ def fit_summary(set_name: str, filename: str) -> dict:
             "fwhm": p.width_fwhm,
             "fwhm_stderr": p.width_stderr,
             "shape": p.shape,
+            # Which peaks a portable comparison may trust (see PORTABLE).
+            "measured": peak_is_measured(p, fit),
         }
     return {
         "mode": spectrum.mode,
@@ -145,14 +161,19 @@ def test_fit_matches_golden_record(set_name, filename):
     assert actual["converged"] == expected["converged"], "convergence changed"
     assert set(actual["peaks"]) == set(expected["peaks"]), "peak labels changed"
 
+    fit_rtol, peak_rtol = (PORTABLE_FIT_RTOL, PORTABLE_PEAK_RTOL) if PORTABLE else (RTOL, RTOL)
     drift = []
     for key in ("r_squared", "chi_squared"):
-        if not np.isclose(actual[key], expected[key], rtol=RTOL, atol=0):
+        if not np.isclose(actual[key], expected[key], rtol=fit_rtol, atol=0):
             drift.append(f"{key}: {expected[key]!r} -> {actual[key]!r}")
     for label, exp_peak in expected["peaks"].items():
+        if PORTABLE and not exp_peak["measured"]:
+            continue
         for key, exp_value in exp_peak.items():
+            if PORTABLE and key not in PORTABLE_PEAK_KEYS:
+                continue
             value = actual["peaks"][label][key]
-            if not np.isclose(value, exp_value, rtol=RTOL, atol=1e-12, equal_nan=True):
+            if not np.isclose(value, exp_value, rtol=peak_rtol, atol=1e-12, equal_nan=True):
                 drift.append(f"{label}.{key}: {exp_value!r} -> {value!r}")
 
     assert not drift, (

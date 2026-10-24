@@ -32,6 +32,19 @@ trip it. Moving the numbers on purpose: `python tests/unit/test_golden_fit.py
 spectra are committed through `.gitignore` exceptions — the only measurement
 data in the repo; don't widen them further.
 
+**1e-5 holds only on the machine that wrote the record.** Elsewhere the last
+digits differ (CPU, BLAS kernel, Windows runtime) and an ill-conditioned fit
+amplifies them, so CI sets `NEXANALYZER_GOLDEN_PORTABLE=1`: R²/chi² at 1e-3,
+and only measured peaks' (`peak_is_measured`) centre/FWHM/intensity/area at
+1 %. On the current sets rounding moves those by <= 7e-5. The hooks stay
+strict, and the record is regenerated only on the designated machine (this
+laptop). A clone on another PC opts its hooks into portable mode with
+`git config nexanalyzer.goldenPortable true`. A portable failure is
+a real change; don't loosen it to pass. Don't try to make fits bit-reproducible
+across machines by pinning the OpenBLAS kernel either: v5.33.0 did that and
+v5.35.0 removed it, because a 1-ulp change in the Voigt function alone moved
+HKU RM_1's chi-squared by ~1e-4.
+
 **CI repeats this on every pull request** (`.github/workflows/ci.yml`), on the
 versions pinned in `requirements-lock.txt`, and adds `scripts/check_algo_change.py`:
 an algorithm file changed without a version bump and CHANGELOG entry, or a locked
@@ -196,14 +209,6 @@ The full reasoning is in the
   types: `is_circular()` decides that per image at runtime, so a preset cannot
   address one of them. `ff_divisor` is a divisor, not a sigma — larger means a
   smaller blur.
-- **The OpenBLAS kernel is pinned, and only before numpy loads.** Kernels
-  round differently, and an ill-conditioned fit (the retired HKU RM_1) moved by ~1e-4
-  between CPUs, so `core/blas.py` sets `OPENBLAS_CORETYPE=Haswell` and one
-  thread from `core/__init__.py`. Anything that imports numpy before `core`
-  defeats it silently: keep `import core` first in `tests/conftest.py` and
-  `test_golden_fit.py`, and launch via `python -m core.launch`, not a bare
-  `streamlit run` (Streamlit loads numpy before app.py). `test_blas.py` reads
-  back the loaded kernel.
 - **`core/version.py` is the single source of truth for the version.** Bump it and
   add a CHANGELOG entry in the same change as any user-visible behaviour change;
   note explicitly when numbers don't move (renames) versus when they do.

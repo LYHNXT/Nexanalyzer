@@ -93,11 +93,10 @@ def test_a_locked_record_moved_and_stated_passes(repo):
     "core/report/summary_figure.py",
     "modules/spectra/io/results_excel.py",
     "modules/spectra/io/results_csv.py",
-    "core/blas.py",
 ])
 def test_report_number_code_outside_processing_is_guarded(repo, path):
     """These compute what a report prints (fences, uniformity CV, tables, the
-    BLAS kernel) without being refitted, so the golden fit cannot catch them."""
+    workbook) without being refitted, so the golden fit cannot catch them."""
     _write(repo, path, "changed = True\n")
     _commit(repo)
 

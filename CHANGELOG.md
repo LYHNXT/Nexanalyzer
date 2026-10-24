@@ -5,6 +5,36 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.35.0] - 2026-10-24
+
+### Golden fit
+
+- **The OpenBLAS kernel pin (v5.33.0) is removed, and the golden fit gains a
+  portable comparison instead.** The pin could not do what it was for: a
+  1-ulp change in the Voigt function alone moved HKU RM_1's chi-squared by
+  ~1e-4 and its unmeasured C and LB peaks by ~3 %, kernel pinned or not, so
+  no pin makes a fit bit-reproducible across machines. `core/blas.py`,
+  `core/launch.py` and `tests/unit/test_blas.py` are deleted, `start.bat` /
+  `start.sh` launch with `streamlit run` again, and `core/blas.py` leaves
+  check_algo_change's guarded paths.
+- **Portable mode** (`NEXANALYZER_GOLDEN_PORTABLE=1`, set by CI): R2 and
+  chi-squared at 1e-3, and only measured peaks' (`peak_is_measured`) centre,
+  FWHM, intensity and area at 1 %. Shape and stderrs are left out. Across six
+  rounding perturbations (1-ulp Voigt changes, another kernel) and the pinned
+  v5.34.0 record, every set passes. Measured peaks drift by <= 7e-5, fits by
+  <= 1e-5. The git hooks keep the strict 1e-5 comparison. The record is
+  regenerated only on the designated laptop; a clone on another PC opts its
+  hooks into portable mode with `git config nexanalyzer.goldenPortable true`,
+  and a strict failure prints that hint. The
+  same change is in the customer edition (its CI went green with it on
+  2026-10-24).
+- **Golden-fit record regenerated** without the pin, and with a `measured`
+  flag per peak. **Numbers move, below any instrument resolution.** HADI51 and
+  VA1P012504023 PL move by <= 1e-6, apart from shape parameters near 0. In
+  DDAA10, the measured E2g+A1g, 2LA and LA move by <= 7e-5. The unmeasured
+  B2g / 2ZA(M) stderrs and near-zero shapes move more, which is why portable
+  mode skips them.
+
 ## [5.34.0] - 2026-10-24
 
 A whole-repo review. **The Raman golden fit does not move** (DDAA10 RM_1-3

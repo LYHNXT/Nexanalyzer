@@ -1,18 +1,33 @@
 #!/bin/sh
 # Refuse the commit/push unless the fit algorithm still reproduces the golden
-# record in tests/fixtures/golden_fit/expected.json. See tests/unit/test_golden_fit.py.
+# records in tests/fixtures/golden_fit/<set>/expected.json. See tests/unit/test_golden_fit.py.
 # Enabled per clone with:  git config core.hooksPath .githooks
 cd "$(git rev-parse --show-toplevel)" || exit 1
 if [ -x venv/Scripts/python.exe ]; then PY=venv/Scripts/python.exe
 elif [ -x venv/bin/python ]; then PY=venv/bin/python
 else PY=python
 fi
-echo "[golden-fit] checking the spectral fit against the golden record..."
+# The record is written on one machine and holds there to 1e-5. Another PC
+# fits to different last digits, so a clone on one opts into the portable
+# comparison (tests/unit/test_golden_fit.py, PORTABLE) with:
+#   git config nexanalyzer.goldenPortable true
+if [ "$(git config --bool nexanalyzer.goldenPortable)" = "true" ]; then
+    export NEXANALYZER_GOLDEN_PORTABLE=1
+    echo "[golden-fit] checking the spectral fit against the golden record (portable)..."
+else
+    echo "[golden-fit] checking the spectral fit against the golden record (strict)..."
+fi
 NEXANALYZER_REQUIRE_GOLDEN=1 "$PY" -m pytest tests/unit/test_golden_fit.py -q -p no:warnings --no-header
 status=$?
 if [ $status -ne 0 ]; then
     echo "[golden-fit] FAILED: the fit numbers changed, so the algorithm was touched."
     echo "             If that is intended: python tests/unit/test_golden_fit.py --regenerate"
-    echo "             and record it in CHANGELOG.md."
+    echo "             and record it in CHANGELOG.md -- on the machine that writes the record."
+    if [ -z "$NEXANALYZER_GOLDEN_PORTABLE" ]; then
+        echo "             Not that machine? Strict 1e-5 holds only where the record was"
+        echo "             written. Compare portably in this clone instead:"
+        echo "               git config nexanalyzer.goldenPortable true"
+        echo "             A portable failure is a real change, not rounding."
+    fi
 fi
 exit $status
