@@ -21,6 +21,7 @@ PAGES = [
     "pages/5_Runcard.py",
     "pages/6_OneNote.py",
     "pages/7_Tools.py",
+    "pages/8_Split_Table.py",
 ]
 
 

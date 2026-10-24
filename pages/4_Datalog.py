@@ -90,7 +90,12 @@ from modules.datalog.processing.analysis import (
     compute_summary_stats,
     find_final_plateau_start,
 )
-from modules.datalog.ui.datalog_state import get_datalog_state, reset_results
+from modules.datalog.ui.datalog_state import (
+    SEARCH_KEY,
+    VIEW_MODE_KEY,
+    get_datalog_state,
+    reset_results,
+)
 from modules.datalog.viz.charts import (
     build_comparison_figure,
     build_single_run_figure,
@@ -833,6 +838,28 @@ def _render_tag_editor(root_folder: str, meta, tags: dict, runs) -> None:
         st.caption("Filename already matches this tag.")
 
 
+def _focused_run(row_meta, query: str) -> list:
+    """The run another page handed over, while the operator is still on it.
+
+    `datalog_state.focus_run` seeds the search with the run's timestamp; the
+    table cannot be given a selection, so the run is drawn as if its row were
+    ticked. Changing the search is moving on, and drops it for good.
+    """
+    state = get_datalog_state()
+    focus = state.get("focus_run")
+    if not focus:
+        return []
+    if query != (state.get("focus_query") or "").lower():
+        state["focus_run"] = state["focus_query"] = None
+        return []
+    target = os.path.normcase(os.path.normpath(focus))
+    hits = [m for m in row_meta if os.path.normcase(os.path.normpath(m.path)) == target]
+    if hits:
+        st.caption(f"Opened from the Split Table: `{Path(focus).name}`. "
+                   "Tick another row or clear the search to move on.")
+    return hits
+
+
 def _render_run_table(root_folder: str, mode: str):
     """The run list, its search, and the inline tag/rename editor. Returns selected paths.
 
@@ -877,7 +904,7 @@ def _render_run_table(root_folder: str, mode: str):
 
     tags = load_runcard_tags(root_folder)
 
-    query = st.text_input("Search (timestamp or runcard)", key="datalog_search").strip().lower()
+    query = st.text_input("Search (timestamp or runcard)", key=SEARCH_KEY).strip().lower()
     if query:
         # Search always looks across every run, not just the recent window --
         # the whole reason to search is that the run is not in the last 50.
@@ -931,6 +958,7 @@ def _render_run_table(root_folder: str, mode: str):
     # matching runs. st.dataframe's selection is keyed by row position, not by
     # run identity, so a stale index has to be dropped rather than crash.
     selected_metas = [row_meta[i] for i in selected_indices if i < len(row_meta)]
+    selected_metas = selected_metas or _focused_run(row_meta, query)
 
     if selected_metas:
         st.divider()
@@ -1362,7 +1390,7 @@ _render_duplicate_cleanup(root_folder, state)
 st.subheader("3. View Mode")
 mode = st.radio(
     "View mode", ["Single run", "Compare runs"], horizontal=True, label_visibility="collapsed",
-    key="datalog_view_mode",
+    key=VIEW_MODE_KEY,
 )
 
 _render_workspace(root_folder, mode)

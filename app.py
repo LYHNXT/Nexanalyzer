@@ -29,6 +29,11 @@ data-source rule above holds for exactly the two sections that state it. A
 third page that sends results somewhere belongs here; a page that reads a new
 kind of file does not.
 
+Split Table (v5.42.0) sits under "Process" although its workbook also carries
+QC results: every row is a run on the tool, keyed by the runcard and the
+datalog that ran it, and the QC columns are joined onto those runs. It reads
+the run, so it files with the pages that read runs.
+
 "Setup" (v5.15.0) holds the Tools page, which reads no data either: it records
 where each tool's folders are, for every page above to use.
 """
@@ -56,6 +61,7 @@ qc_report_page = st.Page("pages/2_QC_Report.py", title="QC Report", icon="🔬")
 material_presets_page = st.Page("pages/3_Material_Presets.py", title="Material Presets", icon="🧪")
 datalog_page = st.Page("pages/4_Datalog.py", title="Datalog", icon="📈")
 runcard_page = st.Page("pages/5_Runcard.py", title="Runcard", icon="📋")
+split_table_page = st.Page("pages/8_Split_Table.py", title="Split Table", icon="🧾")
 onenote_page = st.Page("pages/6_OneNote.py", title="OneNote", icon="📓")
 tools_page = st.Page("pages/7_Tools.py", title="Tools", icon="🧰")
 
@@ -69,6 +75,7 @@ nav = st.navigation(
         "Process": [
             datalog_page,
             runcard_page,
+            split_table_page,
         ],
         "Publish": [
             onenote_page,

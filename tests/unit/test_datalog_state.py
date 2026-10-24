@@ -8,6 +8,7 @@ from modules.datalog.ui import datalog_state
 from modules.datalog.ui.datalog_state import (
     _DETECT_ARTIFACTS,
     _DUPLICATE_ARTIFACTS,
+    _FOCUS_ARTIFACTS,
     _RENAME_ARTIFACTS,
     _SELECTIONS,
     get_datalog_state,
@@ -39,7 +40,8 @@ class TestEveryDerivedKeyIsResettable:
         state = _fresh_state(monkeypatch)
 
         accounted = (set(_SELECTIONS) | set(_RENAME_ARTIFACTS)
-                     | set(_DUPLICATE_ARTIFACTS) | set(_DETECT_ARTIFACTS))
+                     | set(_DUPLICATE_ARTIFACTS) | set(_DETECT_ARTIFACTS)
+                     | set(_FOCUS_ARTIFACTS))
         assert set(state) - accounted == set()
 
     def test_a_folder_change_drops_the_detector_and_its_recipe_folder(self, monkeypatch):
