@@ -339,3 +339,27 @@ class TestAPLFileOnARamanShiftAxisIsRefused:
         from modules.spectra.io.preset_store import load_presets
         result = execute_auto_workflow(self._pl(np.linspace(602.0, 915.0, 2000)), load_presets()["WSe2_QC"])
         assert result["success"] is True
+
+
+class TestEachTechniqueHasItsDespiker:
+    def test_pl_uses_the_step_despiker_and_raman_the_level_one(self, monkeypatch):
+        import modules.spectra.processing.auto_workflow as aw
+        from modules.spectra.io.preset_store import load_presets
+        used = []
+        monkeypatch.setattr(aw, "remove_spikes", lambda y, threshold: (used.append("level"), (y.copy(), np.zeros(len(y), bool)))[1])
+        monkeypatch.setattr(aw, "remove_spikes_local", lambda y, threshold: (used.append("step"), (y.copy(), np.zeros(len(y), bool)))[1])
+        preset = load_presets()["WSe2_QC"]
+        for mode, x in (("PL", np.linspace(602.0, 915.0, 800)), ("Raman", np.linspace(90.0, 330.0, 800))):
+            y = 500 + 3000 * np.exp(-0.5 * ((x - x[400]) / 5) ** 2)
+            data = SpectrumData(X=x, Y=y)
+            aw.execute_auto_workflow(SpectrumFile(filename=f"{'PL' if mode == 'PL' else 'RM'}_1.txt", mode=mode,
+                                                  original_data=data, raw_data=data, processed_data=data,
+                                                  processing_settings=ProcessingSettings()), preset)
+        assert used == ["step", "level"]
+
+    def test_every_pl_preset_uses_threshold_10(self):
+        from modules.spectra.io.preset_store import load_presets
+        for name, preset in load_presets().items():
+            block = preset.block_for("PL")
+            if block is not None:
+                assert block.despike_threshold == 10.0, name

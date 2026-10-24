@@ -1,13 +1,13 @@
 {
-  "material_name": "WSe2_QC (frozen v5.34.0)",
+  "material_name": "WSe2_QC (frozen v5.41.0)",
   "enabled": true,
-  "description": "Frozen copy of WSe2_QC's PL block at v5.34.0 for the production PL golden fit. Do not edit: tune data/materials.json instead.",
+  "description": "Frozen copy of WSe2_QC's PL block at v5.41.0 (despike threshold 10, step-based PL despiker) for the production PL golden fit. Do not edit: tune data/materials.json instead.",
   "raman": null,
   "pl": {
     "x_range_enabled": false,
     "x_min": null,
     "x_max": null,
-    "despike_threshold": 8.0,
+    "despike_threshold": 10.0,
     "baseline_algorithm": "ALS",
     "baseline_degree": null,
     "baseline_lambda": 50000.0,

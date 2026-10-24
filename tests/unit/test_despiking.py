@@ -86,3 +86,44 @@ class TestThresholdCeilingAgrees:
             ProcessingSettings(despike_threshold=above)
         with pytest.raises(ValueError):
             remove_spikes(np.arange(20, dtype=float), threshold=above)
+
+
+class TestPLDespikerScoresSteps:
+    """v5.41.0: PL is despiked by its steps (remove_spikes_local). The
+    whole-spectrum score flagged the PL band itself and left 20 % of a
+    3-pixel ray."""
+
+    @staticmethod
+    def _band(n=1650, seed=0):
+        rng = np.random.default_rng(seed)
+        x = np.linspace(600, 900, n)
+        y = 500 + 5000 * np.exp(-0.5 * ((x - 762) / 13) ** 2) + rng.normal(0, 8, n)
+        return x, y
+
+    def test_the_band_is_left_alone(self):
+        from modules.spectra.processing.despiking import remove_spikes_local
+        _x, y = self._band()
+        clean, mask = remove_spikes_local(y, threshold=10.0)
+        assert mask.sum() <= 20
+        assert clean.max() == y.max()
+
+    def test_the_old_score_did_flag_the_band(self):
+        """The regression this replaces, kept visible."""
+        _x, y = self._band()
+        _clean, mask = remove_spikes(y, threshold=8.0)
+        assert mask.sum() > 100
+
+    def test_one_and_three_pixel_rays_are_removed(self):
+        from modules.spectra.processing.despiking import remove_spikes_local
+        _x, y = self._band()
+        z = y.copy()
+        z[300] += 4000
+        z[1200:1203] += [1600, 4000, 1600]
+        clean, _mask = remove_spikes_local(z, threshold=10.0)
+        assert abs(clean[300] - y[300]) < 50
+        assert np.max(np.abs(clean[1200:1203] - y[1200:1203])) < 50
+
+    def test_the_threshold_range_is_enforced(self):
+        from modules.spectra.processing.despiking import remove_spikes_local
+        with pytest.raises(ValueError):
+            remove_spikes_local(np.ones(50), threshold=1.0)
