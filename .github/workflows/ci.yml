@@ -52,8 +52,13 @@ jobs:
           cache-dependency-path: requirements-lock.txt
       - name: Install (pinned)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest ruff -c requirements-lock.txt
+          # A fresh venv, so `pip check` sees only our tree: the runner's own
+          # Python ships pipx, whose platformdirs floor our lock undercuts
+          # (2026-10-24: "pipx 1.18.4 has requirement platformdirs>=4.12.2").
+          python -m venv .ci-venv
+          "$PWD\.ci-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          .ci-venv\Scripts\python.exe -m pip install --upgrade pip
+          .ci-venv\Scripts\python.exe -m pip install -r requirements.txt pytest ruff -c requirements-lock.txt
       - name: Dependencies are consistent
         run: python -m pip check
       - name: Lint (pyflakes + syntax only)
@@ -97,8 +102,13 @@ jobs:
           cache-dependency-path: requirements-lock.txt
       - name: Install (pinned)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest pytest-cov ruff -c requirements-lock.txt
+          # A fresh venv, so `pip check` sees only our tree: the runner's own
+          # Python ships pipx, whose platformdirs floor our lock undercuts
+          # (2026-10-24: "pipx 1.18.4 has requirement platformdirs>=4.12.2").
+          python -m venv .ci-venv
+          "$PWD\.ci-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          .ci-venv\Scripts\python.exe -m pip install --upgrade pip
+          .ci-venv\Scripts\python.exe -m pip install -r requirements.txt pytest pytest-cov ruff -c requirements-lock.txt
       # The golden fit already ran, required, in `algorithms`; everything else
       # runs here under coverage. The floor is a ratchet, set just under the
       # measured total: raise it as coverage grows, never lower it to pass.
