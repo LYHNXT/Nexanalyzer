@@ -314,3 +314,28 @@ class TestTheBaselineIsKept:
         execute_auto_workflow(spectrum, _mos2_like(baseline_algorithm="None (Skip)"))
 
         assert spectrum.background is None
+
+
+class TestAPLFileOnARamanShiftAxisIsRefused:
+    """v5.37.0: HADH08/20/22/23 and VBBE68 exported their PL as Raman shift
+    (cm-1, axis 3876-9558). Fitted as nm, the QC Report printed a Raw PL centre
+    of ~7,300 "nm". Such a file is now refused with a message saying why."""
+
+    @staticmethod
+    def _pl(x):
+        y = 500 + 6000 * np.exp(-0.5 * ((x - x[len(x) // 2]) / (0.02 * (x[-1] - x[0]))) ** 2)
+        data = SpectrumData(X=x, Y=y)
+        return SpectrumFile(filename="PL_1.txt", mode="PL", original_data=data, raw_data=data,
+                            processed_data=data, processing_settings=ProcessingSettings())
+
+    def test_a_cm1_axis_is_refused_and_named(self):
+        from modules.spectra.io.preset_store import load_presets
+        result = execute_auto_workflow(self._pl(np.linspace(3876.0, 9558.0, 2000)), load_presets()["WSe2_QC"])
+        assert result["success"] is False
+        assert "Raman shift (cm-1)" in result["error_message"]
+        assert "3876-9558" in result["error_message"]
+
+    def test_a_nm_axis_still_fits(self):
+        from modules.spectra.io.preset_store import load_presets
+        result = execute_auto_workflow(self._pl(np.linspace(602.0, 915.0, 2000)), load_presets()["WSe2_QC"])
+        assert result["success"] is True

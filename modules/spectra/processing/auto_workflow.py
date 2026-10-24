@@ -21,6 +21,12 @@ from .baseline import (
 )
 from .fitting import fit_voigt_peaks
 from .zero_line import laser_line_offset
+
+#: No PL axis in nanometres reaches this. A PL file whose axis median is above
+#: it was exported as Raman shift (cm-1): HADH08/20/22/23 and VBBE68 (2026-08/09)
+#: run 3876-9558, and were fitted as nm until v5.37.0 -- the QC Report printed a
+#: Raw PL centre of ~7,300 "nm" and Exciton/Trion pinned to the axis start.
+PL_MAX_NM = 2000.0
 from ..models.peak import FitResult
 from ..utils.fit_staleness import mark_fit_stale_if_needed, compute_preprocessing_hash
 from ..ui.session_state import set_view_options
@@ -108,6 +114,16 @@ def execute_auto_workflow(
         # saying so would make picking the wrong material in the dropdown
         # destructive.
         spectrum.reset_to_raw()
+
+        # A PL spectrum is fitted in nm. One exported as Raman shift is refused
+        # rather than fitted: converting needs the excitation wavelength, which
+        # the file does not carry, and a guessed one moves every centre.
+        if spectrum.mode == "PL" and len(spectrum.raw_data.X) and                 float(np.median(spectrum.raw_data.X)) > PL_MAX_NM:
+            raise WorkflowExecutionError(
+                f"This PL file's axis runs {float(np.min(spectrum.raw_data.X)):.0f}-"
+                f"{float(np.max(spectrum.raw_data.X)):.0f}, which is Raman shift (cm-1), "
+                f"not wavelength (nm). Re-export the PL spectrum in nm."
+            )
 
         # ========== STAGE 0: ZERO-LINE CALIBRATION (Raman, opt-in) ==========
         # Before the crop, so an x-range and fit windows apply to the corrected

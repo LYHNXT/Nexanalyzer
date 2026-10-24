@@ -5,6 +5,22 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.37.0] - 2026-10-24
+
+### Spectra
+
+- **A PL file exported as Raman shift (cm-1) is refused, not fitted as nm.**
+  HADH08/20/22/23 (2026-09) and VBBE68 (2026-08) carry PL on a 3876-9558 axis;
+  the fit treated it as wavelength, so their QC Reports printed a Raw PL centre
+  of ~7,300 "nm" and Exciton/Trion pinned at the axis start (R2 about -0.1).
+  `execute_auto_workflow` now stops a PL spectrum whose axis median is above
+  2000 (`PL_MAX_NM`, no PL in nm reaches it) with "This PL file's axis runs
+  3876-9558, which is Raman shift (cm-1), not wavelength (nm). Re-export the
+  PL spectrum in nm." The QC Report lists it per point and omits PL rather than
+  report it. The data files are untouched; converting would need the
+  excitation wavelength, which the file does not carry. No other number moves
+  (golden fit 5/5).
+
 ## [5.36.0] - 2026-10-24
 
 ### QC Report
