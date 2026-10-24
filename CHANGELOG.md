@@ -5,6 +5,24 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.40.0] - 2026-10-24
+
+### Fitting
+
+- **Fits are faster, and bit-identical.** Each peak's sigma and gamma were
+  three lmfit expressions re-evaluated through its expression interpreter on
+  every residual call, ~40 % of a fit. A fit without a dominant peak now uses a
+  Voigt parameterised by its FWHM and Gaussian share (`_voigt_by_width`) that
+  computes them inline with the same operations in the same order, so every
+  float is the same. Verified identical on **481 spectra**: the 5 golden
+  (DDAA10 RM_1-3, HADI51 and VA1P012504023 PL_5, strict), 332 HA/VA production
+  spectra (WSe2_QC, and MoS2_QC's dominant path) and 144 Samsung MoS2 map
+  spectra (MoS2_QC). WSe2 Raman fits run ~2.3x faster, PL ~1.4x; MoS2 maps
+  barely change. A dominant-peak fit (MoS2_QC PL) keeps the expression model,
+  since its constrained area needs lmfit's propagated stderr.
+  `test_fitting` asserts the inline sigma/gamma equal lmfit's evaluation
+  exactly over 500 random inputs. **No number moves.**
+
 ## [5.39.0] - 2026-10-24
 
 ### Reports

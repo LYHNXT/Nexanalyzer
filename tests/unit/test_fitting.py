@@ -499,3 +499,38 @@ class TestFitRefusesBoundsItCannotHonour:
         peaks = [PeakDefinition(center=1000.0, intensity=1.0, width_fwhm=20.0)]
         with pytest.raises(ValueError, match="no positive signal"):
             fit_voigt_peaks(x, y, peaks)
+
+
+class TestTheInlineVoigtWidthsMatchTheExpressions:
+    """v5.40.0: sigma and gamma are computed in Python instead of by lmfit's
+    expression interpreter. The fit stays bit-identical only if the two give
+    the *same floats*, so this compares them exactly, not approximately."""
+
+    def test_sigma_and_gamma_are_bit_identical_to_lmfits_evaluation(self):
+        from lmfit import Parameters
+        from modules.spectra.processing.fitting import _GAMMA_EXPR, _GFRAC_EXPR, _SIGMA_EXPR, _sigma_gamma
+
+        rng = np.random.default_rng(0)
+        for _ in range(500):
+            vfwhm = float(rng.uniform(0.5, 80.0))
+            fgmin = float(rng.uniform(0.01, 0.5)) * vfwhm
+            gmix = float(rng.uniform(0.0, 1.0))
+            params = Parameters()
+            params.add("p0_vfwhm", value=vfwhm)
+            params.add("p0_gmix", value=gmix)
+            params.add("p0_gfrac", expr=_GFRAC_EXPR.format(p="p0_", fg_min=fgmin))
+            params.add("p0_sigma", expr=_SIGMA_EXPR.format(p="p0_"))
+            params.add("p0_gamma", expr=_GAMMA_EXPR.format(p="p0_"))
+            params.update_constraints()
+
+            sigma, gamma = _sigma_gamma(vfwhm, gmix, fgmin)
+
+            assert sigma == params["p0_sigma"].value
+            assert gamma == params["p0_gamma"].value
+
+    def test_a_fit_without_a_dominant_peak_uses_the_inline_model(self):
+        x = np.linspace(200, 300, 400)
+        y = 100 * np.exp(-0.5 * ((x - 250) / 3) ** 2) + 5
+        result = fit_voigt_peaks(x, y, [PeakDefinition(center=250.0, intensity=1.0, width_fwhm=8.0)])
+        assert result.success and result.converged
+        assert result.fitted_peaks[0].center == pytest.approx(250.0, abs=0.05)
