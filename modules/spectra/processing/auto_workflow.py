@@ -12,7 +12,7 @@ import numpy as np
 from typing import Dict, Any
 from ..models.spectrum import SpectrumFile, SpectrumData
 from ..models.preset import MaterialPreset, parse_exclusion_ranges
-from .despiking import remove_spikes
+from .despiking import remove_spikes, remove_spikes_local
 from .baseline import (
     baseline_polynomial,
     baseline_als,
@@ -205,8 +205,11 @@ def execute_auto_workflow(
         # Save threshold to settings (matches manual workflow)
         spectrum.processing_settings.despike_threshold = block.despike_threshold
 
-        # Run despike algorithm and unpack tuple (matches manual workflow)
-        Y_despiked, spike_mask = remove_spikes(Y, threshold=block.despike_threshold)
+        # PL by its steps (v5.41.0): the whole-spectrum score flagged the PL
+        # band itself. Raman keeps `remove_spikes`, which on the golden Raman
+        # changes nothing inside the fit window. See remove_spikes_local.
+        despike = remove_spikes_local if spectrum.mode == "PL" else remove_spikes
+        Y_despiked, spike_mask = despike(Y, threshold=block.despike_threshold)
 
         # Update processed_data (X unchanged, Y updated - matches manual workflow)
         spectrum.processed_data = SpectrumData(X=X, Y=Y_despiked)

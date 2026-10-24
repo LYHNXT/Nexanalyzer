@@ -842,3 +842,14 @@ class TestTheFramesOwnSegmentationIsReused:
         path = _frame_with_blobs(tmp_path, self._BLOBS)
         kept = analyse_frame(path, point=1, ref_label="2L", keep_segmentation=True)
         assert "segmentation" not in repr(kept)
+
+
+def test_the_marker_landscape_is_the_green_channel(tmp_path):
+    """v5.41.0: the floor comes from green-channel thresholds, so the
+    landscape is green too; luminance sat 0.2-2.6 sigma away, by film colour."""
+    path = _frame_with_blobs(tmp_path, [(slice(40, 80), slice(50, 90))])
+    frame = analyse_frame(path, point=1, ref_label="2L", keep_segmentation=True)
+    from modules.optical.processing.contrast import analyse_array
+    res = analyse_array(frame.original, "2L")
+    assert np.array_equal(frame.segmentation["green"], res["s"][..., 1])
+    assert "lum" not in frame.segmentation

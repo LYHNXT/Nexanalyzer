@@ -380,7 +380,7 @@ class FrameResult:
     #: calibration by it to get microns per pixel of `original`.
     scale: float = 1.0
     #: What domain sizing needs from this frame's own segmentation (masks,
-    #: thresholds, luminance) and the tuning it ran with, kept only when
+    #: thresholds, the smoothed green channel) and the tuning it ran with, kept only when
     #: `analyse_frame(keep_segmentation=True)`: `domain_size.measure_domains`
     #: reuses it instead of segmenting the frame a second time (~3.5 s of
     #: flat-field per frame). Large; drop it (`dataclasses.replace(...,
@@ -428,7 +428,7 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
     segmentation = None
     if keep_segmentation:
         segmentation = dict(tuning=tuning, valid=res["valid"], st=st, lo=res["lo"],
-                            ref=res["ref"], hi=res["hi"], lum=luminance(res["s"]))
+                            ref=res["ref"], hi=res["hi"], green=res["s"][..., 1].copy())
     return FrameResult(
         name=name or str(point),
         point=point,

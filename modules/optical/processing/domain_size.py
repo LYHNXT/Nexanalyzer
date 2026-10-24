@@ -17,7 +17,7 @@ images yet:
 
 1. Re-run `contrast.analyse_array()` on the frame's own `original`/`valid`
    (already loaded and resized -- no repeat disk I/O) to get the target mask
-   (`lo`, `ref`, or `hi`) and the smoothed luminance it was thresholded from.
+   (`lo`, `ref`, or `hi`) and the smoothed green channel it was thresholded from.
 2. Optionally close small gaps in that mask (`mask_closing_radius`, module
    default off) before anything downstream sees it. `classify()`'s per-pixel
    threshold reproduces a flake's real (noisy, few-pixel-wide) edge as a
@@ -27,8 +27,11 @@ images yet:
    the real flake's footprint. Closing bridges those gaps first.
 3. Find one marker per flake: each flake has a distinct optical extremum at
    its own centre (a real reflection highlight). For "above" and "reference"
-   that is a local luminance *maximum*; for "below" a local luminance
-   *minimum*, since a below-reference domain is darker than its surroundings
+   that is a local *maximum* of the smoothed green channel -- the channel
+   `classify()` thresholds, so the floor below and the landscape share one
+   zero point (luminance until v5.41.0, which sat a frame-dependent 0.2-2.6
+   sigma away from green and made the floor's margin vary by film); for
+   "below" a local *minimum*, since a below-reference domain is darker than its surroundings
    rather than brighter. The marker's own floor sits `marker_margin_sigma *
    sigma_noise` (module default `MARKER_MARGIN_SIGMA`, overridable per
    material/layer via `OpticalParams.marker_margin_sigma`) past the class's
@@ -85,7 +88,7 @@ from skimage.segmentation import watershed
 
 from core.report.models import DomainSizeStat, SizePopulationStat
 
-from .contrast import DEFAULT_MINPX, DEFAULT_NSIGMA, FrameResult, analyse_array, luminance
+from .contrast import DEFAULT_MINPX, DEFAULT_NSIGMA, FrameResult, analyse_array
 
 #: The three classes `classify()` produces, in `contrast.class_labels()`'s
 #: own (below, reference, above) order. What the QC Report page offers.
@@ -359,7 +362,7 @@ def measure_domains(
         # The frame's own segmentation, kept by analyse_frame: the same call on
         # the same array, so bit-identical to re-running it, without the
         # second flat-field.
-        res, lum = seg, seg["lum"]
+        res, lum = seg, seg["green"]
     else:
         res = analyse_array(frame.original, frame.ref_label, **tuning)
         lum = None
@@ -394,7 +397,10 @@ def measure_domains(
 
     margin_sigma = MARKER_MARGIN_SIGMA if marker_margin_sigma is None else marker_margin_sigma
     if lum is None:
-        lum = luminance(res["s"])
+        # The green channel, which the thresholds (th_hi, th_lo, sigma_noise)
+        # come from (v5.41.0). Luminance sat 0.2-2.6 sigma from it depending
+        # on the film's colour, so the marker floor's margin varied by frame.
+        lum = res["s"][..., 1]
     # "above"/"reference" look for a flake's bright reflection highlight, a
     # local luminance maximum; "below" is darker than its surroundings, so
     # its own extremum is a local *minimum* instead. Negating luminance turns

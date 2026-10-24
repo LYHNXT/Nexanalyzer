@@ -5,6 +5,40 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.41.0] - 2026-10-24
+
+### Numbers that move
+
+- **PL is despiked by its steps, not by its levels** (`remove_spikes_local`,
+  Whitaker-Hayes). `remove_spikes` scores every point against the whole
+  spectrum's median and MAD, so on PL -- one broad band over a flat background
+  -- it flagged the band itself (~290 of 1650 points on a clean production
+  spectrum) and smoothed it, and it left 20 % of a 3-pixel cosmic ray. A step
+  score leaves a clean band alone (~10 noise points touched, maximum and Raw
+  FWHM unchanged) and removes rays: 98 % of rays at 20 x the noise, all
+  larger ones, 3-pixel rays to under 1 %. **Every preset's PL despike
+  threshold is 10** (was 8; the number now scores steps). Raman keeps
+  `remove_spikes`: on the golden Raman it touches nothing in the fit window.
+  On 93 production PL spectra (HA HADI*, VA 2025-04, WSe2_QC), old vs new:
+  Raw centre and FWHM -- the customer-spec quantities -- change by 0 in the
+  median, 95 % within 2.1 nm / 0.7 nm, at most 3.4 / 2.6 nm (VA1P012504020
+  PL_10); fitted Exciton centre and FWHM 95 % within 0.11 / 0.20 nm. The
+  exceptions are 3 spectra (HADI40 PL_2/PL_3, HADI43 PL_3) whose band does not
+  separate cleanly into Exciton and Trion: the two-peak split flips and the
+  Exciton lands on its 780 nm bound (up to 9.9 nm and 23 nm FWHM). HADI14 PL_1's
+  "maximum" was a cosmic ray (one point at 854 nm); both despikers remove it.
+- **Golden-fit record regenerated for the PL sets** (HADI51, VA1P012504023
+  PL_5), their frozen presets now WSe2_QC's PL block at v5.41.0 (threshold 10):
+  centres move <= 0.05 nm, FWHM <= 0.08 nm, intensities <= 0.2 %; chi-squared
+  rises 4-7 % because the band's real noise is no longer smoothed away. The
+  Raman record (DDAA10) does not move.
+- **Domain sizing finds markers on the green channel**, the channel its
+  thresholds come from. Luminance sat 0.2-2.6 sigma from green depending on
+  the film's colour, so the marker floor's 0.5 sigma margin meant something
+  different on every film. Domain counts: HA wafers (HADH20/30/35) within
+  1.5 % and mean size unchanged; VA1P012504002 +13 % domains "above"
+  (2,767 -> 3,136, mean diameter 26.7 -> 25.5 px). OM coverage is unaffected.
+
 ## [5.40.0] - 2026-10-24
 
 ### Fitting

@@ -139,3 +139,61 @@ def remove_spikes(
     return y_clean, spike_mask
 
 
+
+
+def remove_spikes_local(
+    y: np.ndarray,
+    threshold: float = 10.0,
+    window: int = 3,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Remove cosmic-ray spikes by their jumps (Whitaker-Hayes); the PL despiker
+    since v5.41.0.
+
+    `remove_spikes` scores each point against the *whole* spectrum's median
+    and MAD, so on a PL spectrum -- one broad band over a flat background --
+    the band itself scores as a spike: on golden HKU PL_1 it flagged 303 of
+    1650 points and smoothed the band (raw maximum -0.6 %, Raw FWHM +0.3 nm,
+    up to +5 nm on HADH22). And it replaced each flagged point by the median of
+    neighbours that were themselves flagged, so a 3-pixel ray kept 20 % of its
+    height.
+
+    Here a point is scored by the *step* to its neighbour, against the MAD of
+    all steps: a band rises over tens of points, a ray in one. Both ends of a
+    large step are flagged, and each flagged point is replaced by the mean of
+    the unflagged points within `window` (widened up to 4 x `window` until two
+    are found). On 53 HA/VA production PL spectra at threshold 10: a clean
+    spectrum has ~10 noise points touched (median), its maximum and Raw FWHM
+    unchanged; a ray of 20 x the noise is removed in 98 % of spectra, 40 x in
+    all; a 3-pixel ray leaves under 1 %.
+
+    Parameters and return value as `remove_spikes`; `threshold` is in the same
+    [DESPIKE_THRESHOLD_MIN, DESPIKE_THRESHOLD_MAX] range but scores steps, not
+    levels, so the same number is not the same sensitivity.
+    """
+    if not (DESPIKE_THRESHOLD_MIN <= threshold <= DESPIKE_THRESHOLD_MAX):
+        raise ValueError(
+            f"threshold must be in [{DESPIKE_THRESHOLD_MIN}, {DESPIKE_THRESHOLD_MAX}] (got {threshold})"
+        )
+    y = np.asarray(y, dtype=float)
+    if len(y) < 10:
+        return y.copy(), np.zeros(len(y), dtype=bool)
+
+    steps = np.diff(y)
+    mad = median_abs_deviation(steps, nan_policy="omit")
+    if mad < 1e-10:
+        return y.copy(), np.zeros(len(y), dtype=bool)
+    jump = 0.6745 * np.abs(steps - np.median(steps)) / mad > threshold
+    spike_mask = np.zeros(len(y), dtype=bool)
+    spike_mask[1:] |= jump
+    spike_mask[:-1] |= jump
+
+    y_clean = y.copy()
+    for idx in np.flatnonzero(spike_mask):
+        for half in range(window, 4 * window + 1):
+            lo, hi = max(0, idx - half), min(len(y), idx + half + 1)
+            keep = ~spike_mask[lo:hi]
+            if keep.sum() >= 2:
+                y_clean[idx] = y[lo:hi][keep].mean()
+                break
+    return y_clean, spike_mask
