@@ -3,6 +3,7 @@
 from modules.runcard.ui import runcard_state as state
 from modules.runcard.ui.runcard_state import (
     _COMPOSITE_ARTIFACTS,
+    _FOCUS_ARTIFACTS,
     _SCAN_ARTIFACTS,
     _SELECTIONS,
     chartable_selection,
@@ -14,7 +15,7 @@ from modules.runcard.ui.runcard_state import (
     runcard_table_key,
 )
 
-_DERIVED = _SCAN_ARTIFACTS + _COMPOSITE_ARTIFACTS
+_DERIVED = _SCAN_ARTIFACTS + _COMPOSITE_ARTIFACTS + _FOCUS_ARTIFACTS
 
 
 def _fresh_state(monkeypatch):

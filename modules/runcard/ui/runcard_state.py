@@ -39,6 +39,7 @@ def initialize_runcard_state() -> None:
             "species": None,         # list[str], the gas columns this folder needs
             "errors": None,          # list[(path, message)] from the scan
             "figures": None,         # dict[str, go.Figure] for the ticked rows
+            "focus": None,           # a recipe another page asked to chart; see focus_runcard
         }
 
 
@@ -88,6 +89,10 @@ _COMPOSITE_ARTIFACTS = ("figures",)
 #: different row must not touch it.
 _SCAN_ARTIFACTS = ("runcards", "rejected", "profiles", "rows", "species", "errors")
 
+#: A recipe handed over by another page (the Split Table's "Open in Runcard").
+#: A path into one folder, so a folder change drops it with the scan.
+_FOCUS_ARTIFACTS = ("focus",)
+
 
 def reset_results(state: dict) -> None:
     """Drop every derived artifact, keeping the operator's selections.
@@ -103,6 +108,8 @@ def reset_results(state: dict) -> None:
     """
     reset_scan_results(state)
     reset_figures(state)
+    for key in _FOCUS_ARTIFACTS:
+        state[key] = None
 
 
 def reset_scan_results(state: dict) -> None:
@@ -147,3 +154,16 @@ def chartable_selection(state: dict) -> list[str]:
     """
     profiles = state.get("profiles") or {}
     return [path for path in (state.get("selected") or ()) if profiles.get(path) is not None]
+
+
+def focus_runcard(state: dict, folder: str, path: str) -> None:
+    """Point the page at `folder` with the recipe at `path` charted, for another page.
+
+    The table cannot be given a tick, so the page charts `focus` while nothing
+    is ticked, and scans the folder on arrival rather than waiting for
+    Scan / Reload. Ticking any row replaces it.
+    """
+    if state.get("folder") != folder:
+        state["folder"] = folder
+        reset_results(state)
+    state["focus"] = path

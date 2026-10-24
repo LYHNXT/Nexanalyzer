@@ -53,6 +53,10 @@ RUNCARD = "runcard"
 DATALOG = "datalog"
 ROLES = (OPTICAL, RUNCARD, DATALOG)
 
+#: The tool's split-table workbook. Not a role: it is one file, not a tree to
+#: search per wafer, so `find_wafer` never looks for it.
+SPLITTABLE = "splittable"
+
 
 class UnknownToolError(LookupError):
     """Raised for a tool folder with no entry in the layout table.
@@ -137,6 +141,12 @@ class ToolLayout:
         if not declared:
             return None
         return self.root / declared
+
+    @property
+    def splittable_file(self) -> Optional[Path]:
+        """The split-table workbook the SPLITTABLE scripts write, if declared."""
+        declared = (self.spec.get(SPLITTABLE) or {}).get("file")
+        return self.root / declared if declared else None
 
     def patterns(self, role: str) -> tuple[str, ...]:
         return tuple((self.spec.get(role) or {}).get("patterns") or ())

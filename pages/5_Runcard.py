@@ -326,6 +326,11 @@ if scan_clicked:
     reset_results(state)
     _scan_folder(state)
 
+if state["folder"] and state["runcards"] is None and state.get("focus"):
+    # Handed over by the Split Table: the operator asked for one recipe, and
+    # making them press Scan before it appears would hide it behind a button.
+    _scan_folder(state)
+
 st.caption(state["folder"] or "No folder selected yet.")
 if state["folder"] and state["runcards"] is None:
     st.info("Click **Scan / Reload** to read the recipes in this folder.")
@@ -394,6 +399,18 @@ if state["folder"] and state["rows"] is not None:
 
         picked_rows = list(event.selection.rows) if event is not None else []
         selected = tuple(rows[i]["path"] for i in picked_rows if i < len(rows))
+        focus = state.get("focus")
+        if selected:
+            state["focus"] = None
+        elif focus:
+            target = os.path.normcase(os.path.normpath(focus))
+            selected = tuple(
+                row["path"] for row in rows
+                if os.path.normcase(os.path.normpath(row["path"])) == target
+            )
+            if selected:
+                st.caption(f"Opened from the Split Table: `{os.path.basename(focus)}`. "
+                           "Tick a row to chart something else.")
         if selected != tuple(state["selected"] or ()):
             # Only the figures are invalidated. Re-ticking must not re-walk the
             # folder: the walk parsed every file in the tree, the figures are

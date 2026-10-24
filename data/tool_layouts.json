@@ -24,7 +24,10 @@
       },
       "exclude": [
         "BACKUP"
-      ]
+      ],
+      "splittable": {
+        "file": "SPLITTABLE/HA_SplitTable_from_runcards.xlsx"
+      }
     },
     "VB1P01": {
       "optical": {
@@ -47,7 +50,10 @@
         ],
         "tag_index": "DATALOG/runcard_tags.json"
       },
-      "exclude": []
+      "exclude": [],
+      "splittable": {
+        "file": "SPLITTABLE/VB_SplitTable_from_runcards.xlsx"
+      }
     }
   }
 }

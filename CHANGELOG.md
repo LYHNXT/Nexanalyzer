@@ -5,6 +5,33 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.42.0] - 2026-10-24
+
+### Added
+
+- **Split Table page** (Process group). Reads a tool's
+  `SPLITTABLE/<TOOL>_SplitTable_from_runcards.xlsx` -- declared per tool as
+  `splittable.file` in `data/tool_layouts.json`, HA1P01 and VB1P01 for now --
+  and never writes it; the SPLITTABLE scripts still build it. Filter by month,
+  run type, series and wafer; show or hide column groups from the workbook's
+  `Column_Design` sheet; save the filtered view as XLSX or CSV (the workbook
+  itself is refused as a target). Charts: any numeric columns against run
+  order or process start, growth runs as points, cleanings / anneals / other
+  runs as vertical lines, hollow markers where `OM_Discriminable` is false,
+  error bars from the table's std columns, and no 95 % line (not one of the
+  three spec lines); and any column against any other, coloured by series.
+  The workbook is read as bytes, because openpyxl's seek on the OneDrive file
+  fails (`Errno 22`) on VB's.
+- **Picking a row opens its run** in Datalog, Runcard or the QC Report.
+  Datalog and Runcard take a *focus* (`datalog_state.focus_run`,
+  `runcard_state.focus_runcard`): the table cannot be given a tick, so the
+  page shows the handed-over run as selected until the operator ticks another
+  row (or, on Datalog, changes the seeded search). Runcard scans the folder on
+  arrival instead of waiting for Scan / Reload. A datalog renamed since the
+  table was written (`13184401.csv` -> `13184401~HADI51.csv`) is still found.
+
+No numbers move: nothing here touches parsing, fitting or the OM algorithm.
+
 ## [5.41.0] - 2026-10-24
 
 ### Numbers that move
