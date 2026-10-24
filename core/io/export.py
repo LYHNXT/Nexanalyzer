@@ -6,9 +6,47 @@ Fit-results CSVs live in results_csv.py — this module knows nothing about
 peaks or spectra.
 """
 
+import threading
 from typing import Optional
 
 from .native_dialog import existing_dir, run_dialog
+
+#: Seconds one PNG render may take before it is abandoned. A healthy render
+#: takes 0.1-1 s; this only has to be long enough to never fire on one.
+RENDER_TIMEOUT_S = 120.0
+
+# One render at a time: the persistent kaleido server is a process-wide
+# singleton fed through one task queue and one return queue, so two Streamlit
+# sessions rendering at once could each receive the other's image.
+_RENDER_LOCK = threading.Lock()
+
+
+def _ensure_render_server() -> None:
+    """Start kaleido's persistent Chrome once per process, if it can start.
+
+    Without it every `fig.to_image` launches and tears down its own headless
+    Chrome. Measured on this machine (2026-10-24): one-shot renders took 1.2 s
+    each, left ~4 temp folders apiece, and one of the first 15 never answered
+    -- the 12 h QC test hang and the 43 min CI stall. A persistent server did
+    500 of 500 at 0.07 s. If it cannot start (no Chrome), plotly's own one-shot
+    path is used and raises the usual error.
+    """
+    try:
+        import kaleido
+        kaleido.start_sync_server(silence_warnings=True)
+    except Exception:
+        pass
+
+
+def _abandon_render_server() -> None:
+    """Forget a server whose Chrome stopped answering, so the next render
+    starts a fresh one. Its thread is a daemon blocked on the dead Chrome and
+    goes with the process; `stop_sync_server` would block on it too."""
+    try:
+        import kaleido
+        kaleido._global_server._initialized = False  # private: no public way to drop a hung server
+    except Exception:
+        pass
 
 
 def prompt_save_path(default_dir: Optional[str],
@@ -115,19 +153,31 @@ def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 
     >>> with open('plot.png', 'wb') as f:
     ...     f.write(png)
     """
-    try:
-        png_bytes = fig.to_image(
-            format='png',
-            width=width,
-            height=height,
-            scale=scale,
-        )
-        return png_bytes
-    except Exception as e:
+    box = {}
+
+    def render():
+        try:
+            box["png"] = fig.to_image(format='png', width=width, height=height, scale=scale)
+        except Exception as e:  # handed back to the caller's thread below
+            box["error"] = e
+
+    with _RENDER_LOCK:
+        _ensure_render_server()
+        worker = threading.Thread(target=render, daemon=True)
+        worker.start()
+        worker.join(RENDER_TIMEOUT_S)
+        if worker.is_alive():
+            _abandon_render_server()
+            raise RuntimeError(
+                f"PNG export timed out after {RENDER_TIMEOUT_S:.0f} s: the Chrome renderer "
+                f"stopped answering. Try again; a fresh renderer is started next time."
+            )
+    if "error" in box:
         raise RuntimeError(
-            f"PNG export failed: {e}. "
+            f"PNG export failed: {box['error']}. "
             f"Make sure kaleido is installed: pip install kaleido"
-        ) from e
+        ) from box["error"]
+    return box["png"]
 
 
 def export_figure_html(fig) -> str:

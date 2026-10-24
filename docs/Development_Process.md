@@ -35,6 +35,20 @@ git config core.hooksPath .githooks    # enables the commit and push hooks
 
 ## 4. Open a pull request into `main`
 
+One command does it, from the branch with everything committed:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\ship.ps1
+```
+
+`scripts/ship.ps1` runs the local gates first and pushes nothing if one fails:
+the golden fit **strict** (Raman DDAA10 RM_1-3 and PL HADI51 / VA1P012504023
+must reproduce their records to 1e-5 on this, the recording, machine), the
+validated golden set, ruff and the algorithm guard. Then it pushes, opens the
+PR (or reuses the open one; a new PR's description is the CHANGELOG lines the
+branch adds plus this template), waits for CI and prints pass or fail with the
+failing log lines. It never merges. `-NoWait` skips the CI wait.
+
 The template asks: do numbers move, was the version bumped, was a locked record
 changed and why, and was it checked on a real wafer. Fill it in honestly; "no
 numbers move" is a claim CI and reviewers can check.
@@ -62,7 +76,7 @@ regenerate them and say so in the CHANGELOG.
 
 ## 7. Merge
 
-- Merge only when all three gates are green **and** the change was tried in the
+- Merge only when all three gates are green (`scripts/ship.ps1` says which) **and** the change was tried in the
   app on a recent wafer (the template's last box).
 - Use a normal merge commit, so each version's commit stays visible in `main`.
 - Delete the branch after merging.

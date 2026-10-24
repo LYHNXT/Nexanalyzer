@@ -5,6 +5,31 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.39.0] - 2026-10-24
+
+### Reports
+
+- **Figures render through one persistent Chrome instead of one per image.**
+  `export_figure_png` started a fresh headless Chrome for every PNG (plotly's
+  one-shot kaleido path). Measured here: 1.2 s a render, ~4 temp folders left
+  behind each, and one of the first 15 renders never answered -- the QC flow
+  test that hung for 12 h, and the 43 min CI stall in the customer repo. It now
+  starts kaleido's sync server once per process: 500 of 500 renders at 0.07 s,
+  pixel-identical output. Renders are serialised (the server's one queue would
+  otherwise hand two Streamlit sessions each other's image) and time out after
+  120 s with a clear error, after which a fresh server is used. The QC Report
+  flow tests ran 3 x 46/46, at 5.2 min a run instead of ~8. **No number moves.**
+
+### Process
+
+- **`scripts/ship.ps1`: one command from a finished branch to a PR with CI.**
+  Strict golden fit first (Raman and PL fit consistency on the recording
+  machine), then the validated set, ruff and the algorithm guard; nothing is
+  pushed if one fails. Then push, open or reuse the PR (description from the
+  branch's CHANGELOG lines plus the template), wait for CI and report. It never
+  merges; on the free plan main cannot block a red merge, so the PR page's
+  status is the gate. docs/Development_Process.md §4 describes it.
+
 ## [5.38.0] - 2026-10-24
 
 ### Validated golden set (from NexAnalyzer_TSMC)
