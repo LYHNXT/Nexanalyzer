@@ -58,6 +58,8 @@ def load_config(path: Path = CONFIG_PATH) -> OneNoteConfig:
         raw = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return OneNoteConfig()
+    if not isinstance(raw, dict):
+        return OneNoteConfig()
     fields = OneNoteConfig.__dataclass_fields__
     return OneNoteConfig(**{k: str(v or "").strip() for k, v in raw.items() if k in fields})
 

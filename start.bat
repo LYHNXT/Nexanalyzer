@@ -99,7 +99,10 @@ call venv\Scripts\activate.bat
 :: Install/update dependencies (runs every launch, so any pulled requirement
 :: changes are picked up automatically)
 echo Checking dependencies...
-pip install -r requirements.txt --quiet
+:: Constrained by the lock file, as CI is: requirements.txt only sets floors,
+:: so a fresh venv would otherwise get whatever numpy/scipy/lmfit is newest
+:: that day and fit differently from the golden record.
+pip install -r requirements.txt -c requirements-lock.txt --quiet
 if errorlevel 1 (
     echo [ERROR] Failed to install dependencies.
     pause

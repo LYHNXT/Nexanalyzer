@@ -6,8 +6,16 @@ the same ``execute_auto_workflow`` the app's "Run" button calls -- parse,
 x-range, despike, baseline, Voigt fit -- and every reported number is compared
 with the record. The sets (``GOLDEN_SETS``):
 
-* ``tests/fixtures/golden_fit/`` -- HKU-20230524-2 (WO3+Se, i.e. WSe2) RM_1 and
-  PL_1, preset ``wse2_preset.json``.
+* ``tests/fixtures/golden_fit/HADI51/`` and ``.../VA1P012504023/`` -- one PL
+  spectrum each (PL_5) from an HA1P01 and a VA production wafer, preset
+  ``wse2_qc_pl_preset.json`` (WSe2_QC's PL block at v5.34.0). Chosen in v5.34.0
+  from a screen of HA/VA PL spectra for R2 >= 0.999 and well-conditioned fits
+  (a 1e-9 input perturbation moves no reported number by more than 3e-8).
+
+The HKU-20230524-2 set (RM_1, PL_1, the old research "WSe2" preset) was
+retired in v5.34.0: RM_1 was an 8-peak fit at R2 0.896, ill-conditioned enough
+to move ~1e-4 between CPUs, and PL_1 a 2023 non-production sample on a preset
+no report uses.
 * ``tests/fixtures/golden_fit/DDAA10/`` -- DDAA10 RM_1..RM_3, three single
   Raman spectra of a WSe2 film, preset ``wse2_qc_preset.json`` (WSe2_QC's Raman
   block at v5.30.0: one 100-315 cm-1 window, zero-line calibration, one start,
@@ -56,8 +64,9 @@ from modules.spectra.processing.peak_metrics import peak_intensity_and_stderr  #
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "golden_fit"
 #: (set name, folder holding the spectra, preset and expected.json, preset file, spectra)
 GOLDEN_SETS = (
-    ("HKU-20230524-2", GOLDEN_DIR, "wse2_preset.json", ("RM_1.txt", "PL_1.txt")),
     ("DDAA10", GOLDEN_DIR / "DDAA10", "wse2_qc_preset.json", ("RM_1.txt", "RM_2.txt", "RM_3.txt")),
+    ("HADI51", GOLDEN_DIR / "HADI51", "wse2_qc_pl_preset.json", ("PL_5.txt",)),
+    ("VA1P012504023", GOLDEN_DIR / "VA1P012504023", "wse2_qc_pl_preset.json", ("PL_5.txt",)),
 )
 CASES = [(name, filename) for name, _, _, spectra in GOLDEN_SETS for filename in spectra]
 

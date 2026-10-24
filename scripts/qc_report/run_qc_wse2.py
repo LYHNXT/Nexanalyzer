@@ -54,6 +54,11 @@ def main():
     ap.add_argument("--layer", default=LAYER, help="reference layer (default %(default)s)")
     ap.add_argument("--name", default=None, help="report title / sample name (default: the folder name)")
     args = ap.parse_args()
+    # Before the chdir: relative folders are relative to the caller's directory.
+    samples = [Path(x).resolve() for x in args.samples]
+    missing = [str(x) for x in samples if not x.is_dir()]
+    if missing:
+        raise SystemExit("not a folder: " + ", ".join(missing))
 
     os.chdir(APP)
     import core.io.export as export_module
@@ -117,8 +122,7 @@ def main():
 
     failed = []
     try:
-        for name in args.samples:
-            sample = Path(name).resolve()
+        for sample in samples:
             try:
                 run_one(sample)
             except Exception as e:

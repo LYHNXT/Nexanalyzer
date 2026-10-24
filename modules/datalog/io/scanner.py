@@ -109,7 +109,9 @@ def _file_signature(path: str) -> float:
     return Path(path).stat().st_mtime
 
 
-@st.cache_data(show_spinner=False)
+# Bounded: a run the controller is still writing has a new mtime on every
+# 60 s refresh, and each tick would otherwise keep another full DataFrame.
+@st.cache_data(show_spinner=False, max_entries=64)
 def load_run_dataframe(path: str, mtime: float) -> pd.DataFrame:
     """
     Parse one run CSV. Internal — callers want `load_run`.

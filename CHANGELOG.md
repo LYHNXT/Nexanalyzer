@@ -5,6 +5,131 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.34.0] - 2026-10-24
+
+A whole-repo review. **The Raman golden fit does not move** (DDAA10 RM_1-3
+reproduce `expected.json` to 1e-5), the PL record is replaced (below), and the
+locked OM contrast numbers do not move. What does move is listed under
+"Numbers that move".
+
+### Golden-fit record
+
+- **The HKU-20230524-2 golden set is retired from the locked record.** Raman
+  is locked by DDAA10 RM_1-3 alone. HKU RM_1 was an 8-peak fit of the old
+  research "WSe2" preset at R2 0.896, ill-conditioned enough to move ~1e-4
+  between CPUs (the reason for the v5.33.0 BLAS pin), and ~55 s of every
+  commit hook; DDAA10 fits the WSe2_QC path customers' reports use, at R2
+  0.99. HKU PL_1 was a 2023 non-production sample on the same unused preset.
+- **PL is locked by two production spectra instead**: HADI51 PL_5 (HA1P01,
+  2026-10) and VA1P012504023 PL_5 (VA, 2025-04), fitted with WSe2_QC's PL block
+  frozen at v5.34.0 (`golden_fit/<wafer>/`), recorded with this release's code.
+  Picked from a screen of HA/VA PL spectra: R2 0.9997 and 0.9992, and a 1e-9
+  input perturbation moves no reported number by more than 3e-8 (HADH72,
+  HADI05 and several VA spectra fit as well but moved 1e-4 to 1, so they would
+  have flaked like HKU RM_1). The HKU spectra, preset and record are deleted.
+
+### Numbers that move
+
+- **Summary-table and workbook ratios now match the quality figure.** The table
+  took a plain median over every spectrum; the figure's title fenced first
+  (wafer-wide IQR, then per region, v5.32.0), so one report could print LA
+  10.2 % in the table and 9.8 % in the title. Both now read
+  `peak_metrics.ratio_values_by_point` and the region fence. LA, 2LA and B2g
+  table values move toward the figure's; `n` counts the ratios kept.
+- **Runcard matching reads `Heater Soak,800`** as the setpoint step the
+  datalog shows (shared `growth_window.soak_value`). On HA1P01 Jul-Oct, 9
+  CLEANING-5 runs drop from cost 1.40 to 0.00 (one 2.10 to 0.70); two runs of
+  an earlier CLEANING-5 edit (2026-09-22/23) rise 1.24 to 2.64, because the
+  matcher now sees that they held 900 where today's card soaks at 800; 343
+  tagged runs are unchanged.
+- **Runcard gas markers mark a flow change between two nonzero values**
+  (`H2Se → 10`); repeated "off" commands still mark nothing. 249 of 2,349 real
+  cards gain a marker. Recorded as departure 5 in `docs/reference/README.md`.
+- **A growth window with no heater-off and no ramp-down runs to the card's
+  end**, as the reference does (`growth_end = total_sec`); it was zero-length.
+  No current card has this shape.
+- **Intensity stderr is NaN, not 0.0, for a peak fitted to zero area** (MoS2 A0
+  on about a third of points printed "0 ± 0"), and a peak with no component
+  curve reports NaN intensity instead of its *area* under "Intensity".
+- **Raw FWHM is positive on a high-to-low X axis** (it came out negative and
+  the PL cleaning floor dropped every Raw record).
+- **Baselines on spectra with values below 1 count** may differ at rounding
+  level: the v2.1 auto-shift wrapper was a no-op (ALS and a polynomial with a
+  constant term follow any offset) and is gone. Bit-identical for every golden
+  spectrum. `ProcessingSettings.y_shift` stays, always 0.0, so saved projects
+  load.
+
+### QC Report
+
+- **Changing the layer drops every result**, not only the OM ones: the layer
+  also picks the Raman/PL stats figures' spec lines, and a 2L-spec figure could
+  be saved beside a 1L choice.
+- **OneNote "Build for <wafer>" forgets an operator's layer choice** for the
+  previous wafer (`qc_report_state.select_folder`, shared with the page's own
+  picker); a hand-picked 1L was carried into the next, 2L, wafer.
+- **MoS2 Raman is drawn by the app as the runner drew it**: FWHM (E2g, A1g) |
+  Center (E2g, A1g) | Δω, the nominal ~20 cm-1 line on Δω for 1L, a Δω row on
+  the summary page and the `2LA(M)/A1g` defect ratio in `RAMAN_RATIO_PAIRS`
+  (table and workbook). `run_qc_mos2.py` no longer monkeypatches anything; a
+  page-built and a runner-built report are the same. "WSe2 extended V2", which
+  also fits E2g and A1g apart, is not mistaken for MoS2.
+- **The summary page's tables stay on the page.** A 20-peak preset pushed the
+  PL and domain tables below 7.5 in, where they silently vanished; the stack
+  now shrinks rows and font together to fit, and refuses below 7 pt. WSe2_QC
+  and MoS2_QC pages are pixel-identical to v5.33.0.
+- **The OM figures' legend sits just under the last row**, and on the
+  diagnostic copy it clears the histogram row's tick labels instead of printing
+  over them. Layout only.
+- Titles print "—", not "nan %", for a CV with fewer than two regions.
+- **Domain sizing reuses each frame's own segmentation** instead of segmenting
+  it again, and places its fallback markers in one pass: 6-15x faster per
+  frame, identical domains (checked on HA and VA frames, all three targets).
+
+### Fitting and processing
+
+- **Fits refuse what they cannot honour**: a range narrower than a peak's
+  template FWHM (inverted width bounds, which lmfit swapped silently and called
+  a success at R² -3), a spectrum with no positive signal, and a masked ALS
+  baseline whose exclusions leave fewer than 10 points (it returned a baseline
+  of 0 and "corrected" nothing). Each is now a clear error.
+- **OM flat-field runs its three channels on threads**: about 3x faster per
+  frame, bit-identical. A mask margin that leaves no pixels is a clear error.
+- `FittedPeak.to_dict` keeps the legacy FWHM (v1).
+- Removed code nothing called: `baseline_rolling_ball`, `baseline_spline`,
+  `baseline_airpls`, `calculate_baseline_quality_metrics`, the auto-shift
+  wrappers, `auto_find_peaks`, `detect_overlapping_peaks`,
+  `estimate_spectral_resolution`, `validate_spectrum_file`, `count_spikes`,
+  `spike_fraction`, `suggest_threshold`.
+
+### Datalog, Runcard, OneNote, Spectra
+
+- Detect runcards skips a malformed card (`csv.Error`) instead of failing.
+- Renamed files whose tag did not follow are reported as such, not as
+  "Not renamed". The violations table's sort is stable.
+- The run-parse cache is bounded (a live run added a DataFrame every minute).
+- Runcard save no longer overwrites a chart sharing another's run id.
+- OneNote: a sign-in or network failure is an error message, not a page-wide
+  traceback, and MSAL is built once per session rather than per rerun.
+- One native-dialog helper (`core/io/native_dialog.py`) replaces four copies:
+  titles with quotes or non-Latin text work, and no temp file is left behind.
+- The Spectra sidebar builds the master CSV only on Save.
+- `find_wafer` survives a file OneDrive removes or locks mid-scan.
+
+### Scripts, launchers, CI
+
+- `start.bat` / `start.sh` install with `-c requirements-lock.txt`, as CI does.
+- QC runners resolve relative sample folders against the caller's directory;
+  `redraw_om.py` keeps points 1-9 and exits with a message on an empty folder;
+  `redraw_stats.py` finds a delivered report's source spectra and closes the
+  workbook.
+- CI: coverage with an 87 % floor (93 % measured), JUnit and coverage reports
+  uploaded, `pip check`, a weekly scheduled run, and the golden fit no longer
+  run twice. The algorithm guard also covers `peak_quality.py`,
+  `summary_figure.py`, `results_excel.py`, `results_csv.py` and `core/blas.py`.
+  The pre-push hook says when it skips the guard.
+- New tests: the native dialog round trip (against a stub `tkinter`), the
+  flat-field threading, `redraw_om.py` end to end, and one per fix above.
+
 ## [5.33.0] - 2026-10-23
 
 ### Reproducibility

@@ -516,3 +516,21 @@ class TestTubeRows:
         profile = _profile(tmp_path, "MFC/PC,PC-1,400\nWait,Sec,10\n")
 
         assert [row.label for row in build_bar_rows(profile.timeline)] == ["PC-1"]
+
+
+class TestAFlowChangeIsMarked:
+    """v5.34.0: a reactive gas changing between two nonzero flows (H2Se 5 ->
+    10) is a chemistry change the reference marks; it was silent here."""
+
+    _CARD = (
+        "MFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n"
+        "MFC/PC,MFC-8 H2Se,5\nWait,Sec,10\n"
+        "MFC/PC,MFC-8 H2Se,10\nWait,Sec,10\n"
+        "MFC/PC,MFC-8 H2Se,10\nWait,Sec,10\n"
+        "MFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n"
+        "MFC/PC,MFC-8 H2Se,0\nWait,Sec,10\n"
+    )
+
+    def test_on_change_and_off_each_mark_once(self, tmp_path):
+        events = gas_events(_profile(tmp_path, self._CARD))
+        assert [(e.t_s, e.direction) for e in events] == [(10.0, "on"), (20.0, "→ 10"), (40.0, "off")]

@@ -92,18 +92,18 @@ cropped a second time, and dimmed rather than blacked out so nine such
 corners don't dominate the page."""
 
 
-def _crop_to_valid(img: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Trim the excluded margin off `img`, so a rectangular frame's border is
-    gone entirely rather than shown dimmed. A circular frame's `valid` is an
-    eroded disc, so its bounding box still has invalid corners -- `valid` is
-    cropped alongside `img` so `_dim()` can still mark those."""
+def _crop_to_valid(valid: np.ndarray, *images: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Trim the excluded margin off each of `images`, so a rectangular frame's
+    border is gone entirely rather than shown dimmed. A circular frame's
+    `valid` is an eroded disc, so its bounding box still has invalid corners --
+    `valid` is cropped alongside and returned last so `_dim()` can still mark
+    those. The bounding box is found once for all the images."""
     rows = np.flatnonzero(valid.any(axis=1))
     cols = np.flatnonzero(valid.any(axis=0))
     if rows.size == 0 or cols.size == 0:
-        return img, valid
-    r0, r1 = rows[0], rows[-1] + 1
-    c0, c1 = cols[0], cols[-1] + 1
-    return img[r0:r1, c0:c1], valid[r0:r1, c0:c1]
+        return (*images, valid)
+    window = np.s_[rows[0]:rows[-1] + 1, cols[0]:cols[-1] + 1]
+    return (*(img[window] for img in images), valid[window])
 
 
 def _dim(img: np.ndarray, valid: np.ndarray) -> np.ndarray:
@@ -186,6 +186,8 @@ def build_om_grid_figure(
     """
     if not frames:
         raise ValueError("build_om_grid_figure needs at least one frame")
+    if points is not None and not len(points):
+        raise ValueError("build_om_grid_figure needs at least one grid point")
 
     by_point = {f.point: f for f in frames}
     if points is None:
@@ -207,13 +209,17 @@ def build_om_grid_figure(
     # The diagnostics row costs its height plus a little of the padding the
     # legend needs underneath it; without it the panels keep their aspect.
     hist_rows = 1 if show_histograms else 0
-    fig = plt.figure(figsize=(21, 3.15 * rows + (2.3 if show_histograms else 1.1)),
-                     dpi=dpi)
+    height = 3.15 * rows + (2.3 if show_histograms else 0.6)
+    fig = plt.figure(figsize=(21, height), dpi=dpi)
+    # The legend sits just under the last row (v5.34.0): a fixed 0.25 in
+    # margin, not GridSpec's default 11 % of the height, which left an empty
+    # band above a legend pinned to the figure's bottom edge.
+    bottom = 0.25 / height
     try:
         grid = gridspec.GridSpec(
             rows + hist_rows, units, figure=fig,
             height_ratios=[1.0] * rows + [0.60] * hist_rows,
-            hspace=0.20, wspace=_POSITION_WSPACE,
+            hspace=0.20, wspace=_POSITION_WSPACE, bottom=bottom,
         )
 
         pair_span = units // GRID_COLUMNS
@@ -243,8 +249,7 @@ def build_om_grid_figure(
                 ax_raw.set_title(f"P{point}  (no frame)", fontsize=_FS_PANEL, loc="left")
                 continue
 
-            original, valid = _crop_to_valid(frame.original, frame.valid)
-            overlay, _ = _crop_to_valid(frame.overlay, frame.valid)
+            original, overlay, valid = _crop_to_valid(frame.valid, frame.original, frame.overlay)
 
             ax_raw.imshow(_dim(original, valid))
             ax_raw.axis("off")
@@ -260,24 +265,30 @@ def build_om_grid_figure(
             )
 
         if show_histograms:
+            span = units // len(points)
             for index, point in enumerate(points):
                 frame = by_point.get(point)
-                span = units // len(points) if len(points) else units
-                left = index * span
-                ax = fig.add_subplot(grid[rows, left:left + span])
+                ax = fig.add_subplot(grid[rows, index * span:(index + 1) * span])
                 if frame is None:
                     _blank(ax)
                     continue
                 _histogram(ax, frame)
 
+        # Hung from the lowest drawn element, not from `bottom`: the histogram
+        # row's tick labels reach below its axes, and a legend whose top sat on
+        # the axes edge was printed over them. Measuring text extents needs a
+        # renderer but no draw, so this costs nothing like a second render.
+        renderer = fig.canvas.get_renderer()
+        lowest = min(ax.get_tightbbox(renderer).y0 for ax in fig.axes)
+        legend_top = (lowest - 0.05 * fig.dpi) / fig.bbox.height
         fig.legend(
             handles=[
                 Patch(facecolor=RED / 255.0, label=labels[0]),
                 Patch(facecolor="#c8c8c8", label=labels[1]),
                 Patch(facecolor=GREEN / 255.0, label=labels[2]),
             ],
-            loc="lower center", ncol=3, frameon=False, fontsize=_FS_PANEL + 1,
-            bbox_to_anchor=(0.5, 0.005),
+            loc="upper center", ncol=3, frameon=False, fontsize=_FS_PANEL + 1,
+            bbox_to_anchor=(0.5, legend_top),
         )
 
         magnification_label = f" {magnification}" if magnification else ""
@@ -287,7 +298,7 @@ def build_om_grid_figure(
         )
         fig.suptitle(
             f"{sample_name} — OM{magnification_label} layer segmentation "
-            f"({len(frames)} positions, {frames[0].labels[1]} reference)\n{coverage}",
+            f"({len(frames)} positions, {labels[1]} reference)\n{coverage}",
             fontsize=_FS_SUPTITLE, fontweight="bold",
         )
 

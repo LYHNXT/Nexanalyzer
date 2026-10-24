@@ -14,8 +14,8 @@ from ..models.spectrum import SpectrumFile, SpectrumData
 from ..models.preset import MaterialPreset, parse_exclusion_ranges
 from .despiking import remove_spikes
 from .baseline import (
-    baseline_polynomial_with_autoshift,
-    baseline_als_with_autoshift,
+    baseline_polynomial,
+    baseline_als,
     baseline_polynomial_with_mask,
     baseline_als_with_mask
 )
@@ -347,7 +347,8 @@ def execute_auto_workflow(
 
 
 def _subtract_baseline(X, Y, algorithm, degree, lam, p, exclusion_str, window=False):
-    """`(Y - baseline, baseline, y_shift)` for one stretch of spectrum.
+    """`(Y - baseline, baseline, y_shift)` for one stretch of spectrum; `y_shift`
+    is always 0.0 since the no-op auto-shift was removed (v5.34.0).
 
     The one routing of a preset's baseline settings to an algorithm, shared by a
     whole-spectrum block and by each fit window. Every algorithm returns the
@@ -366,7 +367,7 @@ def _subtract_baseline(X, Y, algorithm, degree, lam, p, exclusion_str, window=Fa
             # A range that misses this window entirely is not its concern: a
             # block's exclusions are inherited by every window. Whole-spectrum
             # fits keep every range, as they always have -- dropping them would
-            # switch an all-outside list from the masked to the autoshift routine.
+            # switch an all-outside list from the masked to the unmasked routine.
             exclusions = [(lo, hi) for lo, hi in exclusions if hi >= X.min() and lo <= X.max()] or None
 
     if algorithm == "None (Skip)":
@@ -375,12 +376,14 @@ def _subtract_baseline(X, Y, algorithm, degree, lam, p, exclusion_str, window=Fa
         if exclusions:
             corrected, baseline = baseline_polynomial_with_mask(X, Y, degree=degree, exclusions=exclusions)
             return corrected, baseline, 0.0
-        return baseline_polynomial_with_autoshift(X, Y, degree=degree)
+        corrected, baseline = baseline_polynomial(X, Y, degree=degree)
+        return corrected, baseline, 0.0
     if algorithm == "ALS":
         if exclusions:
             corrected, baseline = baseline_als_with_mask(X, Y, lambda_=lam, p=p, exclusions=exclusions)
             return corrected, baseline, 0.0
-        return baseline_als_with_autoshift(X, Y, lambda_=lam, p=p)
+        corrected, baseline = baseline_als(X, Y, lambda_=lam, p=p)
+        return corrected, baseline, 0.0
     raise WorkflowExecutionError(
         f"Baseline algorithm '{algorithm}' not supported. "
         f"Supported: 'Polynomial', 'ALS', 'None (Skip)'. "

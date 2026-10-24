@@ -14,7 +14,6 @@ References
 """
 
 import numpy as np
-from scipy import signal
 from lmfit import Parameters
 from lmfit.models import VoigtModel
 import time
@@ -208,8 +207,20 @@ def fit_voigt_peaks(
     y_max = y.max()
     spectral_resolution = np.median(np.abs(np.diff(x)))
 
+    if not y_max > 0:
+        # The intensity ceiling is 5 x y_max: at 0 lmfit refuses min == max,
+        # below 0 it fits a negative-area peak and calls it a success.
+        raise ValueError("no positive signal to fit: the corrected spectrum is <= 0 everywhere")
     for peak in peak_table:
         peak.calculate_auto_bounds(mode, x_range, y_max, spectral_resolution)
+        if peak.width_min >= peak.width_max:
+            # A span narrower than the template FWHM inverts the width bounds;
+            # lmfit swaps them silently and returns a meaningless "success".
+            raise ValueError(
+                f"peak {peak.label!r}: the fitted range ({x_range[1] - x_range[0]:.4g} wide) "
+                f"is too narrow for its {peak.width_fwhm:g} FWHM template -- width bounds "
+                f"{peak.width_min:.4g} >= {peak.width_max:.4g}. Widen the x-range or fit window."
+            )
 
     dominant_index = next(
         (i for i, peak in enumerate(peak_table) if dominant and peak.label == dominant), None
@@ -507,202 +518,3 @@ def fit_voigt_peaks(
     )
 
 
-def auto_find_peaks(
-    x: np.ndarray,
-    y: np.ndarray,
-    mode: str = "Raman",
-    min_peaks: int = 2,
-    max_peaks: int = 5,
-    prominence_threshold: float = 0.05
-) -> List[PeakDefinition]:
-    """
-    Automatically find peaks in spectrum using scipy.signal.find_peaks.
-
-    Parameters
-    ----------
-    x : np.ndarray
-        Wavenumber (cm⁻¹) or wavelength (nm).
-    y : np.ndarray
-        Baseline-corrected intensity.
-    mode : str, default="Raman"
-        "Raman" or "PL" (used for auto-bounds).
-    min_peaks : int, default=2
-        Minimum number of peaks to find.
-    max_peaks : int, default=5
-        Maximum number of peaks to find.
-    prominence_threshold : float, default=0.05
-        Minimum peak prominence (fraction of max intensity).
-
-    Returns
-    -------
-    peak_table : List[PeakDefinition]
-        Automatically generated peak definitions.
-
-    Notes
-    -----
-    Algorithm (FR-027):
-    - Uses scipy.signal.find_peaks with prominence threshold
-    - Estimates FWHM from peak widths_half_height
-    - Returns top N peaks by prominence (N = max_peaks)
-    - Default colors from Plotly palette
-
-    Examples
-    --------
-    >>> peak_table = auto_find_peaks(x, y, mode="Raman", max_peaks=5)
-    >>> print(f"Found {len(peak_table)} peaks")
-    """
-    if len(y) < 10:
-        return []
-
-    # Calculate prominence threshold
-    y_max = y.max()
-    min_prominence = prominence_threshold * y_max
-    x_range = (x.min(), x.max())
-
-    # Find peaks with width detection
-    peak_indices, properties = signal.find_peaks(
-        y,
-        prominence=min_prominence,
-        width=2,  # Minimum width in data points
-        rel_height=0.5  # Measure width at half-maximum
-    )
-
-    if len(peak_indices) == 0:
-        return []
-
-    # Sort by prominence (descending)
-    prominences = properties['prominences']
-    sorted_indices = np.argsort(prominences)[::-1]
-
-    # Take top N peaks by prominence, capped at max_peaks.
-    # min_peaks can't manufacture peaks that don't exist in sorted_indices,
-    # so it has no effect here beyond what the slice below already does.
-    n_peaks = min(len(sorted_indices), max_peaks)
-    top_indices = sorted_indices[:n_peaks]
-
-    # Median spectral resolution
-    dx = np.median(np.abs(np.diff(x)))
-
-    # Create PeakDefinition objects
-    peak_table = []
-    default_colors = [
-        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
-        "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"
-    ]
-
-    for i, idx in enumerate(top_indices):
-        peak_idx = peak_indices[idx]
-
-        # Peak center
-        center = x[peak_idx]
-
-        # Peak intensity
-        intensity = y[peak_idx]
-
-        # Estimate FWHM from widths (improved with curvature-based fallback)
-        if 'widths' in properties and len(properties['widths']) > idx:
-            # Primary method: use scipy's width_half_height
-            width_points = properties['widths'][idx]
-            width_fwhm = width_points * dx
-        else:
-            # Improved fallback: estimate from peak curvature
-            if peak_idx > 1 and peak_idx < len(y) - 2:
-                # Calculate 2nd derivative at peak: y''(x) ≈ (y[i-1] - 2*y[i] + y[i+1]) / dx²
-                d2y = (y[peak_idx - 1] - 2 * y[peak_idx] + y[peak_idx + 1]) / (dx ** 2)
-
-                if d2y < 0:  # Concave down (valid peak)
-                    # For Gaussian: y''(peak) = -intensity / σ²
-                    # σ ≈ sqrt(intensity / |y''|)
-                    # FWHM ≈ 2.355 × σ
-                    sigma_est = np.sqrt(intensity / abs(d2y))
-                    width_fwhm = 2.355 * sigma_est
-
-                    # Sanity check: FWHM should be reasonable
-                    x_span = x_range[1] - x_range[0]
-                    if width_fwhm < dx or width_fwhm > 0.5 * x_span:
-                        # Unreasonable estimate, use conservative fallback
-                        width_fwhm = 10 * dx
-                else:
-                    # Not a concave-down peak (edge case), use conservative fallback
-                    width_fwhm = 10 * dx
-            else:
-                # Peak too close to edge, use conservative fallback
-                width_fwhm = 10 * dx
-
-        # Color
-        color = default_colors[i % len(default_colors)]
-
-        # Label
-        label = f"Peak {i+1}"
-
-        peak_table.append(PeakDefinition(
-            center=center,
-            intensity=intensity,
-            width_fwhm=width_fwhm,
-            label=label,
-            color=color,
-            shape=0.5  # Equal Gaussian/Lorentzian
-        ))
-
-    # Sort by center position (left to right)
-    peak_table.sort(key=lambda p: p.center)
-
-    # Renumber labels
-    for i, peak in enumerate(peak_table):
-        peak.label = f"Peak {i+1}"
-
-    return peak_table
-
-
-def detect_overlapping_peaks(
-    peak_table: List[PeakDefinition],
-    merge_threshold: float = 2.0
-) -> List[str]:
-    """
-    Detect peaks that are too close and may cause fitting issues.
-
-    Parameters
-    ----------
-    peak_table : List[PeakDefinition]
-        List of peaks (should be sorted by center position).
-    merge_threshold : float, default=2.0
-        Warn if centers are closer than this × average FWHM.
-
-    Returns
-    -------
-    warnings : List[str]
-        List of warning messages for overlapping peaks.
-
-    Notes
-    -----
-    Peaks closer than 2× FWHM often:
-    - Collapse into a single peak during fitting
-    - Cause poor convergence
-    - Result in low R² values
-
-    Example
-    -------
-    >>> warnings = detect_overlapping_peaks(peak_table, merge_threshold=2.0)
-    >>> for warning in warnings:
-    ...     print(warning)
-    """
-    warnings = []
-
-    # Sort by center position
-    sorted_peaks = sorted(peak_table, key=lambda p: p.center)
-
-    for i in range(len(sorted_peaks) - 1):
-        p1 = sorted_peaks[i]
-        p2 = sorted_peaks[i + 1]
-
-        distance = abs(p2.center - p1.center)
-        avg_fwhm = (p1.width_fwhm + p2.width_fwhm) / 2
-
-        if distance < merge_threshold * avg_fwhm:
-            warnings.append(
-                f"⚠️ Peaks '{p1.label}' and '{p2.label}' are very close "
-                f"({distance:.1f} < {merge_threshold}×FWHM={merge_threshold*avg_fwhm:.1f}). "
-                f"Consider merging into a single peak or refining guesses."
-            )
-
-    return warnings

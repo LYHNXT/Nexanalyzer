@@ -7,8 +7,6 @@ from modules.spectra.processing.parser import (
     parse_spectrum,
     count_spectra,
     parse_spectrum_multi,
-    validate_spectrum_file,
-    estimate_spectral_resolution,
     detect_mode_from_filename,
 )
 
@@ -161,30 +159,6 @@ class TestHeadersAndFootersAreSkipped:
     def test_an_empty_file_says_so(self, tmp_path):
         with pytest.raises(ValueError, match="empty"):
             parse_spectrum(self._path(tmp_path, [""]))
-
-
-class TestValidateSpectrumFile:
-    def test_valid_file(self, tmp_path):
-        x = np.linspace(0, 100, 120)
-        y = np.linspace(0, 50, 120)
-        path = _write_spectrum_file(tmp_path, x, y)
-
-        is_valid, msg = validate_spectrum_file(path)
-        assert is_valid
-        assert msg == ""
-
-    def test_missing_file_is_invalid(self):
-        is_valid, msg = validate_spectrum_file("does_not_exist.txt")
-        assert not is_valid
-        assert msg != ""
-class TestEstimateSpectralResolution:
-    def test_matches_expected_median_step(self):
-        X = np.linspace(100, 1000, 1000)
-        resolution = estimate_spectral_resolution(X)
-        assert resolution == pytest.approx(0.901, abs=0.001)
-
-    def test_single_point_returns_fallback(self):
-        assert estimate_spectral_resolution(np.array([5.0])) == 1.0
 
 
 class TestDetectModeFromFilename:

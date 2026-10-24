@@ -178,7 +178,9 @@ class TestComputePeakIntensityRatio:
                 self._pair(50.0, 100.0), self._pair(500.0, 100.0)]
         median, _mad, n = compute_peak_intensity_ratio(fits, "LA", "E2g+A1g")
 
-        assert n == 4
+        # LA is formed from every spectrum, so the wafer fence drops the 5.0
+        # (v5.34.0) -- exactly as the quality figure's title does.
+        assert n == 3
         assert median == 0.5           # the three consistent points
         assert np.mean([0.5, 0.5, 0.5, 5.0]) == 1.625  # what the mean would have said
 
@@ -263,16 +265,17 @@ class TestPeakIntensityAndStderr:
         assert stderr == 5.0
         assert peak_intensity(peak) == 100.0
 
-    def test_falls_back_to_the_area_when_no_component_curve(self):
+    def test_no_component_curve_is_nan_never_the_area(self):
         peak = FittedPeak(
             label="LA", center=250.0, center_stderr=0.1,
             area=42.0, area_stderr=3.0,
             width_fwhm=10.0, width_stderr=0.1, shape=0.3, component_curve=None,
         )
 
-        assert peak_intensity_and_stderr(peak) == (42.0, 3.0)
+        intensity, stderr = peak_intensity_and_stderr(peak)
+        assert np.isnan(intensity) and np.isnan(stderr)
 
-    def test_zero_area_gives_zero_stderr_rather_than_dividing_by_zero(self):
+    def test_zero_area_gives_a_nan_stderr_not_zero(self):
         peak = FittedPeak(
             label="Flat", center=250.0, center_stderr=0.1,
             area=0.0, area_stderr=5.0,
@@ -282,7 +285,7 @@ class TestPeakIntensityAndStderr:
 
         intensity, stderr = peak_intensity_and_stderr(peak)
         assert intensity == 1.0
-        assert stderr == 0.0
+        assert np.isnan(stderr)
 
 
 class TestRawPeakStats:
@@ -297,6 +300,19 @@ class TestRawPeakStats:
 
     def test_empty_spectrum_returns_none(self):
         assert raw_peak_stats(np.array([]), np.array([])) is None
+
+    def test_a_descending_x_axis_gives_the_same_positive_width(self):
+        """Nothing sorts X, and some PL exports run high-to-low in wavelength:
+        the width came out negative and the quality figure's floor dropped
+        every Raw record."""
+        x = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
+        y = np.array([0.0, 50.0, 100.0, 50.0, 0.0])
+
+        forward = raw_peak_stats(x, y)
+        backward = raw_peak_stats(x[::-1], y[::-1])
+
+        assert backward.fwhm == forward.fwhm == 2.0
+        assert backward.center == forward.center
 
     def test_non_positive_signal_has_no_measurable_width(self):
         x = np.array([0.0, 1.0, 2.0])
@@ -543,3 +559,54 @@ class TestRatiosUseOnlyMeasuredPeaks:
         from modules.spectra.processing.peak_metrics import compute_peak_intensity_ratio
 
         assert compute_peak_intensity_ratio([self._fit(20.0, 2.0)], "C", "LB") is None
+
+
+def test_the_legacy_fwhm_survives_a_save_and_reload():
+    """`to_dict` dropped it, so a reloaded fit lost its FWHM (v1) column."""
+    peak = FittedPeak(
+        label="A", center=1.0, center_stderr=0.1, area=2.0, area_stderr=0.2,
+        width_fwhm=3.0, width_stderr=0.3, shape=0.5, component_curve=None, width_fwhm_v1=2.5,
+    )
+    assert FittedPeak.from_dict(peak.to_dict()).width_fwhm_v1 == 2.5
+    legacy = peak.to_dict()
+    del legacy["width_fwhm_v1"]
+    assert FittedPeak.from_dict(legacy).width_fwhm_v1 is None
+
+
+class TestTableAndFigureAgree:
+    """v5.34.0: the summary table's ratio and the quality figure's title came
+    from different selections (plain median vs wafer + region fences) and
+    could read 10.2 % against 9.8 % in one report."""
+
+    def _wafer(self):
+        rng = np.random.default_rng(7)
+        pairs = []
+        for point in range(1, 10):
+            for _ in range(25):
+                la = float(rng.normal(10.0, 1.0))
+                pairs.append((point, _fit_result([
+                    _peak("LA", 130.0, la, 20.0), _peak("E2g+A1g", 250.0, 100.0, 4.0)])))
+        # Broken fits: a few wild ratios the fences exist to drop.
+        for point, la in ((2, 60.0), (5, 45.0), (8, 0.5)):
+            pairs.append((point, _fit_result([
+                _peak("LA", 130.0, la, 20.0), _peak("E2g+A1g", 250.0, 100.0, 4.0)])))
+        return pairs
+
+    def test_the_table_median_is_the_figure_title_median(self):
+        from modules.spectra.viz.peak_quality import RatioPanel, _pooled_median, _ratio_values, _records
+
+        pairs = self._wafer()
+        table_median, _mad, n = compute_peak_intensity_ratio(pairs, "LA", "E2g+A1g")
+        figure = _ratio_values(_records(pairs), RatioPanel("LA", "E2g+A1g", "", ""))
+
+        assert table_median == _pooled_median(figure, True)
+        assert n == sum(v.size for v in _region_values_for(figure))
+
+    def test_bare_fit_results_still_work_as_one_position_each(self):
+        fits = [fit for _, fit in self._wafer()[:5]]
+        assert compute_peak_intensity_ratio(fits, "LA", "E2g+A1g")[2] == 5
+
+
+def _region_values_for(by_point):
+    from modules.spectra.processing.peak_metrics import region_values
+    return region_values(by_point).values()

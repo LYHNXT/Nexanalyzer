@@ -246,3 +246,18 @@ def test_a_folder_with_no_known_ancestor_still_raises(tmp_path, layouts):
     """The walk-up must not turn a genuinely undeclared tool into a pass."""
     with pytest.raises(tl.UnknownToolError):
         tl.resolve_tool(tmp_path / "DD1P01" / "Optical Properties", layouts=layouts)
+
+
+def test_a_file_vanishing_mid_scan_does_not_raise(tool_root, layouts, monkeypatch):
+    """OneDrive can remove or lock a file between the glob and the stat."""
+    layout = tl.resolve_tool(tool_root, layouts=layouts)
+    real_stat = type(tool_root).stat
+
+    def flaky_stat(self, *args, **kwargs):
+        if self.name == "HADH51.csv":
+            raise PermissionError("locked")
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(type(tool_root), "stat", flaky_stat)
+
+    assert tl.find_wafer(layout, "HADH51").runcard.name == "HADH51.csv"

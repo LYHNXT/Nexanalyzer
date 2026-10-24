@@ -10,4 +10,6 @@ else PY=python
 fi
 if git rev-parse --verify -q origin/main >/dev/null; then
     "$PY" scripts/check_algo_change.py origin/main || exit 1
+else
+    echo "[algo-guard] skipped: no origin/main to compare against (git fetch first). CI will still run it."
 fi

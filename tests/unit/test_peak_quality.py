@@ -85,7 +85,8 @@ class TestRamanPanelDefinitions:
         width dropped), two centre panels, and the other ratios -- so a preset
         without LB/C (WSe2_QC) draws 2 | 2 | 2."""
         assert len(PANEL_COLUMNS) == 3
-        assert [len(panels) for _title, panels in PANEL_COLUMNS] == [2, 2, len(RAMAN_RATIO_PAIRS) - 1]
+        # Every ratio but the bilayer one (under FWHM) and MoS2's (not in this figure).
+        assert [len(panels) for _title, panels in PANEL_COLUMNS] == [2, 2, len(RAMAN_RATIO_PAIRS) - 2]
         fwhm = dict(PANEL_COLUMNS)["FWHM"]
         assert isinstance(fwhm[1], RatioPanel) and (fwhm[1].numerator, fwhm[1].denominator) == ("B2g", "E2g+A1g")
 
@@ -105,7 +106,7 @@ class TestRamanPanelDefinitions:
         columns = _drop_unfitted_ratios(PANEL_COLUMNS, {"E2g+A1g", "2LA", "B2g", "LA", "2ZA(M)"})
         ratios = {(p.numerator, p.denominator) for _title, panels in columns
                   for p in panels if isinstance(p, RatioPanel)}
-        assert ratios == set(RAMAN_RATIO_PAIRS) - {("C", "LB")}
+        assert ratios == set(RAMAN_RATIO_PAIRS) - {("C", "LB"), ("2LA(M)", "A1g")}
         assert [len(panels) for _title, panels in columns] == [2, 2, 2]
 
     def test_column_titles_match_the_inherited_figure(self):
@@ -150,8 +151,9 @@ class TestRamanPanelDefinitions:
         drawn = [(p.numerator, p.denominator) for _title, panels in PANEL_COLUMNS
                  for p in panels if isinstance(p, RatioPanel)]
 
-        # Every pair once, wherever it is drawn (the bilayer ratio sits under FWHM).
-        assert sorted(drawn) == sorted(RAMAN_RATIO_PAIRS)
+        # Every pair once, wherever it is drawn (the bilayer ratio sits under
+        # FWHM) -- except MoS2's, which its own figure layout leaves out (v5.34.0).
+        assert sorted(drawn) == sorted(set(RAMAN_RATIO_PAIRS) - {("2LA(M)", "A1g")})
 
     def test_a_ratio_added_to_the_constant_gains_a_panel(self):
         """An unlabelled pair still gets drawn, with a derived caption. The
@@ -809,3 +811,92 @@ def test_mos2_pl_shows_only_raw_a0_and_a_minus():
     from modules.spectra.viz.peak_quality import _mos2_pl_panels, panels_for_labels, RAW_COLUMN
     columns = _mos2_pl_panels((RAW_COLUMN,) + panels_for_labels(["A0", "A-", "B"], "PL"))
     assert {p.peak for _, ps in columns for p in ps} == {"Raw", "A0", "A-"}
+
+
+class TestPercentFormatting:
+    """`_pct` prints the title's and the legends' percentages alike."""
+
+    def test_small_and_large_values_keep_their_precision(self):
+        from modules.spectra.viz.peak_quality import _pct
+
+        assert _pct(0.04) == "0.04 %"
+        assert _pct(23.456) == "23.5 %"
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf")])
+    def test_an_undefined_cv_prints_a_dash_not_nan(self, value):
+        """A one-region sample has no CV; the title said "nan %"."""
+        from modules.spectra.viz.peak_quality import _pct
+
+        assert _pct(value) == "—"
+
+
+class TestMoS2RamanInTheApp:
+    """v5.34.0: the MoS2 Raman layout run_qc_mos2.py drew by monkeypatch --
+    FWHM (E2g, A1g) | Center (E2g, A1g) | Δω -- is the app's own, so a report
+    built on the page matches one built by the runner."""
+
+    @staticmethod
+    def _fits():
+        out = []
+        for point in range(1, 10):
+            for k in range(5):
+                out.append((point, _fit([
+                    _peak("E2g", center=383.0 + 0.1 * k, intensity=100.0, width_fwhm=6.5),
+                    _peak("A1g", center=403.0 + 0.1 * point, intensity=140.0, width_fwhm=8.5),
+                    _peak("2LA(M)", center=450.0, intensity=8.0, width_fwhm=12.0),
+                ])))
+        return out
+
+    def _drawn(self, monkeypatch, layer=None):
+        import modules.spectra.viz.peak_quality as pq
+        drawn = []
+        real = pq._draw_panel
+
+        def capture(ax, by_point, positions, panel, **kw):
+            drawn.append((panel, by_point))
+            return real(ax, by_point, positions, panel, **kw)
+
+        monkeypatch.setattr(pq, "_draw_panel", capture)
+        pq.build_peak_quality_figure(self._fits(), "M", material_name="MoS₂",
+                                     spec=pq.RAMAN_QUALITY, dpi=40, layer=layer)
+        return drawn
+
+    def test_the_layout_is_fwhm_center_delta(self, monkeypatch):
+        from modules.spectra.viz.peak_quality import DELTA_LABEL
+        panels = [(p.peak, p.metric) for p, _ in self._drawn(monkeypatch)]
+        assert panels == [("E2g", "fwhm"), ("A1g", "fwhm"), ("E2g", "center"), ("A1g", "center"),
+                          (DELTA_LABEL, "center")]
+
+    def test_the_delta_panel_draws_a1g_minus_e2g(self, monkeypatch):
+        from modules.spectra.viz.peak_quality import DELTA_LABEL
+        delta = next(v for p, v in self._drawn(monkeypatch) if p.peak == DELTA_LABEL)
+        assert delta[1].min() == pytest.approx(403.1 - 383.4)
+        assert sum(v.size for v in delta.values()) == 45
+
+    def test_only_a_1l_report_carries_the_nominal_20_line(self, monkeypatch):
+        from modules.spectra.viz.peak_quality import DELTA_LABEL
+        on_1l = next(p for p, _ in self._drawn(monkeypatch, "1L") if p.peak == DELTA_LABEL)
+        on_2l = next(p for p, _ in self._drawn(monkeypatch, "2L") if p.peak == DELTA_LABEL)
+        assert (on_1l.spec, on_1l.spec_nominal) == (20.0, True)
+        assert on_2l.spec is None
+
+    def test_the_summary_row_is_the_title_value(self):
+        from modules.spectra.viz.peak_quality import (
+            RAMAN_QUALITY, _clean, _pooled_median, _records, delta_omega_by_point, delta_omega_summary)
+        fits = self._fits()
+        median, _mad, n = delta_omega_summary(fits)
+        records = _clean(_records(fits), RAMAN_QUALITY.cleaning)
+        assert median == _pooled_median(delta_omega_by_point(records), True)
+        assert n == 45
+
+    def test_a_wse2_preset_fitting_e2g_and_a1g_apart_is_not_mos2(self):
+        """"WSe2 extended V2" fits E2g and A1g separately alongside LA/2LA/B2g."""
+        from modules.spectra.viz.peak_quality import is_mos2
+        assert is_mos2(["E2g", "A1g", "2LA(M)"], "Raman")
+        assert not is_mos2(["E2g", "A1g", "LA", "2LA", "B2g"], "Raman")
+
+    def test_the_defect_ratio_reaches_the_table(self):
+        from modules.spectra.processing.peak_metrics import RAMAN_RATIO_PAIRS, compute_peak_intensity_ratio
+        assert ("2LA(M)", "A1g") in RAMAN_RATIO_PAIRS
+        median, _mad, _n = compute_peak_intensity_ratio(self._fits(), "2LA(M)", "A1g")
+        assert median == pytest.approx(8.0 / 140.0)

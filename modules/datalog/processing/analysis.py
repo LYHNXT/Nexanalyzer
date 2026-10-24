@@ -414,5 +414,5 @@ def compute_all_violations(
     violations_df = pd.DataFrame(all_segments)
     if not violations_df.empty:
         # Stable, so segments starting in the same second keep pv_sv_pairs order.
-        violations_df = violations_df.sort_values("Start")
+        violations_df = violations_df.sort_values("Start", kind="stable")
     return violations_df, masks

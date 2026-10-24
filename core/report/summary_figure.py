@@ -78,6 +78,16 @@ _RAMAN_TABLE_TOP = 1.22
 # through the table underneath as soon as a second one was added.
 _TABLE_GAP = 0.54  # Raman table's bottom to the PL caption, which is 0.27 of it
 _TABLE_MIN_H = 0.90
+# The stacked tables end above this. A 20-peak preset ("WSe2 extended") made
+# the Raman table 5.5 in tall and pushed PL and domain size off the 7.5 in page,
+# where they vanished from the PNG without a word (fixed v5.34.0): the stack is
+# now scaled down to fit, rows and font together.
+_TABLES_BOTTOM = PAGE_HEIGHT_IN - 0.15
+# Below this a table is no longer readable; the page refuses rather than print it.
+_TABLE_FONT_FLOOR = 7.0
+# Cap height of a row's text as a fraction of the row: what the 13/11/9 pt
+# steps already use at 0.30/0.26/0.22 in, so the cap binds only on a scaled stack.
+_FONT_PER_ROW_IN = 0.62 * 72.0
 
 # ---- Fit grid page: 3x3 fitted-spectrum grid, with one shared legend ----
 # The legend and axis titles live on the page rather than inside each cell
@@ -335,7 +345,7 @@ def _fit_font_size(headers: Sequence[str], rows: Sequence[Sequence[str]],
 def _draw_table(fig, left: float, top: float, w: float, h: float,
                 headers: Sequence[str], rows: Sequence[Sequence[str]],
                 col_fracs: Sequence[float], font_size: float,
-                bold_from: Optional[int] = None) -> None:
+                bold_from: Optional[int] = None, scaled: bool = False) -> None:
     """A plain banded table: bold header over a rule, alternating row shading.
 
     Styled to sit beside `om_grid` and `peak_quality` rather than to imitate
@@ -347,9 +357,18 @@ def _draw_table(fig, left: float, top: float, w: float, h: float,
     ax = _blank_axes(fig, left, top, w, h)
     ax.set_ylim(1, 0)  # y increases downward, so row 0 is the header
 
+    n_rows = len(rows) + 1
+    # On a stack scaled to fit the page (`scaled`), the font comes down with
+    # the rows, to a readable floor.
+    if scaled:
+        font_size = min(font_size, _FONT_PER_ROW_IN * h / n_rows)
+    if scaled and font_size < _TABLE_FONT_FLOOR:
+        raise ValueError(
+            f"{n_rows - 1} table rows do not fit the summary page at a readable size "
+            f"({font_size:.1f} pt < {_TABLE_FONT_FLOOR:g} pt); the preset reports too many peaks"
+        )
     font_size = _fit_font_size(headers, rows, col_fracs, w, font_size)
 
-    n_rows = len(rows) + 1
     row_h = 1.0 / n_rows
 
     edges = [0.0]
@@ -395,6 +414,28 @@ def _table_height(n_data_rows: int) -> float:
     """
     per_row = {13: 0.30, 11: 0.26}.get(_table_font(n_data_rows), 0.22)
     return max(_TABLE_MIN_H, (n_data_rows + 1) * per_row)
+
+
+def _stacked_table_heights(raman_rows: int, pl_rows: int,
+                           domain_rows: int) -> Tuple[Tuple[float, float, float], bool]:
+    """Heights of the three stacked tables, scaled together to end on the page.
+
+    Each table's own `_table_height` when the stack fits -- every QC preset
+    today, which is what keeps those pages unchanged -- and all three shrunk by
+    one factor when it would not. The flag says which; on a scaled stack
+    `_draw_table` takes the font down with the rows and refuses below a
+    readable floor.
+    """
+    heights = (_table_height(raman_rows), _table_height(pl_rows), _table_height(domain_rows))
+    room = _TABLES_BOTTOM - _RAMAN_TABLE_TOP - 2 * _TABLE_GAP
+    if sum(heights) <= room:
+        return heights, False
+    # Shared out by row, header included, rather than scaling each table's
+    # height: that would also shrink a short table's minimum-height padding
+    # and leave the long one's rows smaller than they need be.
+    rows = (raman_rows + 1, pl_rows + 1, domain_rows + 1)
+    per_row = room / sum(rows)
+    return tuple(n * per_row for n in rows), True
 
 
 def _stats_caption(technique_label: str, stats: Optional[Sequence[PeakStat]],
@@ -477,7 +518,7 @@ def stats_table_content(
 def _add_stats_table(fig, technique_label: str, stats: Optional[Sequence[PeakStat]],
                      left: float, top: float, w: float, h: float,
                      ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
-                     show_fwhm_v1: bool = False) -> None:
+                     show_fwhm_v1: bool = False, scaled: bool = False) -> None:
     """One technique's fit-summary table, with its caption above it.
 
     A leading `RAW_STAT_LABEL` row is the empirical measurement rather than a
@@ -497,7 +538,7 @@ def _add_stats_table(fig, technique_label: str, stats: Optional[Sequence[PeakSta
         stats, ratios, show_fwhm_v1
     )
     _draw_table(fig, left, top, w, h, headers, rows, col_fracs,
-                _table_font(len(rows)), bold_from=bold_from)
+                _table_font(len(rows)), bold_from=bold_from, scaled=scaled)
 
 
 def _add_om_note(fig, note: Optional[str]) -> None:
@@ -542,7 +583,7 @@ def _add_om_table(fig, classes: Optional[Sequence[OpticalClassStat]]) -> None:
 
 def _add_domain_table(fig, stat: Optional[DomainSizeStat],
                       left: float, top: float, w: float, h: float,
-                      class_label: Optional[str] = None) -> None:
+                      class_label: Optional[str] = None, scaled: bool = False) -> None:
     """Pooled domain-size statistics, one row, stacked below the PL table.
 
     A placeholder box when domain-size analysis did not run at all (no OM
@@ -598,7 +639,7 @@ def _add_domain_table(fig, stat: Optional[DomainSizeStat],
             f"{stat.diameter_median:.2f}", f"{stat.diameter_mean:.2f} ± {stat.diameter_std:.2f}",
             f"{stat.density_per_100um2:.1f}" if stat.density_per_100um2 is not None else _DASH,
         ]]
-    _draw_table(fig, left, top, w, h, headers, rows, col_fracs, _table_font(len(rows)))
+    _draw_table(fig, left, top, w, h, headers, rows, col_fracs, _table_font(len(rows)), scaled=scaled)
 
     if not stat.calibrated:
         _text(fig, left, top + h + 0.03,
@@ -695,21 +736,21 @@ def build_summary_figure(
         _add_om_table(fig, om_classes)
         _add_om_note(fig, om_threshold_note)
 
-        raman_height = _table_height(len(raman_stats or []) + len(raman_ratios or []))
+        domain_rows = 2 if domain_stat and domain_stat.populations else 1
+        (raman_height, pl_height, domain_height), scaled = _stacked_table_heights(
+            len(raman_stats or []) + len(raman_ratios or []), len(pl_stats or []), domain_rows)
         _add_stats_table(
             fig, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W,
-            raman_height, ratios=raman_ratios, show_fwhm_v1=show_fwhm_v1,
+            raman_height, ratios=raman_ratios, show_fwhm_v1=show_fwhm_v1, scaled=scaled,
         )
         pl_top = _RAMAN_TABLE_TOP + raman_height + _TABLE_GAP
-        pl_height = _table_height(len(pl_stats or []))
         _add_stats_table(
             fig, "PL", pl_stats, _TABLE_LEFT, pl_top, _TABLE_W,
-            pl_height, show_fwhm_v1=show_fwhm_v1,
+            pl_height, show_fwhm_v1=show_fwhm_v1, scaled=scaled,
         )
-        domain_rows = 2 if domain_stat and domain_stat.populations else 1
         _add_domain_table(
             fig, domain_stat, _TABLE_LEFT, pl_top + pl_height + _TABLE_GAP,
-            _TABLE_W, _table_height(domain_rows), class_label=domain_class_label,
+            _TABLE_W, domain_height, class_label=domain_class_label, scaled=scaled,
         )
 
         buf = io.BytesIO()

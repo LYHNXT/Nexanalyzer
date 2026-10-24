@@ -120,3 +120,34 @@ def test_the_suptitle_names_the_reference_from_labels_not_ref_label():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_an_explicit_empty_point_list_is_refused_clearly():
+    with pytest.raises(ValueError, match="grid point"):
+        build_om_grid_figure([_fake_frame(1)], "S", points=[], show_histograms=True)
+
+
+@pytest.mark.parametrize("show_histograms", [False, True])
+def test_the_legend_sits_below_everything_else(monkeypatch, show_histograms):
+    """v5.34.0 moved the legend up to the last row. Its top was first pinned to
+    the axes' edge, which printed it over the histogram row's tick labels; it
+    now hangs from the lowest drawn element, labels included."""
+    import matplotlib.pyplot as plt
+    from modules.optical.viz import om_grid
+
+    kept = []
+    real_close = plt.close  # om_grid.plt *is* pyplot, so patching it patches plt too
+    monkeypatch.setattr(om_grid.plt, "close", kept.append)
+    try:
+        build_om_grid_figure([_fake_frame(p) for p in range(1, 10)], "S",
+                             dpi=40, show_histograms=show_histograms)
+        fig = kept[0]
+        renderer = fig.canvas.get_renderer()
+        legend_top = fig.legends[0].get_window_extent(renderer).y1
+        lowest = min(ax.get_tightbbox(renderer).y0 for ax in fig.axes)
+        assert legend_top <= lowest
+        # ...and close under it: within half an inch, not the old empty band.
+        assert lowest - legend_top < 0.5 * fig.dpi
+    finally:
+        for fig in kept:
+            real_close(fig)

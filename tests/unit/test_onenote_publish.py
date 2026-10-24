@@ -7,6 +7,7 @@ script, so these pin *which* calls are made and in what order.
 import json
 
 import pandas as pd
+import pytest
 
 from modules.onenote.io import graph_client
 from modules.onenote.processing import artifacts, page_html
@@ -130,3 +131,10 @@ def test_graph_errors_carry_graph_s_message():
         assert "404" in str(e) and "nope" in str(e)
     else:
         raise AssertionError("expected GraphError")
+
+
+@pytest.mark.parametrize("content", ["[]", '"text"', "42", "null"])
+def test_config_that_is_valid_json_but_not_an_object_is_unconfigured(tmp_path, content):
+    path = tmp_path / "onenote.json"
+    path.write_text(content, encoding="utf-8")
+    assert not graph_client.load_config(path).configured

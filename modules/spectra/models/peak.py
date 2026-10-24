@@ -264,6 +264,7 @@ class FittedPeak:
             "component_curve": self.component_curve.tolist() if self.component_curve is not None else None,
             "color": self.color,
             "on_limit": self.on_limit,
+            "width_fwhm_v1": self.width_fwhm_v1,
         }
 
     @classmethod
@@ -282,6 +283,7 @@ class FittedPeak:
             component_curve=component_curve,
             color=data.get("color", "#1f77b4"),  # Default color if not present
             on_limit=bool(data.get("on_limit", False)),
+            width_fwhm_v1=data.get("width_fwhm_v1"),
         )
 
 

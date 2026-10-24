@@ -121,7 +121,9 @@ class ProcessingSettings:
     baseline_applied : bool
         Whether baseline correction has been run.
     y_shift : float
-        Automatic Y-shift applied for baseline stability (v2.1+). 0 if not applied.
+        Always 0.0 since v5.34.0. The v2.1 auto-shift it recorded was a no-op
+        (ALS and a polynomial with a constant term both move with the data),
+        so it was removed; the field stays so saved projects still load.
     """
 
     despike_threshold: float = 30.0

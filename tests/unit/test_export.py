@@ -1,9 +1,7 @@
 """Unit tests for core.io.export (figure rasterization and output filenames).
 
-prompt_save_path()/prompt_save_folder() are excluded: both spawn a real
-tkinter subprocess dialog and are not practically unit-testable -- the batch
-image export button that uses prompt_save_folder() is covered through
-AppTest instead, in tests/integration/test_sidebar_batch_export_flow.py.
+The dialog wrappers (prompt_save_path/prompt_save_folder) and the subprocess
+round trip under them are covered in test_native_dialog.py.
 Fit-results CSVs are covered by test_results_csv.py.
 """
 

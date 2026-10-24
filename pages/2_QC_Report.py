@@ -107,6 +107,7 @@ from modules.optical.ui.qc_report_state import (
     reset_optical_results,
     reset_results,
     reset_spectra_results,
+    select_folder,
 )
 from modules.optical.viz.domain_grid import build_domain_grid_figure
 from modules.optical.viz.om_grid import build_om_grid_figure
@@ -136,9 +137,12 @@ from modules.spectra.viz.fit_plot import (
     y_axis_title,
 )
 from modules.spectra.viz.peak_quality import (
+    DELTA_LABEL,
     PL_QUALITY,
     RAMAN_QUALITY,
     build_peak_quality_figure,
+    delta_omega_summary,
+    is_mos2,
 )
 
 #: The saved file set, in the order the report is meant to be read. The numeric
@@ -300,13 +304,8 @@ if pick_clicked:
         picked = None
 
 if picked:
-    state["folder"] = picked
-    state["scan"] = scan_sample_folder(picked)
-    state["magnification"] = default_magnification(state["scan"])
-    # An operator's layer choice was for the previous folder.
-    state["layer_source"] = None
-    state["layer_context"] = None
-    reset_results(state)
+    _scan = scan_sample_folder(picked)
+    select_folder(state, picked, _scan, default_magnification(_scan))
     st.rerun()
 
 #: The QC grid is 3 x 3 (v5.29.0). A folder measured at more positions (HADH71
@@ -406,7 +405,9 @@ if scan is not None:
                 new_layer = state["reference_layer"]
             if new_layer != state["reference_layer"]:
                 state["reference_layer"] = new_layer
-                reset_optical_results(state)
+                # Everything, not just optical: the layer also picks the
+                # Raman/PL stats figures' spec lines and hides B2g on 1L.
+                reset_results(state)
 
     current_layer = state["reference_layer"]
     reference = st.selectbox(
@@ -421,7 +422,7 @@ if scan is not None:
     if reference is not None and reference != current_layer:
         state["reference_layer"] = reference
         state["layer_source"] = "operator"
-        reset_optical_results(state)
+        reset_results(state)
 
     if state.get("layer_suggestion") is not None:
         st.caption(_layer_suggestion_caption(state["layer_suggestion"], reference))
@@ -639,9 +640,7 @@ if scan is not None:
         om_paths = {
             point: path
             for point, path in scan.image_files.get(state["magnification"] or "", {}).items()
-            # Every grid point, P10 included: a ten-point wafer used to lose its
-            # tenth frame from segmentation, the figures and the layer
-            # suggestion without a word (om_grid lays out 2-3-3-2 for ten).
+            # `scan` is already limited to 1..GRID_POINTS (`_grid_points_only`).
             if point >= 1
         }
 
@@ -782,6 +781,7 @@ if scan is not None:
                                     ref_label=state["reference_layer"],
                                     name=f"{state['magnification']}-{point}",
                                     low_coverage=state["low_coverage"],
+                                    keep_segmentation=bool(state["measure_domain_size"]),
                                     **om_kwargs,
                                 ))
                             except Exception as e:
@@ -853,6 +853,10 @@ if scan is not None:
                                     )
                                 progress.tick("domain_size", done, len(frames))
                             state["domain_results"] = domain_results
+                            # Domain sizing reused each frame's segmentation;
+                            # drop it so the session does not hold ~16 MB a frame.
+                            frames = [dataclasses.replace(f, segmentation=None) for f in frames]
+                            state["frames"] = frames
                             state["domain_stat"] = domain_size_stat(
                                 domain_results,
                                 detect_size_populations=state["split_size_populations"],
@@ -1044,15 +1048,21 @@ if scan is not None:
                             material_name=state["material"], spec=RAMAN_QUALITY,
                             layer=state["reference_layer"],
                         )
-                        raman_fits = [fit for _, fit in raman_pairs]
                         state["raman_ratios"] = [
                             (f"{numerator} / {denominator}", ratio)
                             for numerator, denominator in RAMAN_RATIO_PAIRS
                             for ratio in [compute_peak_intensity_ratio(
-                                raman_fits, numerator, denominator
+                                raman_pairs, numerator, denominator
                             )]
                             if ratio is not None
                         ]
+                        # MoS2's Δω: a summary-page row, not a workbook one --
+                        # the workbook's table is headed "intensity ratios".
+                        state["raman_delta"] = (
+                            delta_omega_summary(raman_pairs)
+                            if is_mos2([p.label for _, f in raman_pairs for p in f.fitted_peaks], "Raman")
+                            else None
+                        )
 
                     if batch_result.pl_spectra:
                         pl_columns = _build_fit_columns(
@@ -1119,7 +1129,9 @@ if scan is not None:
                         ),
                         raman_stats=state["raman_stats"],
                         pl_stats=state["pl_stats"],
-                        raman_ratios=state["raman_ratios"],
+                        raman_ratios=(state["raman_ratios"] or []) + (
+                            [(DELTA_LABEL, state["raman_delta"])] if state.get("raman_delta") else []
+                        ),
                         domain_stat=state["domain_stat"],
                         domain_class_label=(
                             dict(zip(TARGETS, class_labels(

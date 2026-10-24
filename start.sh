@@ -32,7 +32,7 @@ elif [ ! -d ".git" ]; then
 else
     # Fast-forward only: if local work has diverged, fail cleanly and keep the
     # current version rather than creating a merge commit.
-    if git pull --ff-only; then
+    if git pull --ff-only origin main; then
         echo "Up to date with the latest version."
     elif ! git diff --quiet HEAD; then
         # The common cause: local edits to tracked files. Editing material
@@ -71,7 +71,8 @@ source venv/bin/activate
 # Install/update dependencies (runs every launch, so any pulled requirement
 # changes are picked up automatically)
 echo "Checking dependencies..."
-pip install -r requirements.txt --quiet
+# Constrained by the lock file, as CI is: requirements.txt only sets floors.
+pip install -r requirements.txt -c requirements-lock.txt --quiet
 if [ $? -ne 0 ]; then
     echo "[ERROR] Failed to install dependencies."
     exit 1

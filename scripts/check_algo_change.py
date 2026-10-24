@@ -27,6 +27,14 @@ ALGO_PATHS = (
     "modules/optical/processing/",
     "modules/runcard/processing/",
     "modules/datalog/processing/",
+    # Outside processing/ but still deciding reported numbers: the quality
+    # figures' fences, uniformity CV and title values, the summary page's
+    # tables, the workbook, and the BLAS kernel every fit runs on.
+    "modules/spectra/viz/peak_quality.py",
+    "core/report/summary_figure.py",
+    "modules/spectra/io/results_excel.py",
+    "modules/spectra/io/results_csv.py",
+    "core/blas.py",
     "data/materials.json",
     "data/om_calibration.json",
     "data/datalog.json",

@@ -622,6 +622,10 @@ def _render_runcard_detection(root_folder: str, state: dict) -> None:
                 if done["skipped"]:
                     st.warning("Not renamed:\n" + "\n".join(
                         f"- {Path(p).name}: {reason}" for p, reason in done["skipped"]))
+                if done.get("tag_orphaned"):
+                    st.warning("Renamed, but the tag did not move with the file:\n" + "\n".join(
+                        f"- {Path(old).name} → {Path(new).name}: {why}"
+                        for old, new, why in done["tag_orphaned"]))
 
 
 def _rename_to_tags(root_folder: str, chosen) -> dict:
@@ -653,8 +657,10 @@ def _rename_to_tags(root_folder: str, chosen) -> dict:
         plans.append(renamer.RenamePlan(path=path, new_path=str(dest), will_change=True,
                                         collision=dest.exists()))
     result = renamer.execute_sweep(root_folder, plans)
-    return {"renamed": result.renamed,
-            "skipped": skipped + result.skipped + [(old, why) for old, _new, why in result.tag_orphaned]}
+    # Orphaned files *were* renamed -- only their tag did not follow -- so they
+    # are reported apart from the files that kept their name.
+    return {"renamed": result.renamed, "skipped": skipped + result.skipped,
+            "tag_orphaned": result.tag_orphaned}
 
 
 @st.cache_data(show_spinner=False, max_entries=256)

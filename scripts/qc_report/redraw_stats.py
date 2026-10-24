@@ -100,7 +100,9 @@ def main(report_dir, title, layer, material, out_dir):
     import modules.spectra.viz.peak_quality as pq
 
     report_dir, out_dir = Path(report_dir), Path(out_dir)
-    sample_dir = report_dir.parent if "deliver" not in report_dir.parent.name else report_dir.parent
+    # A delivered report sits in <sample>/<deliver...>/<report>; the source spectra
+    # that _n_points globs for are under <sample>.
+    sample_dir = report_dir.parent.parent if "deliver" in report_dir.parent.name else report_dir.parent
     xlsx = next(report_dir.glob("*_QC_Report.xlsx"))
     old = xlsx.name[: -len("_QC_Report.xlsx")]
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -109,15 +111,19 @@ def main(report_dir, title, layer, material, out_dir):
             shutil.copy2(f, out_dir / f.name.replace(old, title, 1))
 
     preset = load_presets()[material]
-    if material.startswith("MoS2"):
-        import run_qc_mos2
-        run_qc_mos2.align_mos2_raman_with_wse2([])  # the MoS2 Raman layout the runner draws
+    # Read both sheets up front and close: a read-only workbook keeps its file
+    # handle open until closed, which on Windows locks the report's .xlsx.
     wb = openpyxl.load_workbook(xlsx, read_only=True)
+    try:
+        sheets = {name: list(wb[name].iter_rows(values_only=True))
+                  for name in ("Raman", "PL") if name in wb.sheetnames}
+    finally:
+        wb.close()
     for sheet, spec, number in (("Raman", pq.RAMAN_QUALITY, 6), ("PL", pq.PL_QUALITY, 8)):
         block = preset.block_for(sheet)
-        if sheet not in wb.sheetnames or block is None:
+        if sheet not in sheets or block is None:
             continue
-        rows = list(wb[sheet].iter_rows(values_only=True))
+        rows = sheets[sheet]
         if len(rows) < 2:
             continue
         pairs, raw = rebuild(rows[1:], rows[0], block, sample_dir)

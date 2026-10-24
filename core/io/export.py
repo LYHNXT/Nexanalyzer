@@ -8,6 +8,8 @@ peaks or spectra.
 
 from typing import Optional
 
+from .native_dialog import existing_dir, run_dialog
+
 
 def prompt_save_path(default_dir: Optional[str],
                      default_filename: str,
@@ -17,8 +19,8 @@ def prompt_save_path(default_dir: Optional[str],
     """
     Open a native OS "Save As" dialog and return the chosen path.
 
-    Runs tkinter.filedialog.asksaveasfilename in a subprocess (the same pattern
-    used by the "Browse Spectrum Files" button), so the user can choose the
+    Runs tkinter.filedialog.asksaveasfilename in a subprocess (see
+    `native_dialog`), so the user can choose the
     folder AND type the filename. The dialog opens pre-pointed at ``default_dir``
     with ``default_filename`` pre-filled.
 
@@ -41,67 +43,16 @@ def prompt_save_path(default_dir: Optional[str],
     Optional[str]
         Absolute path chosen by the user, or None if the dialog was cancelled.
     """
-    import subprocess
-    import sys
-    import os
-    import tempfile
-    import json
-
-    # NOTE: asksaveasfilename returns a single path; serialize via json.dumps so
-    # paths with spaces/commas/unicode round-trip safely across the subprocess.
-    dialog_script = """
-import tkinter as tk
-from tkinter import filedialog
-import sys
-import json
-
-root = tk.Tk()
-root.withdraw()
-root.wm_attributes('-topmost', 1)
-
-initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-initial_file = sys.argv[2] if len(sys.argv) > 2 else ""
-default_ext = sys.argv[3] if len(sys.argv) > 3 else ""
-
-path = filedialog.asksaveasfilename(
-    title="__TITLE__",
-    initialdir=initial_dir,
-    initialfile=initial_file,
-    defaultextension=default_ext,
-    filetypes=__FILETYPES__
-)
-
-root.destroy()
-print(json.dumps(path))
-"""
-    # Inject title and filetypes (kept simple: title has no quotes/newlines).
-    dialog_script = dialog_script.replace("__TITLE__", title)
-    dialog_script = dialog_script.replace("__FILETYPES__", repr([list(ft) for ft in filetypes]))
-
-    safe_dir = default_dir if (default_dir and os.path.isdir(default_dir)) else ""
-
-    script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
-            f.write(dialog_script)
-            script_path = f.name
-
-        result = subprocess.run(
-            [sys.executable, script_path, safe_dir, default_filename, default_extension],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-    finally:
-        if script_path and os.path.exists(script_path):
-            os.unlink(script_path)
-
-    raw = result.stdout.strip()
-    if not raw:
-        return None
-    path = json.loads(raw)
+    path = run_dialog(
+        "asksaveasfilename",
+        title=title,
+        initialdir=existing_dir(default_dir),
+        initialfile=default_filename,
+        defaultextension=default_extension,
+        filetypes=[list(ft) for ft in filetypes],
+    )
     # Empty string => user cancelled the dialog.
-    return path if path else None
+    return path or None
 
 
 def prompt_save_folder(default_dir: Optional[str], title: str = "Select Folder") -> Optional[str]:
@@ -126,58 +77,8 @@ def prompt_save_folder(default_dir: Optional[str], title: str = "Select Folder")
     Optional[str]
         Absolute path chosen by the user, or None if the dialog was cancelled.
     """
-    import subprocess
-    import sys
-    import os
-    import tempfile
-    import json
-
-    dialog_script = """
-import tkinter as tk
-from tkinter import filedialog
-import sys
-import json
-
-root = tk.Tk()
-root.withdraw()
-root.wm_attributes('-topmost', 1)
-
-initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-
-path = filedialog.askdirectory(
-    title="__TITLE__",
-    initialdir=initial_dir,
-)
-
-root.destroy()
-print(json.dumps(path))
-"""
-    dialog_script = dialog_script.replace("__TITLE__", title)
-
-    safe_dir = default_dir if (default_dir and os.path.isdir(default_dir)) else ""
-
-    script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
-            f.write(dialog_script)
-            script_path = f.name
-
-        result = subprocess.run(
-            [sys.executable, script_path, safe_dir],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-    finally:
-        if script_path and os.path.exists(script_path):
-            os.unlink(script_path)
-
-    raw = result.stdout.strip()
-    if not raw:
-        return None
-    path = json.loads(raw)
-    # Empty string => user cancelled the dialog.
-    return path if path else None
+    path = run_dialog("askdirectory", title=title, initialdir=existing_dir(default_dir))
+    return path or None
 
 
 def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 2.0) -> bytes:

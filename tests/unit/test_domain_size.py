@@ -801,3 +801,44 @@ class TestOpticalParamsDomainFields:
         from modules.spectra.models.preset import OpticalParams
 
         assert any("min_domain_um_50x" in e for e in OpticalParams(min_domain_um_50x=0.0).validate())
+
+
+class TestTheFramesOwnSegmentationIsReused:
+    """v5.34.0: `analyse_frame(keep_segmentation=True)` keeps what domain
+    sizing needs, so `measure_domains` does not segment the frame a second
+    time. Reuse must be bit-identical to re-running, and must not be used
+    when the tuning differs."""
+
+    _BLOBS = [(slice(40, 80), slice(50, 90)), (slice(150, 200), slice(200, 260)),
+              (slice(220, 260), slice(300, 340))]
+
+    @pytest.mark.parametrize("target", ["above", "below", "reference"])
+    def test_reused_and_recomputed_domains_are_identical(self, tmp_path, target):
+        path = _frame_with_blobs(tmp_path, self._BLOBS)
+        kept = analyse_frame(path, point=1, ref_label="2L", keep_segmentation=True)
+        plain = analyse_frame(path, point=1, ref_label="2L")
+        assert kept.segmentation is not None and plain.segmentation is None
+
+        a, b = measure_domains(plain, target=target), measure_domains(kept, target=target)
+
+        assert np.array_equal(a.label_mask, b.label_mask)
+        assert np.array_equal(a.diameters_px, b.diameters_px)
+        assert (a.n, a.n_edge) == (b.n, b.n_edge)
+
+    def test_different_tuning_segments_afresh(self, tmp_path, monkeypatch):
+        path = _frame_with_blobs(tmp_path, self._BLOBS)
+        kept = analyse_frame(path, point=1, ref_label="2L", keep_segmentation=True)
+        calls = []
+        real = domain_size_module.analyse_array
+        monkeypatch.setattr(domain_size_module, "analyse_array",
+                            lambda *a, **k: calls.append(k) or real(*a, **k))
+
+        measure_domains(kept)
+        assert calls == []
+        measure_domains(kept, nsigma=3.0)
+        assert len(calls) == 1
+
+    def test_it_does_not_change_what_a_frame_compares_equal_to(self, tmp_path):
+        path = _frame_with_blobs(tmp_path, self._BLOBS)
+        kept = analyse_frame(path, point=1, ref_label="2L", keep_segmentation=True)
+        assert "segmentation" not in repr(kept)

@@ -2,7 +2,8 @@
 
 numpy and scipy each bundle OpenBLAS, which picks its kernel for the CPU it
 finds. The kernels round differently, and an ill-conditioned fit settles
-somewhere else: the golden RM_1 (8 peaks, R2 0.896) moved its chi-squared from
+somewhere else: the then-golden HKU RM_1 (8 peaks, R2 0.896; retired from the
+record in v5.34.0) moved its chi-squared from
 28637.11 to 28637.44 under Haswell and to 28641.97 on a GitHub runner, against
 a 1e-5 record taken on a SkylakeX laptop. Physically meaningless, but it fails
 the tripwire and lets two PCs disagree on the same spectrum.

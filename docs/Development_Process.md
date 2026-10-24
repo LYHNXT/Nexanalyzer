@@ -30,7 +30,7 @@ git config core.hooksPath .githooks    # enables the commit and push hooks
 
 | Hook | Checks |
 | --- | --- |
-| pre-commit | `tests/unit/test_golden_fit.py`: HKU-20230524-2 RM_1 and PL_1 (`tests/fixtures/golden_fit/`) and DDAA10 RM_1..3 (`tests/fixtures/golden_fit/DDAA10/`) must reproduce their `expected.json` to 1e-5 |
+| pre-commit | `tests/unit/test_golden_fit.py`: DDAA10 RM_1..3 (Raman) and HADI51 / VA1P012504023 PL_5 (PL), each under `tests/fixtures/golden_fit/<set>/`, must reproduce their `expected.json` to 1e-5 |
 | pre-push | the same, plus `scripts/check_algo_change.py origin/main` |
 
 ## 4. Open a pull request into `main`

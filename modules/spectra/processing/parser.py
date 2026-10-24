@@ -264,68 +264,6 @@ def parse_spectrum(filepath: str) -> SpectrumData:
     return spectra[0]
 
 
-def validate_spectrum_file(filepath: str) -> Tuple[bool, str]:
-    """
-    Validate .txt spectrum file without loading it.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to .txt file.
-
-    Returns
-    -------
-    is_valid : bool
-        True if file is valid.
-    message : str
-        Empty if valid, else error message.
-
-    Examples
-    --------
-    >>> is_valid, msg = validate_spectrum_file("sample.txt")
-    >>> if not is_valid:
-    ...     print(f"Validation failed: {msg}")
-    """
-    try:
-        parse_spectrum(filepath)
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-def estimate_spectral_resolution(X: np.ndarray) -> float:
-    """
-    Estimate spectral resolution (median step size).
-
-    Used for auto-calculating width_min in peak fitting bounds.
-
-    Parameters
-    ----------
-    X : np.ndarray
-        X array (wavenumber or wavelength).
-
-    Returns
-    -------
-    resolution : float
-        Median step size in X units.
-
-    Examples
-    --------
-    >>> X = np.linspace(100, 1000, 1000)
-    >>> resolution = estimate_spectral_resolution(X)
-    >>> print(f"{resolution:.3f} cm⁻¹")
-    0.901 cm⁻¹
-    """
-    if len(X) < 2:
-        return 1.0  # Fallback for single-point spectra (should not happen)
-
-    # Calculate step sizes
-    steps = np.diff(X)
-
-    # Use median to be robust to irregular spacing
-    resolution = np.median(np.abs(steps))
-
-    return resolution
-
-
 # The one place the app decides what a filename says about its technique.
 # sample_scanner matches these as whole prefixes ("rm-1.txt"), while
 # detect_mode_from_filename matches them as a leading substring

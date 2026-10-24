@@ -23,7 +23,7 @@ codebase; a caller that wants the integrated quantity takes `FittedPeak.area`
 and labels it "area".
 """
 
-from typing import List, NamedTuple, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -41,17 +41,21 @@ def peak_intensity_and_stderr(peak) -> Tuple[float, float]:
     approximation, but the only sensible one without re-propagating the
     covariance matrix.
 
-    Falls back to the area and its stderr when no component curve was
-    generated (e.g. a fit that converged without per-peak curves).
+    Without a component curve (a reloaded project whose curve list is empty)
+    there is no maximum to read, so both are NaN -- never the area, which is a
+    different quantity (until v5.34.0 it was returned here, under "Intensity").
+    A peak fitted to zero area has no ratio to rescale by, so its stderr is
+    NaN as well: an unestimable stderr is NaN, never 0.0 (it printed "0 +- 0"
+    on the MoS2 A0 points that fit to nothing).
     """
     curve = getattr(peak, "component_curve", None)
     if curve is None or len(curve) == 0:
-        return float(peak.area), float(peak.area_stderr)
+        return float("nan"), float("nan")
 
     intensity = float(np.max(curve))
     if peak.area > 0:
         return intensity, float(peak.area_stderr) * (intensity / peak.area)
-    return intensity, 0.0
+    return intensity, float("nan")
 
 
 def peak_intensity(peak) -> float:
@@ -90,7 +94,8 @@ def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
         above = y >= intensity / 2.0
         if above.any():
             idxs = np.where(above)[0]
-            fwhm = float(x[idxs[-1]] - x[idxs[0]])
+            # abs(): nothing sorts X, and some exports run high-to-low.
+            fwhm = float(abs(x[idxs[-1]] - x[idxs[0]]))
 
     return RawPeakStats(intensity=intensity, center=center, fwhm=fwhm)
 
@@ -366,6 +371,7 @@ RATIO_FROM_EVERY_SPECTRUM = frozenset({("LA", "E2g+A1g"), ("2LA", "E2g+A1g"), ("
 
 RAMAN_RATIO_PAIRS: Tuple[Tuple[str, str], ...] = (
     ("LA", "E2g+A1g"), ("2LA", "E2g+A1g"), ("C", "LB"), ("B2g", "E2g+A1g"),
+    ("2LA(M)", "A1g"),
 )
 """The WSe2 bilayer quality indicators, as (numerator, denominator) labels.
 
@@ -398,50 +404,104 @@ ratio, and restored in v5.25.0 beside it: on HA1P01 C/LB is often unmeasurable
 read by eye. Any pair whose labels aren't both present in a fit is dropped
 automatically (see `compute_peak_intensity_ratio`), so this list is safe for
 materials that don't define these peaks.
+
+- ``2LA(M) / A1g`` — MoS2's defect ratio (v5.34.0; until then only
+  `scripts/qc_report/run_qc_mos2.py` reported it, by replacing this constant).
+  Gated by `peak_is_measured`, like C/LB. The summary table and workbook carry
+  it; the MoS2 quality figure has no ratio column (its layout,
+  `peak_quality.MOS2_RAMAN_COLUMNS`, follows the runner's 2026-10-19 one).
 """
 
 
-def compute_peak_intensity_ratio(
-    fit_results: List[FitResult], numerator_label: str, denominator_label: str
-) -> Optional[Tuple[float, float, int]]:
+def wafer_fence(by_point: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
+    """Drop ratios outside the 1.5x IQR fence of the whole wafer (v5.32.0).
+
+    A ratio formed from every spectrum can come from a weak spectrum whose
+    region is itself spread wide, so the per-region fence keeps it (KRX261003
+    point 5: 20 % from a spectrum at half the usual E2g+A1g intensity, against
+    8-16 % in its region and a 19.7 % wafer fence). The per-region fence
+    (`region_values`) still applies after this one.
     """
-    The per-point peak-intensity ratio `numerator_label` / `denominator_label`
-    (e.g. "LA" / "E2g+A1g" for WSe2 Raman), summarized across `fit_results`.
+    pooled = np.concatenate([v for v in by_point.values() if v.size]) if by_point else np.array([])
+    if pooled.size < 4:
+        return by_point
+    q1, q3 = np.percentile(pooled, [25, 75])
+    lo, hi = q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1)
+    return {p: v[(v >= lo) & (v <= hi)] for p, v in by_point.items()}
 
-    The ratio is formed per point first, then summarized — not
-    mean(numerator) / mean(denominator) — so it describes the actual
-    point-to-point ratio rather than a ratio of two separately averaged
-    numbers. On a 9-point grid the two agree to well under a percent, but only
-    the per-point form has a meaningful spread attached.
 
-    Summarized by **median and median absolute deviation**, not mean and
-    standard deviation: one badly fitted point moves a 9-point mean noticeably,
-    and a ratio of two fitted quantities is exactly where that happens.
+def region_values(by_point: Dict[int, np.ndarray], per_position_iqr: bool = True) -> Dict[int, np.ndarray]:
+    """Each position's values with the 1.5x IQR cut taken within the position
+    (where `per_position_iqr`), empty positions dropped."""
+    out = {}
+    for point, values in by_point.items():
+        clean = values[iqr_mask(values)] if per_position_iqr and values.size else values
+        if clean.size:
+            out[point] = clean
+    return out
 
-    Intensities, not `FittedPeak.area` — see the module docstring; for peaks
-    of unequal width the two ratios differ by a large factor.
 
-    Points missing either peak (or with a zero denominator) are skipped, and so
-    are points where either peak is not measured (`peak_is_measured`, v5.23.0):
-    on a fit limit, or under 3x the fit's noise -- except for the pairs in
-    `RATIO_FROM_EVERY_SPECTRUM` (v5.32.0), formed from every spectrum that has
-    both peaks. `n` counts the points used.
-    Returns (median, mad, n), or None if no point has both peaks measured.
+def ratio_values_by_point(
+    spectra: Iterable[Tuple[int, Dict[str, Tuple[float, bool]]]],
+    numerator_label: str,
+    denominator_label: str,
+) -> Dict[int, np.ndarray]:
+    """Per-spectrum intensity ratios, grouped by grid position.
+
+    `spectra` yields `(point, {label: (intensity, measured)})`, one item per
+    spectrum. The ratio is formed within a spectrum, never as
+    mean(numerator) / mean(denominator). A pair needs both peaks measured
+    (`peak_is_measured`) unless it is in `RATIO_FROM_EVERY_SPECTRUM`, whose
+    values are formed from every spectrum and then cut by `wafer_fence`.
+
+    The one place ratios are selected: the summary table and workbook
+    (`compute_peak_intensity_ratio`) and the quality figure's panels and title
+    all read it, so they cannot disagree again (until v5.34.0 the table took a
+    plain median over unfenced values while the figure fenced them).
     """
     every = (numerator_label, denominator_label) in RATIO_FROM_EVERY_SPECTRUM
-    ratios = []
-    for fit_result in fit_results:
-        intensities = {peak.label: peak_intensity(peak) for peak in fit_result.fitted_peaks
-                       if every or peak_is_measured(peak, fit_result)}
-        numerator = intensities.get(numerator_label)
-        denominator = intensities.get(denominator_label)
-        if numerator is not None and denominator:
-            ratios.append(numerator / denominator)
+    out: Dict[int, list] = {}
+    for point, peaks in spectra:
+        numerator = peaks.get(numerator_label)
+        denominator = peaks.get(denominator_label)
+        if numerator is None or denominator is None or not denominator[0]:
+            continue
+        if not every and not (numerator[1] and denominator[1]):
+            continue
+        ratio = numerator[0] / denominator[0]
+        if np.isfinite(ratio):
+            out.setdefault(point, []).append(ratio)
+    values = {p: np.asarray(v, float) for p, v in out.items()}
+    return wafer_fence(values) if every else values
 
-    if not ratios:
+
+def compute_peak_intensity_ratio(
+    fits_by_point: Sequence, numerator_label: str, denominator_label: str
+) -> Optional[Tuple[float, float, int]]:
+    """
+    The peak-intensity ratio `numerator_label` / `denominator_label` (e.g.
+    "LA" / "E2g+A1g" for WSe2 Raman), summarized across a sample's spectra.
+
+    `fits_by_point` is `(point, FitResult)` pairs; a bare FitResult counts as
+    its own position. Ratios are selected by `ratio_values_by_point` -- the same
+    values the quality figure draws -- then cut by the 1.5x IQR within each
+    position, as the figure's panels are, and pooled.
+
+    Summarized by **median and median absolute deviation**, not mean and
+    standard deviation: a ratio of two fitted quantities is exactly where one
+    badly fitted spectrum moves a mean. `n` counts the ratios kept.
+    Returns (median, mad, n), or None if no spectrum yields the ratio.
+    """
+    def spectra():
+        for index, item in enumerate(fits_by_point):
+            point, fit = item if isinstance(item, tuple) else (index, item)
+            yield point, {peak.label: (peak_intensity(peak), peak_is_measured(peak, fit))
+                          for peak in fit.fitted_peaks}
+
+    by_point = region_values(ratio_values_by_point(spectra(), numerator_label, denominator_label))
+    if not by_point:
         return None
-
-    values = np.asarray(ratios, dtype=float)
+    values = np.concatenate(list(by_point.values()))
     median = float(np.median(values))
     mad = float(np.median(np.abs(values - median)))
-    return (median, mad, len(ratios))
+    return (median, mad, int(values.size))
