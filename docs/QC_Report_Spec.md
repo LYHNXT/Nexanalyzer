@@ -1,8 +1,9 @@
 # QC Report — customer spec and how the stats figures report it
 
-Current as of v5.32.0. Code: `modules/spectra/viz/peak_quality.py`
+Current as of v5.34.0. Code: `modules/spectra/viz/peak_quality.py`
 (`CUSTOMER_SPEC`, `spec_summary_lines`, `_draw_panel`),
-`modules/spectra/processing/peak_metrics.py` (`RATIO_FROM_EVERY_SPECTRUM`),
+`modules/spectra/processing/peak_metrics.py` (`RATIO_FROM_EVERY_SPECTRUM`,
+`ratio_values_by_point`),
 `modules/spectra/processing/spectrum_selection.py` (25 spectra per region),
 `modules/spectra/processing/sample_scanner.py` (`sample_title`).
 
@@ -90,7 +91,15 @@ region; the reports use 25. The two MoS₂ values are shown as nominal targets
   from noise fits is never shown as a bilayer signal. On 2L the gate kept only
   3–19 of 25, because B₂g's width ends on its cap.
 - The **summary table and workbook** use the same rule, summarized by median
-  and MAD, so the table and figure agree.
+  and MAD, so the table and figure agree. Since v5.34.0 that is enforced: both
+  read `peak_metrics.ratio_values_by_point` and the region fence. Until then
+  the table took a plain median over unfenced values and could differ from the
+  figure's title (10.2 % against 9.8 %).
+- **MoS₂** (v5.34.0, in the app; until then only `run_qc_mos2.py`): the Raman
+  figure is FWHM (E₂g, A₁g) | Center (E₂g, A₁g) | Δω, with the nominal ~20 cm⁻¹
+  line on Δω for 1L. The summary page adds a Δω row and the 2LA(M)/A₁g defect
+  ratio (gated by `peak_is_measured`, like C/LB); the workbook carries the
+  ratio, not Δω.
 - *Caveat:* where LA sits on a fit limit across a whole region, that region now
   shows it (KRX261004 point 2: 18 % against ~12.5 % elsewhere) instead of
   hiding it.

@@ -15,6 +15,7 @@ This module provides the render_sidebar() function that displays, in order:
 import streamlit as st
 from ..models.spectrum import SpectrumFile, ProcessingSettings
 from ..processing.parser import parse_spectrum_multi, detect_mode_from_filename
+from core.io.native_dialog import run_dialog
 from core.io.export import (
     export_figure_png,
     export_figure_html,
@@ -528,8 +529,6 @@ def render_sidebar():
             st.caption(f"Export data from all {len(fitted_files)} fitted files")
 
             try:
-                master_csv = export_master_csv(export_files)
-
                 batch_col1, batch_col2 = st.columns([2, 1])
 
                 with batch_col1:
@@ -557,8 +556,10 @@ def render_sidebar():
                             title="Save Master CSV"
                         )
                         if save_path:
+                            # Built on Save only: it walks every fitted file's
+                            # peaks, which is wasted on each ordinary rerun.
                             with open(save_path, "w", newline="", encoding="utf-8") as f:
-                                f.write(master_csv)
+                                f.write(export_master_csv(export_files))
                             st.success(f"✅ Saved to {save_path}")
                         # save_path is None => user cancelled => no-op
                     except Exception as e:
@@ -687,52 +688,15 @@ def render_sidebar():
     # Browse spectrum files button (multi-select)
     if st.button("Browse Spectrum Files", width="stretch"):
         try:
-            import subprocess
-            import sys
             import os
-            import tempfile
-            import json
 
-            # NOTE: askopenfilenames returns a Tcl tuple of paths. Bare print()
-            # would mangle paths containing spaces/commas/unicode, so we serialize
-            # via json.dumps and parse with json.loads on this side.
-            dialog_script = """
-import tkinter as tk
-from tkinter import filedialog
-import sys
-import json
-
-root = tk.Tk()
-root.withdraw()
-root.wm_attributes('-topmost', 1)
-
-initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-selected_files = filedialog.askopenfilenames(
-    title="Select Spectrum Files",
-    initialdir=initial_dir,
-    filetypes=[("Text files", "*.txt"), ("All files", "*.*")]
-)
-
-root.destroy()
-print(json.dumps(list(selected_files)))
-"""
-
-            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
-                f.write(dialog_script)
-                script_path = f.name
-
-            initial_dir = st.session_state.get('last_picked_dir', '')
-            result = subprocess.run(
-                [sys.executable, script_path, initial_dir],
-                capture_output=True,
-                text=True,
-                timeout=120
+            picked = run_dialog(
+                "askopenfilenames",
+                timeout=120,
+                title="Select Spectrum Files",
+                initialdir=st.session_state.get('last_picked_dir', ''),
+                filetypes=[["Text files", "*.txt"], ["All files", "*.*"]],
             )
-
-            os.unlink(script_path)
-
-            raw = result.stdout.strip()
-            picked = json.loads(raw) if raw else []
 
             if picked:
                 st.session_state['pending_files_to_load'] = picked

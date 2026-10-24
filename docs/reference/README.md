@@ -88,6 +88,14 @@ because the recipes outgrew it (1 and 2 in v5.21.0, 3 and 4 in v5.23.0):
    2100 s 56 % of the way from 200 to 850 °C — and it now peaks at 564 °C
    where the reference says 850. The growth window agrees with the
    reference's: zero-length, on heater-off.
+5. **Gas markers are emitted on a change of state, not on every command.**
+   The reference marks every non-carrier MFC command outside the growth window
+   at t > 0, so a recipe that sends `H2Se 0` three times draws three "off"
+   markers on one closed valve. The app marks a valve opening, a valve
+   closing, and (since v5.34.0) a flow change between two nonzero values
+   (`H2Se → 10`) -- every command the reference marks that changes anything --
+   and drops the repeats. Before v5.34.0 the flow changes were silent too;
+   249 of 2,349 real cards (HA1P01 + VB1P01, 2026-10-24) gain such a marker.
 
 Run it against a recipe to compare:
 

@@ -134,7 +134,8 @@ class BarRow:
 
 @dataclass(frozen=True)
 class GasEvent:
-    """A reactive gas crossing `MARKER_FLOOR`, with the temperature it crossed at.
+    """A reactive gas crossing `MARKER_FLOOR` ("on"/"off"), or changing between
+    two flows above it ("→ <new value>"), with the temperature it did so at.
 
     `temp_c` is **interpolated** along the reconstructed trace, unlike every
     setpoint lookup in `growth_window`, which holds. A marker sitting on the
@@ -464,7 +465,8 @@ def gas_events(profile: RuncardProfile) -> List[GasEvent]:
     """Every reactive-gas valve opening or closing, with its temperature.
 
     A channel's state starts at 0 and is updated by every command; a crossing
-    of `MARKER_FLOOR` in either direction emits one event. Three kinds of
+    of `MARKER_FLOOR` in either direction emits one event, and so does a
+    change between two flows above it (v5.34.0). Three kinds of
     command deliberately emit nothing:
 
     - anything on a channel whose species is in `SKIP_SPECIES` — the carriers,
@@ -504,6 +506,11 @@ def gas_events(profile: RuncardProfile) -> List[GasEvent]:
             events.append(GasEvent(t, species, "on", interp_temp(profile.temp_trace, t)))
         elif value <= MARKER_FLOOR < previous:
             events.append(GasEvent(t, species, "off", interp_temp(profile.temp_trace, t)))
+        elif MARKER_FLOOR < previous and MARKER_FLOOR < value and value != previous:
+            # A flow change between two nonzero values (H2Se 5 -> 10) is a
+            # chemistry change the reference marks; it was silent until
+            # v5.34.0. A repeated "off" still emits nothing.
+            events.append(GasEvent(t, species, f"→ {value:g}", interp_temp(profile.temp_trace, t)))
         state[name] = value
     return events
 

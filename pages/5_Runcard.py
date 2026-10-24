@@ -477,15 +477,21 @@ if chartable:
                     # the first image, and half the files are not PNGs.
                     base, _ext = os.path.splitext(save_path)
                     saved = []
+                    seen = {}
                     for run_id, path in drawn:
+                        # derive_run_id maps `0810_NX123_runcard.csv` and
+                        # `NX123.csv` to one id on purpose; the second chart
+                        # must not overwrite the first's files.
+                        seen[run_id] = seen.get(run_id, 0) + 1
+                        stem = run_id if seen[run_id] == 1 else f"{run_id}_{seen[run_id]}"
                         figure = figures[path]
                         height = int(profile_stats(profiles[path])["canvas_h"])
-                        png_target = f"{base}_{run_id}.png"
+                        png_target = f"{base}_{stem}.png"
                         with open(png_target, "wb") as f:
                             f.write(export_figure_png(figure, width=1200, height=height, scale=2.0))
                         saved.append(png_target)
 
-                        html_target = f"{base}_{run_id}.html"
+                        html_target = f"{base}_{stem}.html"
                         with open(html_target, "w", encoding="utf-8") as f:
                             f.write(export_figure_html(figure))
                         saved.append(html_target)

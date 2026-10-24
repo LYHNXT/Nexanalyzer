@@ -313,7 +313,7 @@ def build_domain_grid_figure(
                 ax_raw.set_title(f"P{point}  (no frame)", fontsize=_FS_PANEL, loc="left")
                 continue
 
-            original, valid = _crop_to_valid(frame.original, frame.valid)
+            original, valid = _crop_to_valid(frame.valid, frame.original)
             ax_raw.imshow(_dim(original, valid))
             ax_raw.axis("off")
             ax_raw.set_title(f"P{point}  (raw)", fontsize=_FS_PANEL, fontweight="bold", loc="left")
@@ -334,7 +334,7 @@ def build_domain_grid_figure(
 
             any_edge = any_edge or bool(domain.n_edge)
             overlay_full = _edge_overlay(overlay_full, domain.edge_mask)
-            overlay, _ = _crop_to_valid(overlay_full, frame.valid)
+            overlay, _ = _crop_to_valid(frame.valid, overlay_full)
             ax_seg.imshow(_dim(overlay, valid))
             ax_seg.axis("off")
             ax_seg.set_title(caption, fontsize=_FS_COVERAGE, fontweight="bold")

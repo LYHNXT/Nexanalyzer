@@ -285,9 +285,15 @@ def soak_setpoint(cmd: RuncardCommand) -> float:
     every `Heater Soak` meant before this distinction was drawn, so an odd row
     keeps its old meaning rather than refusing the recipe.
     """
+    return soak_value(cmd.params[0] if cmd.params else None)
+
+
+def soak_value(param) -> float:
+    """`soak_setpoint` on the raw first parameter, for replays that hold
+    commands as plain tuples (`runcard_match.card_blocks`)."""
     try:
-        return float(cmd.params[0])
-    except (IndexError, TypeError, ValueError):
+        return float(param)
+    except (TypeError, ValueError):
         return 0.0
 
 
@@ -538,7 +544,8 @@ def _at_peak(temp: float, peak: float) -> bool:
     return abs(temp - peak) < _PEAK_TOL_C
 
 
-def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[float]) -> GrowthWindow:
+def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[float],
+                       total: Optional[float] = None) -> GrowthWindow:
     """Exactly the stretch at the peak: the plateau, not an approximation of it.
 
     Growth **begins** the instant the trace first reaches `peak_temp_c`, and
@@ -592,8 +599,16 @@ def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[floa
         None,
     )
 
+    # Neither heater-off nor a ramp-down: the plateau runs to the end of the
+    # recipe, as the reference has it (`growth_end = total_sec`). Ending at the
+    # last trace vertex instead -- the ramp's own end -- gave a zero-length
+    # window and read every growth-midpoint setpoint at the instant the ramp
+    # finished (v5.34.0). `total` is optional so a bare trace still works.
     candidates = [t for t in (heater_off_t, ramp_down_t) if t is not None]
-    end_s = min(candidates) if candidates else temp_trace[-1][0]
+    if candidates:
+        end_s = min(candidates)
+    else:
+        end_s = max(total, temp_trace[-1][0]) if total is not None else temp_trace[-1][0]
 
     # An end before the start is not a short window, it is no window. A
     # `build_temp_trace` result no longer produces one -- it stops every ramp
@@ -618,7 +633,7 @@ def build_profile(commands: List[RuncardCommand]) -> RuncardProfile:
     temp_trace = build_temp_trace(timeline.heater_ramps, timeline.heater_off_t, timeline.total_time)
     p1_trace = build_aux_trace(timeline.p1_ramps, timeline.total_time)
     p2_trace = build_aux_trace(timeline.p2_ramps, timeline.total_time)
-    growth = find_growth_window(temp_trace, timeline.heater_off_t)
+    growth = find_growth_window(temp_trace, timeline.heater_off_t, timeline.total_time)
     return RuncardProfile(
         timeline=timeline,
         temp_trace=temp_trace,

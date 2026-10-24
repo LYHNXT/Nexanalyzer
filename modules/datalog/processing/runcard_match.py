@@ -57,6 +57,8 @@ from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from modules.runcard.processing.growth_window import soak_value
+
 TIME_FORMAT = "%Y/%m/%d %H:%M:%S"
 
 MFC_CHANNELS = tuple(f"MFC-{i}" for i in range(1, 9))
@@ -422,6 +424,14 @@ def card_blocks(commands: Sequence[Tuple[str, str, str]],
             target, dur = _num(a), _num(b)
             if target is not None:
                 ramps.append((t, target, dur or 0.0))
+        elif name == "Heater Soak":
+            # A nonzero soak steps the SV there at once, as the datalog shows
+            # and growth_window reads it (v5.21.0); dropping it charged every
+            # CLEANING-5 run 1.4 against its own card ("log 800, card 900").
+            # Zero is heater-off, which the wait clock does not model.
+            target = soak_value(a)
+            if target:
+                ramps.append((t, target, 0.0))
         elif name == "RTV Pressure Ctrl":
             g = _gauge(a)
             if g is not None:

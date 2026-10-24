@@ -7,9 +7,6 @@ from modules.spectra.models.preset import TechniquePreset
 from modules.spectra.models.spectrum import DESPIKE_THRESHOLD_MAX, ProcessingSettings
 from modules.spectra.processing.despiking import (
     remove_spikes,
-    count_spikes,
-    spike_fraction,
-    suggest_threshold,
 )
 
 
@@ -66,37 +63,6 @@ class TestRemoveSpikes:
         y = np.arange(20, dtype=float)
         with pytest.raises(ValueError):
             remove_spikes(y, threshold=6.0, window_size=4)
-
-
-class TestCountSpikes:
-    def test_counts_true_values(self):
-        mask = np.array([False, True, False, True, True])
-        assert count_spikes(mask) == 3
-
-    def test_no_spikes(self):
-        mask = np.zeros(10, dtype=bool)
-        assert count_spikes(mask) == 0
-
-
-class TestSpikeFraction:
-    def test_fraction_of_flagged_points(self):
-        mask = np.array([True, False, False, False])
-        assert spike_fraction(mask) == pytest.approx(0.25)
-
-    def test_empty_mask_returns_zero(self):
-        assert spike_fraction(np.array([], dtype=bool)) == 0.0
-
-
-class TestSuggestThreshold:
-    def test_returns_value_within_clamp_range(self):
-        rng = np.random.default_rng(0)
-        y = rng.normal(100, 5, size=200)
-        suggested = suggest_threshold(y, target_fraction=0.01)
-        assert 3.0 <= suggested <= 15.0
-
-    def test_constant_signal_returns_default(self):
-        y = np.full(50, 42.0)
-        assert suggest_threshold(y) == 6.0
 
 
 def _despike_errors(threshold):

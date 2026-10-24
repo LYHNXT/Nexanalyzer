@@ -212,6 +212,14 @@ class WaferPaths:
         return tuple(role for role in ROLES if not self.linked(role))
 
 
+def _mtime_or_zero(path: Path) -> float:
+    """A file OneDrive removed or locked mid-scan sorts oldest, not raises."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0.0
+
+
 def find_wafer(
     layout: ToolLayout,
     wafer_id: str,
@@ -237,7 +245,7 @@ def find_wafer(
             if matches:
                 # Newest wins. Six wafers have a runcard in two adjacent
                 # months; the later file is the one that ran.
-                found[role] = max(matches, key=lambda p: p.stat().st_mtime)
+                found[role] = max(matches, key=_mtime_or_zero)
                 break
 
     if found[DATALOG] is None:

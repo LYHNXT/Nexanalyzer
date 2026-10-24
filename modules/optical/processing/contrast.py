@@ -34,7 +34,8 @@ Two deliberate deviations from the vendored source, both behaviour-preserving:
   name.
 """
 
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence, Tuple
 
 import numpy as np
@@ -172,13 +173,22 @@ def flatfield(a: np.ndarray, aperture: np.ndarray, frame_type: str,
     if ff_divisor is None:
         ff_divisor = FF_SIGMA_CIRC if frame_type == "circular" else FF_SIGMA_RECT
     s = max(H, W) / ff_divisor
-    out = a.copy()
-    for ch in range(3):
+
+    def corrected(ch: int) -> np.ndarray:
         plane = a[..., ch].copy()
         if frame_type == "circular":
             plane[~aperture] = np.median(plane[aperture])   # fill black BEFORE blur
         bg = ndi.gaussian_filter(plane, sigma=s, mode="nearest")
-        out[..., ch] = a[..., ch] / np.maximum(bg, 1) * bg[aperture].mean()
+        return a[..., ch] / np.maximum(bg, 1) * bg[aperture].mean()
+
+    # The three channels are independent and the wide blur (a ~1400-tap
+    # kernel) is nearly all of a frame's cost; scipy releases the GIL inside
+    # it, so one thread per channel is ~3x faster. Bit-identical: each
+    # channel's arithmetic is unchanged, only when it runs.
+    out = a.copy()
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        for ch, plane in enumerate(pool.map(corrected, range(3))):
+            out[..., ch] = plane
     return out
 
 
@@ -308,6 +318,9 @@ def analyse_array(a: np.ndarray, ref_label: str, nsigma: float = DEFAULT_NSIGMA,
     in memory are cheap by comparison.
     """
     aperture, valid, ftype = make_mask(a, margin)
+    if not valid.any():
+        # Otherwise numpy's "zero-size array to reduction" from histogram_stats.
+        raise ValueError("the mask margin leaves no pixels to analyse in this frame")
     flat = flatfield(a, aperture, ftype, ff_divisor)
     # sigma 0 on the channel axis blurs each channel independently, which is
     # what skimage's channel_axis=2 does in the vendored source; mode="nearest"
@@ -366,6 +379,13 @@ class FrameResult:
     #: fit `MAXDIM` (0.625 for a 2240-px frame). Divide a native-pixel
     #: calibration by it to get microns per pixel of `original`.
     scale: float = 1.0
+    #: What domain sizing needs from this frame's own segmentation (masks,
+    #: thresholds, luminance) and the tuning it ran with, kept only when
+    #: `analyse_frame(keep_segmentation=True)`: `domain_size.measure_domains`
+    #: reuses it instead of segmenting the frame a second time (~3.5 s of
+    #: flat-field per frame). Large; drop it (`dataclasses.replace(...,
+    #: segmentation=None)`) once domains are measured.
+    segmentation: Optional[dict] = field(default=None, repr=False, compare=False)
 
     @property
     def reference_pct(self) -> float:
@@ -384,7 +404,8 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
                   nsigma: float = DEFAULT_NSIGMA, minpx: int = DEFAULT_MINPX,
                   margin: Optional[float] = None,
                   ff_divisor: Optional[float] = None,
-                  abs_threshold=None, low_coverage: bool = False) -> FrameResult:
+                  abs_threshold=None, low_coverage: bool = False,
+                  keep_segmentation: bool = False) -> FrameResult:
     """Segment one frame and return it as a `FrameResult`.
 
     Every tuning argument defaults to the module constant it overrides, so
@@ -396,10 +417,18 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
     `low_coverage` only changes `labels` (see `class_labels`) -- it never
     reaches `analyse`/`classify`, so the segmentation itself is identical
     either way.
+
+    `keep_segmentation` attaches what domain sizing needs (see
+    `FrameResult.segmentation`), so it need not segment the frame again.
     """
-    res = analyse(path, ref_label, nsigma=nsigma, minpx=minpx, margin=margin,
+    tuning = dict(nsigma=nsigma, minpx=minpx, margin=margin,
                   ff_divisor=ff_divisor, abs_threshold=abs_threshold)
+    res = analyse(path, ref_label, **tuning)
     st, meas = res["st"], res["meas"]
+    segmentation = None
+    if keep_segmentation:
+        segmentation = dict(tuning=tuning, valid=res["valid"], st=st, lo=res["lo"],
+                            ref=res["ref"], hi=res["hi"], lum=luminance(res["s"]))
     return FrameResult(
         name=name or str(point),
         point=point,
@@ -424,6 +453,7 @@ def analyse_frame(path, point: int, ref_label: str, name: Optional[str] = None,
         threshold_high=st["th_hi"],
         shoulder=st["shoulder"],
         scale=res["scale"],
+        segmentation=segmentation,
     )
 
 

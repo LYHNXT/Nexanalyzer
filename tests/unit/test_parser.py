@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 from modules.spectra.processing.parser import (
+    EmptyFile,
+    UnsupportedFormat,
     parse_spectrum,
     count_spectra,
     parse_spectrum_multi,
-    validate_spectrum_file,
-    estimate_spectral_resolution,
     detect_mode_from_filename,
 )
 
@@ -163,30 +163,6 @@ class TestHeadersAndFootersAreSkipped:
             parse_spectrum(self._path(tmp_path, [""]))
 
 
-class TestValidateSpectrumFile:
-    def test_valid_file(self, tmp_path):
-        x = np.linspace(0, 100, 120)
-        y = np.linspace(0, 50, 120)
-        path = _write_spectrum_file(tmp_path, x, y)
-
-        is_valid, msg = validate_spectrum_file(path)
-        assert is_valid
-        assert msg == ""
-
-    def test_missing_file_is_invalid(self):
-        is_valid, msg = validate_spectrum_file("does_not_exist.txt")
-        assert not is_valid
-        assert msg != ""
-class TestEstimateSpectralResolution:
-    def test_matches_expected_median_step(self):
-        X = np.linspace(100, 1000, 1000)
-        resolution = estimate_spectral_resolution(X)
-        assert resolution == pytest.approx(0.901, abs=0.001)
-
-    def test_single_point_returns_fallback(self):
-        assert estimate_spectral_resolution(np.array([5.0])) == 1.0
-
-
 class TestDetectModeFromFilename:
     @pytest.mark.parametrize("filename,expected", [
         ("RM_carbon_sample.txt", "Raman"),
@@ -273,3 +249,28 @@ class TestCountSpectra:
         """A caller sizing work shouldn't handle an exception for a file the
         fit loop will report as an error moments later anyway."""
         assert count_spectra(str(tmp_path / "does_not_exist.txt")) == 0
+
+
+class TestTypedErrors:
+    """Bad input gives a typed, operator-readable error -- never a crash, never a number."""
+
+    def test_empty_file(self, tmp_path):
+        f = tmp_path / "RM_1.txt"
+        f.write_bytes(b"")
+        with pytest.raises(EmptyFile, match="empty: RM_1.txt"):
+            parse_spectrum_multi(str(f))
+
+    def test_binary_file_is_unsupported(self, tmp_path):
+        f = tmp_path / "OM_1.bmp"
+        f.write_bytes(bytes(range(256)) * 8)
+        with pytest.raises(UnsupportedFormat, match="Unsupported file format: OM_1.bmp"):
+            parse_spectrum_multi(str(f))
+
+    def test_header_without_data_is_unsupported(self, tmp_path):
+        f = tmp_path / "notes.txt"
+        f.write_text("Sample: A\nOperator: B\nNo numbers here\n")
+        with pytest.raises(UnsupportedFormat, match="No rows of numbers"):
+            parse_spectrum_multi(str(f))
+
+    def test_typed_errors_are_still_value_errors(self):
+        assert issubclass(EmptyFile, ValueError) and issubclass(UnsupportedFormat, ValueError)

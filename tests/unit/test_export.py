@@ -1,9 +1,7 @@
 """Unit tests for core.io.export (figure rasterization and output filenames).
 
-prompt_save_path()/prompt_save_folder() are excluded: both spawn a real
-tkinter subprocess dialog and are not practically unit-testable -- the batch
-image export button that uses prompt_save_folder() is covered through
-AppTest instead, in tests/integration/test_sidebar_batch_export_flow.py.
+The dialog wrappers (prompt_save_path/prompt_save_folder) and the subprocess
+round trip under them are covered in test_native_dialog.py.
 Fit-results CSVs are covered by test_results_csv.py.
 """
 
@@ -63,3 +61,68 @@ class TestExportFigurePng:
         with pytest.raises(RuntimeError, match="PNG export failed") as excinfo:
             export_figure_png(_Broken())
         assert isinstance(excinfo.value.__cause__, ValueError)
+
+
+class TestRenderingIsBoundedAndSerialised:
+    """v5.39.0: PNGs render through one persistent kaleido server, one at a
+    time, with a timeout. One-shot renders each launched a Chrome; one in
+    fifteen never answered, which hung a QC test for 12 h."""
+
+    @pytest.fixture(autouse=True)
+    def _no_real_server(self, monkeypatch):
+        import core.io.export as export
+        calls = {"ensure": 0, "abandon": 0}
+        monkeypatch.setattr(export, "_ensure_render_server", lambda: calls.__setitem__("ensure", calls["ensure"] + 1))
+        monkeypatch.setattr(export, "_abandon_render_server", lambda: calls.__setitem__("abandon", calls["abandon"] + 1))
+        self.calls = calls
+
+    def test_a_render_that_never_returns_times_out_with_a_clear_error(self, monkeypatch):
+        import threading
+        import core.io.export as export
+        monkeypatch.setattr(export, "RENDER_TIMEOUT_S", 0.2)
+        release = threading.Event()
+
+        class _Stuck:
+            def to_image(self, **kwargs):
+                release.wait(5)
+                return b"late"
+
+        try:
+            with pytest.raises(RuntimeError, match="timed out"):
+                export_figure_png(_Stuck())
+            assert self.calls["abandon"] == 1
+        finally:
+            release.set()
+
+    def test_concurrent_renders_each_get_their_own_image(self):
+        import threading
+        import time
+
+        class _Fig:
+            def __init__(self, tag):
+                self.tag = tag
+
+            def to_image(self, **kwargs):
+                time.sleep(0.01)
+                return self.tag
+
+        results = {}
+
+        def run(i):
+            results[i] = export_figure_png(_Fig(f"png-{i}".encode()))
+
+        threads = [threading.Thread(target=run, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert results == {i: f"png-{i}".encode() for i in range(8)}
+
+    def test_a_render_error_is_reported_not_swallowed(self):
+        class _Broken:
+            def to_image(self, **kwargs):
+                raise ValueError("bad figure")
+
+        with pytest.raises(RuntimeError, match="bad figure"):
+            export_figure_png(_Broken())
+        assert self.calls["abandon"] == 0

@@ -1,0 +1,5 @@
+{
+  "reference": "Quality Guide §2.3: a one-column file has no Y data; the error says what was expected.",
+  "error": "UnsupportedFormat",
+  "message_contains": "No rows of numbers found"
+}

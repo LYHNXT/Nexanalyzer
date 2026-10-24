@@ -56,17 +56,13 @@ run; docs/OM_Contrast_Algo.md says when each is worth moving. A layer with no
 block of its own runs the algorithm's own defaults, and the page says so.
 """
 
-import dataclasses
-import io
 import json
 import os
 from pathlib import Path
-from datetime import date
 
 import streamlit as st
-from PIL import Image
 
-from core.io.export import export_figure_png, prompt_save_path
+from core.io.export import prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.io.tool_layout import OPTICAL, ToolLayout, find_wafer, list_wafers
 from core.io.tool_roots import load_last_tool, save_last_tool
@@ -81,21 +77,13 @@ from core.io.report_settings import (
 )
 from core.report.progress import build as build_progress
 from core.ui.tool_select import render_tool_select
-from core.report.summary_figure import (
-    FIT_COLUMN_ASPECT_RATIO,
-    FIT_GRID_COLUMNS,
-    build_fit_grid_figure,
-    build_summary_figure,
-)
-from modules.optical.io.frame_tables import frame_class_stats
 from modules.optical.processing.contrast import (
     REFERENCE_CHOICES,
-    analyse_frame,
     class_labels,
     class_summary,
     layer_word,
 )
-from modules.optical.processing.domain_size import TARGETS, domain_size_stat, measure_domains
+from modules.optical.processing.domain_size import TARGETS
 from modules.optical.processing.layer_suggest import (
     CONFIDENCE_FLOOR,
     NOISE_GATE_PCT as LAYER_NOISE_GATE,
@@ -107,54 +95,25 @@ from modules.optical.ui.qc_report_state import (
     reset_optical_results,
     reset_results,
     reset_spectra_results,
+    select_folder,
 )
-from modules.optical.viz.domain_grid import build_domain_grid_figure
-from modules.optical.viz.om_grid import build_om_grid_figure
+from modules.qc_report.processing.build import (
+    GRID_POINTS,
+    REPORT_FIGURES,
+    QcReportInputs,
+    build_qc_report,
+    grid_points_only,
+    save_report,
+)
 from modules.spectra.io.preset_store import load_presets
-from modules.spectra.io.results_excel import TechniqueResults, build_sample_results_xlsx
 from modules.spectra.processing.parser import count_spectra
 from modules.spectra.processing.peak_metrics import (
-    NEAR_ZERO_FRACTION,
     R_SQUARED_MIN,
-    RAMAN_RATIO_PAIRS,
-    aggregate_fit_results,
-    aggregate_raw_peak_stats,
-    compute_peak_intensity_ratio,
-    filter_fits_by_quality,
-    raw_peak_stats,
 )
-from modules.spectra.processing.sample_batch import SampleBatchResult, run_sample_batch
-from modules.spectra.processing.spectrum_selection import SPECTRA_PER_POINT, select_spectra_per_point
+from modules.spectra.processing.spectrum_selection import SPECTRA_PER_POINT
 from modules.spectra.processing.sample_scanner import default_magnification, scan_sample_folder
 from modules.spectra.utils.preset_staleness import optical_fingerprint, technique_fingerprint
-from modules.spectra.viz.fit_plot import (
-    axis_label,
-    fit_legend_entries,
-    peak_normalization_scale,
-    plot_fit_column,
-    shared_axis_ranges,
-    y_axis_title,
-)
-from modules.spectra.viz.peak_quality import (
-    PL_QUALITY,
-    RAMAN_QUALITY,
-    build_peak_quality_figure,
-)
 
-#: The saved file set, in the order the report is meant to be read. The numeric
-#: prefix is load-bearing: alphabetical order in a file browser puts "Summary"
-#: last and interleaves the two techniques, so a colleague handed the folder
-#: would meet the figures in an order nobody chose.
-_ARTIFACTS = (
-    (1, "Summary", "summary_png"),
-    (2, "OM", "om_png"),
-    (3, "OM_diagnostic", "om_diagnostic_png"),
-    (4, "Domain_size", "domain_grid_png"),
-    (5, "Raman", "raman_grid_png"),
-    (6, "Raman_stats", "raman_stats_png"),
-    (7, "PL", "pl_grid_png"),
-    (8, "PL_stats", "pl_stats_png"),
-)
 
 st.title("🔬 QC Report")
 st.markdown(
@@ -166,33 +125,6 @@ state = get_qc_report_state()
 
 # ---------------------------------------------------------------- Folder pick
 st.subheader("1. Sample Folder")
-
-
-#: CLAUDE.md: a fixed-contrast threshold is meaningful only when it clears about
-#: twice the frame's own noise (sigma_noise / mode); below that the cut sits
-#: inside the reference distribution and the class percentages are noise.
-_THRESHOLD_NOISE_RATIO = 2.0
-
-
-def _warn_threshold_inside_noise(frames, om_kwargs) -> None:
-    """Name the frames whose fixed threshold is inside their own noise (v5.23.0)."""
-    pair = om_kwargs.get("abs_threshold")
-    if pair is None or not frames:
-        return
-    below, above = pair if isinstance(pair, (tuple, list)) else (pair, pair)
-    bad = []
-    for f in frames:
-        noise_pct = 100.0 * f.sigma_noise / f.mode if f.mode else float("inf")
-        ratio = min(below, above) / noise_pct if noise_pct > 0 else float("inf")
-        if ratio < _THRESHOLD_NOISE_RATIO:
-            bad.append(f"P{f.point} ({ratio:.1f}x)")
-    if bad:
-        st.warning(
-            f"**{len(bad)} frame(s) are too noisy for the fixed threshold:** "
-            + ", ".join(bad)
-            + f". The threshold should clear about {_THRESHOLD_NOISE_RATIO:.0f}x the frame's "
-            "noise; below that the class percentages for these frames are noise, not film."
-        )
 
 
 def _single_optical_layer(material: str):
@@ -300,35 +232,11 @@ if pick_clicked:
         picked = None
 
 if picked:
-    state["folder"] = picked
-    state["scan"] = scan_sample_folder(picked)
-    state["magnification"] = default_magnification(state["scan"])
-    # An operator's layer choice was for the previous folder.
-    state["layer_source"] = None
-    state["layer_context"] = None
-    reset_results(state)
+    _scan = scan_sample_folder(picked)
+    select_folder(state, picked, _scan, default_magnification(_scan))
     st.rerun()
 
-#: The QC grid is 3 x 3 (v5.29.0). A folder measured at more positions (HADH71
-#: and HADH75 carry a 10th) keeps points 1-9; the rest are left out of every
-#: figure, table and the workbook, and the page says which.
-GRID_POINTS = 9
-
-
-def _grid_points_only(full):
-    """`full` with its spectra and frames limited to points 1..GRID_POINTS, and the points dropped."""
-    if full is None:
-        return None, []
-    keep = lambda d: {p: v for p, v in d.items() if 1 <= p <= GRID_POINTS}  # noqa: E731
-    dropped = sorted({p for d in (full.raman_files, full.pl_files, *full.image_files.values())
-                      for p in d if not 1 <= p <= GRID_POINTS})
-    if not dropped:
-        return full, []
-    return dataclasses.replace(full, raman_files=keep(full.raman_files), pl_files=keep(full.pl_files),
-                               image_files={m: keep(d) for m, d in full.image_files.items()}), dropped
-
-
-scan, _dropped_points = _grid_points_only(state["scan"])
+scan, _dropped_points = grid_points_only(state["scan"])
 
 if scan is not None:
     if _dropped_points:
@@ -406,7 +314,9 @@ if scan is not None:
                 new_layer = state["reference_layer"]
             if new_layer != state["reference_layer"]:
                 state["reference_layer"] = new_layer
-                reset_optical_results(state)
+                # Everything, not just optical: the layer also picks the
+                # Raman/PL stats figures' spec lines and hides B2g on 1L.
+                reset_results(state)
 
     current_layer = state["reference_layer"]
     reference = st.selectbox(
@@ -421,7 +331,7 @@ if scan is not None:
     if reference is not None and reference != current_layer:
         state["reference_layer"] = reference
         state["layer_source"] = "operator"
-        reset_optical_results(state)
+        reset_results(state)
 
     if state.get("layer_suggestion") is not None:
         st.caption(_layer_suggestion_caption(state["layer_suggestion"], reference))
@@ -639,9 +549,7 @@ if scan is not None:
         om_paths = {
             point: path
             for point, path in scan.image_files.get(state["magnification"] or "", {}).items()
-            # Every grid point, P10 included: a ten-point wafer used to lose its
-            # tenth frame from segmentation, the figures and the layer
-            # suggestion without a word (om_grid lays out 2-3-3-2 for ten).
+            # `scan` is already limited to 1..GRID_POINTS (`grid_points_only`).
             if point >= 1
         }
 
@@ -730,449 +638,42 @@ if scan is not None:
                         fit_spectra=sum(count_spectra(path) for path in fit_files),
                     )
 
-                    report_date = date.today().isoformat()
-                    state["report_date"] = report_date
-
-                    # -------------------------------------------- OM frames
-                    # Per image, not per batch: these are ~0.6 s each for a real
-                    # 2240x1680 microscope frame, and if the folder lives on
-                    # OneDrive a cloud-only file has to be downloaded first,
-                    # which no estimate can predict. Ticking keeps the bar moving
-                    # through it either way.
-                    om_png_bytes = {}
-                    if om_paths:
-                        progress.start("optical_images", detail=f"0/{len(om_paths)}")
-                        for done, (point, path) in enumerate(sorted(om_paths.items()), start=1):
-                            try:
-                                with Image.open(path) as im:
-                                    buf = io.BytesIO()
-                                    im.convert("RGB").save(buf, format="PNG")
-                                om_png_bytes[point] = buf.getvalue()
-                            except Exception as e:
-                                st.warning(f"Could not load image for point {point}: {e}")
-                            progress.tick("optical_images", done, len(om_paths))
-
-                    # ---------------------------------------- Segmentation
-                    if has_segmentation:
-                        # Only the fields the preset actually sets; everything
-                        # else keeps contrast.py's default.
-                        om_kwargs = optical.as_kwargs()
-
-                        # One ruler for every wafer. Recorded on the state so
-                        # the summary page and the workbook can both name the
-                        # cut their numbers came from.
-                        state["optical_threshold_pair"] = om_kwargs.get(
-                            "abs_threshold")
-
-                        progress.start("optical_segmentation", detail=f"0/{len(om_paths)}")
-                        frames = []
-                        for done, point in enumerate(sorted(om_paths), start=1):
-                            # Per frame, like the loader above. One corrupt,
-                            # truncated, locked or cloud-only image used to
-                            # raise through every later stage and discard the
-                            # whole run — including the Raman and PL halves,
-                            # which have nothing to do with it. Before the
-                            # merge that only cost the QC Panel's two images;
-                            # now it would cost all eight figures and the
-                            # workbook, so a bad frame drops out and the rest
-                            # of the sample still reports.
-                            try:
-                                frames.append(analyse_frame(
-                                    om_paths[point], point=point,
-                                    ref_label=state["reference_layer"],
-                                    name=f"{state['magnification']}-{point}",
-                                    low_coverage=state["low_coverage"],
-                                    **om_kwargs,
-                                ))
-                            except Exception as e:
-                                st.warning(f"Could not segment point {point}: {e}")
-                            progress.tick("optical_segmentation", done, len(om_paths))
-                        state["frames"] = frames
-                        _warn_threshold_inside_noise(frames, om_kwargs)
-
-                        # `build_om_grid_figure` raises on an empty list, and a
-                        # figure of nine blanks would claim a segmentation that
-                        # never happened.
-                        if frames:
-                            # Two renders off one segmentation. The analysis is
-                            # already spent; each render is about 5 s.
-                            progress.start("om_figures", detail="clean copy")
-                            state["om_png"] = build_om_grid_figure(
-                                frames, sample_name=scan.sample_name,
-                                magnification=state["magnification"],
-                                show_histograms=False,
-                            )
-                            progress.tick("om_figures", 1, 2, detail="diagnostic copy")
-                            state["om_diagnostic_png"] = build_om_grid_figure(
-                                frames, sample_name=scan.sample_name,
-                                magnification=state["magnification"],
-                                show_histograms=True,
-                            )
-                            state["optical_fingerprint"] = _optical_now
-                        else:
-                            st.warning(
-                                "No optical frame could be segmented — the OM "
-                                "figures and sheets are omitted."
-                            )
-                        progress.complete("om_figures")
-
-                        # --------------------------------------- Domain size
-                        # Same `om_kwargs` the segmentation above used: the
-                        # mask this re-derives is the same population the OM
-                        # figure's overlay already shows, and measuring it
-                        # with different tuning would make the two figures
-                        # disagree about the same frames.
-                        if frames and state["measure_domain_size"]:
-                            progress.start("domain_size", detail=f"0/{len(frames)}")
-                            domain_results = []
-                            for done, frame in enumerate(frames, start=1):
-                                try:
-                                    domain_results.append(measure_domains(
-                                        frame, um_per_px=um_per_px,
-                                        target=state["domain_target"],
-                                        marker_margin_sigma=(
-                                            optical.marker_margin_sigma if optical else None
-                                        ),
-                                        marker_min_distance=(
-                                            optical.marker_min_distance if optical else None
-                                        ),
-                                        mask_closing_radius=(
-                                            optical.mask_closing_radius if optical else None
-                                        ),
-                                        detect_size_populations=state["split_size_populations"],
-                                        min_domain_um=(
-                                            optical.min_domain_um_for(state["magnification"])
-                                            if optical else None
-                                        ),
-                                        **om_kwargs,
-                                    ))
-                                except Exception as e:
-                                    st.warning(
-                                        f"Could not measure domains for point "
-                                        f"{frame.point}: {e}"
-                                    )
-                                progress.tick("domain_size", done, len(frames))
-                            state["domain_results"] = domain_results
-                            state["domain_stat"] = domain_size_stat(
-                                domain_results,
-                                detect_size_populations=state["split_size_populations"],
-                            )
-                            if domain_results:
-                                state["domain_grid_png"] = build_domain_grid_figure(
-                                    frames, domain_results,
-                                    sample_name=scan.sample_name,
-                                    magnification=state["magnification"],
-                                    class_label=dict(zip(
-                                        TARGETS, class_labels(reference, state["low_coverage"])
-                                    ))[state["domain_target"]],
-                                    detect_size_populations=bool(
-                                        state["split_size_populations"]
-                                    ),
-                                )
-                            progress.complete("domain_size")
-
-                    # ---------------------------------------------- Fitting
-                    has_spectra = will_fit_raman or will_fit_pl
-                    if has_spectra:
-                        progress.start("fit")
-                    batch_result = run_sample_batch(
-                        scan,
-                        raman_preset if will_fit_raman else None,
-                        pl_preset if will_fit_pl else None,
-                        progress_callback=progress.sub_callback(
-                            "fit",
-                            # Both techniques share the one fitting stage, and
-                            # each counts from 1 again, so the stage needs their
-                            # combined total or the bar stalls through the second.
-                            totals={
-                                "Raman": len(scan.raman_files) if will_fit_raman else 0,
-                                "PL": len(scan.pl_files) if will_fit_pl else 0,
-                            },
-                        ) if has_spectra else None,
+                    # The pipeline itself is modules.qc_report (v5.35.0); this
+                    # page resolves the inputs, shows the warnings, and stores
+                    # what comes back under the same state keys.
+                    result = build_qc_report(
+                        QcReportInputs(
+                            scan=scan,
+                            material=state["material"],
+                            magnification=state["magnification"],
+                            reference_layer=state["reference_layer"],
+                            om_paths=om_paths,
+                            optical=optical if has_segmentation else None,
+                            raman_preset=raman_preset if will_fit_raman else None,
+                            pl_preset=pl_preset if will_fit_pl else None,
+                            low_coverage=state["low_coverage"],
+                            measure_domain_size=bool(state["measure_domain_size"]),
+                            domain_target=state["domain_target"],
+                            split_size_populations=bool(state["split_size_populations"]),
+                            um_per_px=um_per_px,
+                            show_fwhm_v1=show_fwhm_v1,
+                        ),
+                        progress,
+                        warn=st.warning,
                     )
-                    if has_spectra:
-                        progress.complete("fit")
-                    # A point measured as a map of more than SPECTRA_PER_POINT
-                    # spectra loses its outliers and is then drawn down to
-                    # SPECTRA_PER_POINT (v5.28.0). Applied here, once, so every
-                    # surface below -- grids, stats, ratios, figures, workbook --
-                    # describes the same spectra.
-                    raman_kept, state["raman_selection"] = select_spectra_per_point(
-                        batch_result.raman_spectra)
-                    pl_kept, state["pl_selection"] = select_spectra_per_point(
-                        batch_result.pl_spectra)
-                    batch_result = SampleBatchResult(
-                        raman_spectra=raman_kept, pl_spectra=pl_kept,
-                        raman_errors=batch_result.raman_errors,
-                        pl_errors=batch_result.pl_errors,
-                    )
-                    state["batch_result"] = batch_result
+                    state.update(result)
 
                     # Stamped on *attempt*, not on success. A run that fitted
                     # everything and lost it all at the quality gate still
                     # produced artifacts from these preset blocks, and is the
                     # run most likely to be followed by a preset edit — so it
                     # is the one that most needs the staleness check to fire.
+                    if state.get("om_png"):
+                        state["optical_fingerprint"] = _optical_now
                     if will_fit_raman:
                         state["raman_fingerprint"] = _raman_now
                     if will_fit_pl:
                         state["pl_fingerprint"] = _pl_now
-
-                    # ------------------------------------- Fitted-spectra grids
-                    # Same traces as the Spectra page's fit results (data + total
-                    # fit + peak components), minus the residuals strip, which is
-                    # unreadable at this size and only steals height from the
-                    # spectrum. Rendered at the report page's column aspect ratio
-                    # so each image fills its column instead of being letterboxed.
-                    column_width_px = 1000
-                    column_height_px = round(column_width_px / FIT_COLUMN_ASPECT_RATIO)
-
-                    def _build_fit_columns(point_spectra, mode, stage_key):
-                        """One image per grid column, each holding that column's
-                        three points on a single shared X-axis: column 0 is
-                        points 1/4/7, column 1 is 2/5/8, column 2 is 3/6/9.
-
-                        Reports per column, because each column is one kaleido
-                        rasterization costing ~1.3 s and there is no progress to
-                        be had inside one."""
-                        # The grid shows one panel per grid point, but a
-                        # multi-spectrum file contributes many fits at the same
-                        # point. Show each point's best-fitting spectrum:
-                        # dict(point_spectra) would keep whichever happened to be
-                        # parsed last, which is arbitrary and silently so.
-                        def _quality(spectrum):
-                            return spectrum.fit_result.r_squared if spectrum.fit_result else -1.0
-
-                        by_point = {}
-                        for point, spectrum in point_spectra:
-                            best = by_point.get(point)
-                            if best is None or _quality(spectrum) > _quality(best):
-                                by_point[point] = spectrum
-
-                        # Ranges are computed from the normalized series, because
-                        # that is what actually gets drawn — every point divided
-                        # by its own tallest peak, so each panel's peak lands at 1.
-                        normalized = []
-                        for s in by_point.values():
-                            scale = peak_normalization_scale(s.processed_data.Y, s.fit_result)
-                            curve = s.fit_result.total_fit_curve if s.fit_result else None
-                            normalized.append((
-                                s.processed_data.X,
-                                s.processed_data.Y / scale,
-                                None if curve is None else curve / scale,
-                            ))
-                        x_range, y_range = shared_axis_ranges(normalized)
-
-                        images = {}
-                        progress.start(stage_key, detail=f"0/{FIT_GRID_COLUMNS}")
-                        for col in range(FIT_GRID_COLUMNS):
-                            # A missing point keeps its row as an empty slot,
-                            # so point 7 never moves up beside points 4 and 6.
-                            column_points = [
-                                (
-                                    point,
-                                    by_point[point].processed_data.X,
-                                    by_point[point].processed_data.Y,
-                                    by_point[point].fit_result,
-                                ) if point in by_point else (point, None, None, None)
-                                for point in (col + 1, col + 4, col + 7)
-                            ]
-                            if all(x is None for _p, x, _y, _f in column_points):
-                                continue  # placeholder column; nothing to render
-
-                            fig = plot_fit_column(
-                                column_points, mode=mode, show_components=True,
-                                x_range=x_range, y_range=y_range, normalize=True,
-                            )
-                            images[col] = export_figure_png(
-                                fig, width=column_width_px, height=column_height_px, scale=2.0
-                            )
-                            progress.tick(stage_key, col + 1, FIT_GRID_COLUMNS)
-                        return images
-
-                    # One quality gate, applied once, feeding every summary
-                    # below — the stats tables, the ratios, the quality figures
-                    # and the .xlsx — so no two surfaces can be working from a
-                    # different set of fits. Pairs, not bare fits: outlier
-                    # removal is per grid point.
-                    raman_pairs = filter_fits_by_quality(
-                        [(point, s.fit_result) for point, s in batch_result.raman_spectra]
-                    )
-                    pl_pairs = filter_fits_by_quality(
-                        [(point, s.fit_result) for point, s in batch_result.pl_spectra]
-                    )
-
-                    state["raman_errors"] = batch_result.raman_errors
-                    state["pl_errors"] = batch_result.pl_errors
-                    # Both counts, not just the survivors: what the gate removed
-                    # is reported below and cannot be recovered from the stats.
-                    state["raman_fitted"] = len(batch_result.raman_spectra)
-                    state["raman_dropped"] = len(batch_result.raman_spectra) - len(raman_pairs)
-                    state["pl_fitted"] = len(batch_result.pl_spectra)
-                    state["pl_dropped"] = len(batch_result.pl_spectra) - len(pl_pairs)
-                    # Fits that stopped on the preset's max_iterations are kept
-                    # (their peaks are the best found) but counted, so the
-                    # Results section can say how many of the numbers below
-                    # are not an optimum. See FitResult.converged.
-                    state["raman_unconverged"] = sum(
-                        1 for _, s in batch_result.raman_spectra if not s.fit_result.converged
-                    )
-                    state["pl_unconverged"] = sum(
-                        1 for _, s in batch_result.pl_spectra if not s.fit_result.converged
-                    )
-
-                    if batch_result.raman_spectra:
-                        raman_columns = _build_fit_columns(
-                            batch_result.raman_spectra, "Raman", "raman_figures"
-                        )
-                        state["raman_grid_png"] = build_fit_grid_figure(
-                            sample_name=scan.sample_name,
-                            material_name=state["material"],
-                            report_date=report_date,
-                            technique="Raman",
-                            column_images=raman_columns,
-                            legend=fit_legend_entries(
-                                [s.fit_result for _, s in batch_result.raman_spectra]
-                            ),
-                            x_label=axis_label("Raman"),
-                            y_label=y_axis_title(normalized=True),
-                        )
-                    if raman_pairs:
-                        state["raman_stats"] = aggregate_fit_results(raman_pairs)
-                        state["raman_stats_png"] = build_peak_quality_figure(
-                            raman_pairs, sample_name=scan.sample_name,
-                            material_name=state["material"], spec=RAMAN_QUALITY,
-                            layer=state["reference_layer"],
-                        )
-                        raman_fits = [fit for _, fit in raman_pairs]
-                        state["raman_ratios"] = [
-                            (f"{numerator} / {denominator}", ratio)
-                            for numerator, denominator in RAMAN_RATIO_PAIRS
-                            for ratio in [compute_peak_intensity_ratio(
-                                raman_fits, numerator, denominator
-                            )]
-                            if ratio is not None
-                        ]
-
-                    if batch_result.pl_spectra:
-                        pl_columns = _build_fit_columns(
-                            batch_result.pl_spectra, "PL", "pl_figures"
-                        )
-                        state["pl_grid_png"] = build_fit_grid_figure(
-                            sample_name=scan.sample_name,
-                            material_name=state["material"],
-                            report_date=report_date,
-                            technique="PL",
-                            column_images=pl_columns,
-                            legend=fit_legend_entries(
-                                [s.fit_result for _, s in batch_result.pl_spectra]
-                            ),
-                            x_label=axis_label("PL"),
-                            y_label=y_axis_title(normalized=True),
-                        )
-                        # PL leads with the empirical measurement — the tallest
-                        # point of each processed spectrum, no fit involved —
-                        # then the fitted peaks. The same "Raw" row the on-screen
-                        # table and the master CSV already show.
-                        # The PL quality figure's near-zero rule. The figure
-                        # also drops widths under 5 nm and the widest 5 % per
-                        # peak (inherited cleaning, PL_CLEANING), which this
-                        # table does not, so the figure shows fewer points than
-                        # the table's n (no longer spelled out in its title, v5.32.0).
-                        pl_stats = aggregate_fit_results(
-                            pl_pairs, relative_intensity_floor=NEAR_ZERO_FRACTION
-                        ) if pl_pairs else []
-                        raw_stat = aggregate_raw_peak_stats(
-                            [s for _, s in batch_result.pl_spectra]
-                        )
-                        state["pl_stats"] = ([raw_stat] + pl_stats) if raw_stat else pl_stats
-                    if pl_pairs:
-                        # The Raw column: each spectrum's own maximum and
-                        # half-height width, the summary table's Raw row.
-                        pl_raw = [
-                            (point, r.center, r.fwhm)
-                            for point, s in batch_result.pl_spectra
-                            for r in [raw_peak_stats(s.processed_data.X, s.processed_data.Y)]
-                            if r is not None
-                        ]
-                        state["pl_stats_png"] = build_peak_quality_figure(
-                            pl_pairs, sample_name=scan.sample_name,
-                            material_name=state["material"], spec=PL_QUALITY,
-                            raw_by_point=pl_raw, layer=state["reference_layer"],
-                        )
-
-                    # ------------------------------------- Summary + workbook
-                    progress.start("compose", detail="summary page")
-                    state["summary_png"] = build_summary_figure(
-                        sample_name=scan.sample_name,
-                        material_name=state["material"],
-                        report_date=report_date,
-                        magnification_label=state["magnification"],
-                        om_image_bytes=om_png_bytes,
-                        om_classes=frame_class_stats(state["frames"] or []),
-                        om_threshold_note=(
-                            "preset contrast pair -{:.2f} / +{:.2f} %".format(
-                                *state["optical_threshold_pair"])
-                            if state["optical_threshold_pair"]
-                            else ("preset nsigma threshold"
-                                  if state["frames"] else None)
-                        ),
-                        raman_stats=state["raman_stats"],
-                        pl_stats=state["pl_stats"],
-                        raman_ratios=state["raman_ratios"],
-                        domain_stat=state["domain_stat"],
-                        domain_class_label=(
-                            dict(zip(TARGETS, class_labels(
-                                state["reference_layer"], state["low_coverage"]
-                            )))[state["domain_target"]]
-                            if state["measure_domain_size"] else None
-                        ),
-                        show_fwhm_v1=show_fwhm_v1,
-                    )
-
-                    # Built from the very stats the summary page was built from,
-                    # and the very frames the OM figures were drawn from, so the
-                    # workbook cannot disagree with the images beside it.
-                    progress.tick("compose", 1, 2, detail="workbook")
-                    techniques = []
-                    if batch_result.raman_spectra:
-                        techniques.append(TechniqueResults(
-                            label="Raman",
-                            point_spectra=batch_result.raman_spectra,
-                            stats=state["raman_stats"],
-                            source_files=scan.raman_files,
-                            errors=batch_result.raman_errors,
-                            ratios=state["raman_ratios"] or (),
-                        ))
-                    if batch_result.pl_spectra:
-                        techniques.append(TechniqueResults(
-                            label="PL",
-                            point_spectra=batch_result.pl_spectra,
-                            stats=state["pl_stats"],
-                            source_files=scan.pl_files,
-                            errors=batch_result.pl_errors,
-                            # The empirical row, per point, matching the one the
-                            # summary page's PL table leads with.
-                            include_raw_row=True,
-                        ))
-                    if techniques or state["frames"]:
-                        state["xlsx_bytes"] = build_sample_results_xlsx(
-                            sample_name=scan.sample_name,
-                            material_name=state["material"],
-                            report_date=report_date,
-                            techniques=techniques,
-                            optical_frames=state["frames"] or (),
-                            optical_threshold_pair=state["optical_threshold_pair"],
-                            domain_stat=state["domain_stat"],
-                            domain_class_label=(
-                                dict(zip(
-                                    TARGETS, class_labels(reference, state["low_coverage"])
-                                ))[state["domain_target"]]
-                                if state["domain_stat"] else None
-                            ),
-                            show_fwhm_v1=show_fwhm_v1,
-                        )
-                    progress.complete("compose")
                     progress.finish(f"QC report generated for {scan.sample_name}.")
 
                     status.update(
@@ -1256,7 +757,7 @@ def _render_convergence_note(technique: str, unconverged_key: str, fitted_key: s
     )
 
 
-_HAS_RESULTS = any(state.get(key) for _, _, key in _ARTIFACTS) or state.get("raman_dropped")
+_HAS_RESULTS = any(state.get(key) for _, _, key in REPORT_FIGURES) or state.get("raman_dropped")
 
 if _HAS_RESULTS:
     st.markdown("---")
@@ -1379,21 +880,7 @@ if _HAS_RESULTS:
                 # extension the dialog collected is dropped — it only ever named
                 # the first image, and the workbook is not a PNG.
                 base, _ext = os.path.splitext(save_path)
-                saved_files = []
-                for number, suffix, key in _ARTIFACTS:
-                    payload = state.get(key)
-                    if not payload:
-                        continue
-                    target = f"{base}_{number}_{suffix}.png"
-                    with open(target, "wb") as f:
-                        f.write(payload)
-                    saved_files.append(target)
-
-                if state.get("xlsx_bytes"):
-                    target = f"{base}.xlsx"
-                    with open(target, "wb") as f:
-                        f.write(state["xlsx_bytes"])
-                    saved_files.append(target)
+                saved_files = save_report(state, base)
 
                 st.success("Saved:\n" + "\n".join(f"- {p}" for p in saved_files))
             # save_path is None => user cancelled => no-op

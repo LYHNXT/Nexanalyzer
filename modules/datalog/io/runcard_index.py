@@ -12,6 +12,7 @@ imports it. The page caches around these functions, keyed on
 `runcard_signature` and on each run's mtime.
 """
 
+import csv
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -94,7 +95,7 @@ def read_runcards(folder: Union[str, Path]) -> List[Runcard]:
         try:
             commands = parse_runcard(path)
             mtime = path.stat().st_mtime
-        except (OSError, UnicodeDecodeError, ValueError):
+        except (OSError, UnicodeDecodeError, ValueError, csv.Error):
             continue
         rows = []
         for cmd in commands:

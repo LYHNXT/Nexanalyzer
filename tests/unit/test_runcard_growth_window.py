@@ -387,11 +387,13 @@ class TestFindGrowthWindow:
         assert profile.growth == GrowthWindow(start_s=None, end_s=None, peak_temp_c=ROOM_TEMP_C)
         assert profile.growth.mid_s is None
 
-    def test_a_recipe_with_no_heater_soak_gets_a_zero_length_window(self, tmp_path):
+    def test_a_recipe_with_no_heater_soak_grows_to_its_end(self, tmp_path):
+        """The reference's `growth_end = total_sec`: "t=2-83 min" for this card.
+        Until v5.34.0 this window was zero-length, at the ramp's end."""
         profile = _profile(tmp_path, _NO_SOAK)
 
-        assert profile.growth == GrowthWindow(start_s=100.0, end_s=100.0, peak_temp_c=900.0)
-        assert profile.growth.mid_s == 100.0
+        assert profile.growth == GrowthWindow(start_s=100.0, end_s=5000.0, peak_temp_c=900.0)
+        assert profile.growth.mid_s == 2550.0
 
     def test_a_heater_off_at_zero_cuts_the_window_like_any_other(self, tmp_path):
         """A heater off at t=0 is off, not absent.
@@ -752,3 +754,20 @@ class TestANonzeroHeaterSoakIsASetpointStep:
         ]
         assert profile.temp_trace[7][1] == pytest.approx(_cooled(900.0, 60))
         assert profile.growth == GrowthWindow(start_s=100.0, end_s=300.0, peak_temp_c=900.0)
+
+
+class TestAWindowWithNoEndRunsToTheRecipeEnd:
+    """No heater-off and no ramp-down: the reference ends growth at the card's
+    total time. The app ended it at the ramp's end, a zero-length window."""
+
+    def test_the_bare_trace_still_ends_at_its_last_vertex(self):
+        window = find_growth_window([(0.0, 25.0), (600.0, 900.0)], None)
+        assert (window.start_s, window.end_s) == (600.0, 600.0)
+
+    def test_the_total_time_extends_it(self):
+        window = find_growth_window([(0.0, 25.0), (600.0, 900.0)], None, total=2700.0)
+        assert (window.start_s, window.end_s) == (600.0, 2700.0)
+
+    def test_a_heater_off_still_wins(self):
+        window = find_growth_window([(0.0, 25.0), (600.0, 900.0), (2000.0, 900.0)], 2000.0, total=2700.0)
+        assert window.end_s == 2000.0

@@ -68,6 +68,7 @@ def initialize_qc_report_state() -> None:
             "domain_grid_png": None,      # Figure 4, the domain-size grid
             "raman_stats": None,
             "raman_ratios": None,         # [(label, (median, mad, n))]
+            "raman_delta": None,          # MoS2 Δω (median, mad, n): summary row only
             "raman_grid_png": None,       # Figure 4, the nine fitted spectra
             "raman_stats_png": None,      # Figure 5, the quality panels
             "raman_errors": None,         # list[(point, message)] from fitting
@@ -119,7 +120,7 @@ _OPTICAL_ARTIFACTS = (
     "optical_fingerprint", "domain_results", "domain_stat", "domain_grid_png",
 )
 _RAMAN_ARTIFACTS = (
-    "raman_stats", "raman_ratios", "raman_grid_png", "raman_stats_png",
+    "raman_stats", "raman_ratios", "raman_delta", "raman_grid_png", "raman_stats_png",
     "raman_errors", "raman_dropped", "raman_fitted", "raman_unconverged", "raman_selection",
     "raman_fingerprint",
 )
@@ -143,6 +144,22 @@ def reset_results(state: dict) -> None:
     """
     reset_optical_results(state)
     reset_spectra_results(state)
+
+
+def select_folder(state: dict, folder: str, scan, magnification) -> None:
+    """Point the page at a new sample folder, dropping everything the old one set.
+
+    The one way to change folders, shared by the QC Report's own picker and
+    OneNote's "Build for <wafer>": an operator's layer choice was for the
+    previous folder, and the OneNote copy that cleared only the results carried
+    a hand-picked 1L into the next (2L) wafer without a word.
+    """
+    state["folder"] = folder
+    state["scan"] = scan
+    state["magnification"] = magnification
+    state["layer_source"] = None
+    state["layer_context"] = None
+    reset_results(state)
 
 
 def reset_optical_results(state: dict) -> None:

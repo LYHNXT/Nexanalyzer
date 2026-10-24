@@ -27,6 +27,14 @@ ALGO_PATHS = (
     "modules/optical/processing/",
     "modules/runcard/processing/",
     "modules/datalog/processing/",
+    "modules/qc_report/processing/",
+    # Outside processing/ but still deciding reported numbers: the quality
+    # figures' fences, uniformity CV and title values, the summary page's
+    # tables and the workbook.
+    "modules/spectra/viz/peak_quality.py",
+    "core/report/summary_figure.py",
+    "modules/spectra/io/results_excel.py",
+    "modules/spectra/io/results_csv.py",
     "data/materials.json",
     "data/om_calibration.json",
     "data/datalog.json",

@@ -57,11 +57,16 @@ Thumbs.db
 !requirements-dev.txt
 !requirements-lock.txt
 tests/fixtures/*.txt
-# Except the golden-fit pair (HKU-20230524-2), cleared for the repo on 2026-10-09:
-# the commit/push hooks refit them, so every clone must have them.
-!tests/fixtures/golden_fit/*.txt
-# And DDAA10 RM_1..3, the WSe2_QC golden set (v5.30.0, 2026-10-22).
+# Except the golden-fit spectra: the commit/push hooks refit them, so every
+# clone must have them. DDAA10 RM_1..3 lock Raman (v5.30.0, 2026-10-22);
+# HADI51 and VA1P012504023 PL_5 lock PL (v5.34.0, 2026-10-24, replacing the
+# HKU-20230524-2 pair). Don't widen these.
 !tests/fixtures/golden_fit/DDAA10/RM_[123].txt
+!tests/fixtures/golden_fit/HADI51/PL_5.txt
+!tests/fixtures/golden_fit/VA1P012504023/PL_5.txt
+# And the validated set's bad-input cases: hand-written, a few bytes each,
+# no measurement in them (an empty file, a header, one column).
+!tests/golden/cases/bad_input/*/input.txt
 
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).

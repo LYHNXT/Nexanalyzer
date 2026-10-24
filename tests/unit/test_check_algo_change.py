@@ -86,3 +86,22 @@ def test_a_locked_record_moved_and_stated_passes(repo):
     _write(repo, "CHANGELOG.md", "# Changelog\n\n- Golden-fit record regenerated: baseline fix.\n")
     _commit(repo)
     assert _guard(repo).returncode == 0
+
+
+@pytest.mark.parametrize("path", [
+    "modules/spectra/viz/peak_quality.py",
+    "core/report/summary_figure.py",
+    "modules/spectra/io/results_excel.py",
+    "modules/spectra/io/results_csv.py",
+    "modules/qc_report/processing/build.py",
+])
+def test_report_number_code_outside_processing_is_guarded(repo, path):
+    """These compute what a report prints (fences, uniformity CV, tables, the
+    workbook) without being refitted, so the golden fit cannot catch them."""
+    _write(repo, path, "changed = True\n")
+    _commit(repo)
+
+    result = _guard(repo)
+
+    assert result.returncode == 1
+    assert path in result.stdout

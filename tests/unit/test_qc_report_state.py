@@ -126,3 +126,47 @@ class TestCompositeArtifacts:
         reset_spectra_results(state)
 
         assert state["batch_result"] is None
+
+
+class TestSelectFolder:
+    """One way to change folders, shared by the QC Report and OneNote pages.
+
+    OneNote's "Build for <wafer>" used to set the folder and clear results but
+    keep `layer_source == "operator"`, so a 1L picked by hand for one wafer was
+    silently applied to the next.
+    """
+
+    def test_an_operator_layer_choice_does_not_follow_into_the_next_folder(self, monkeypatch):
+        state = _fresh_state(monkeypatch)
+        state["layer_source"] = "operator"
+        state["layer_context"] = ("A", "50X", "WSe2")
+
+        qc_report_state.select_folder(state, "B", scan="scan-B", magnification="100X")
+
+        assert state["layer_source"] is None
+        assert state["layer_context"] is None
+
+    def test_it_sets_the_folder_scan_and_magnification(self, monkeypatch):
+        state = _fresh_state(monkeypatch)
+
+        qc_report_state.select_folder(state, "B", scan="scan-B", magnification="100X")
+
+        assert (state["folder"], state["scan"], state["magnification"]) == ("B", "scan-B", "100X")
+
+    def test_every_derived_result_of_the_previous_folder_is_dropped(self, monkeypatch):
+        state = _fresh_state(monkeypatch)
+        for key in _DERIVED:
+            state[key] = "stale"
+
+        qc_report_state.select_folder(state, "B", scan=None, magnification=None)
+
+        assert all(state[key] is None for key in _DERIVED)
+
+    def test_the_material_and_layer_are_kept(self, monkeypatch):
+        """Only who chose the layer is forgotten; the page re-suggests from there."""
+        state = _fresh_state(monkeypatch)
+        state["material"], state["reference_layer"] = "WSe2_QC", "1L"
+
+        qc_report_state.select_folder(state, "B", scan=None, magnification=None)
+
+        assert (state["material"], state["reference_layer"]) == ("WSe2_QC", "1L")

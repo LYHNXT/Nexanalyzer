@@ -1,0 +1,34 @@
+{
+  "PL_5.txt": {
+    "mode": "PL",
+    "r_squared": 0.9992017767750149,
+    "chi_squared": 6396452.554319276,
+    "converged": true,
+    "peaks": {
+      "Exciton": {
+        "center": 761.629610306259,
+        "center_stderr": 0.08517769843737441,
+        "intensity": 5972.87783996611,
+        "intensity_stderr": 351.44477726220964,
+        "area": 191275.31393482847,
+        "area_stderr": 11254.660132470823,
+        "fwhm": 30.084072955059177,
+        "fwhm_stderr": 0.3610619961260816,
+        "shape": 5.6522094937489925e-09,
+        "measured": true
+      },
+      "Trion": {
+        "center": 784.1918013905964,
+        "center_stderr": 1.5524216499484467,
+        "intensity": 2491.371699008183,
+        "intensity_stderr": 174.46744499885455,
+        "area": 158500.73822602778,
+        "area_stderr": 11099.59579284621,
+        "fwhm": 52.45331813706188,
+        "fwhm_stderr": 1.5826992774566742,
+        "shape": 0.3187828657701844,
+        "measured": true
+      }
+    }
+  }
+}

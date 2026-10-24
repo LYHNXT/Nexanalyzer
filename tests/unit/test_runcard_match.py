@@ -310,3 +310,36 @@ class TestSubResolutionSetpointsFollowTheLog:
         with_log, _ = rm.card_blocks(_card().commands, run.initial, run.coarse)
 
         assert with_default == with_log   # the September log agrees with the old list
+
+
+class TestAHeaterSoakIsASetpointStep:
+    """`Heater Soak,800` steps the heater SV to 800 (growth_window reads it so
+    since v5.21.0). The matcher dropped the command, so every CLEANING-5 run
+    cost 1.4 against its own card: "heater SV: log 800, card 900"."""
+
+    _CARD = _edit("MFC/PC,MFC-8 H2Se,4\n", "MFC/PC,MFC-8 H2Se,4\nHeater Soak,800,--\n")
+
+    def _log(self):
+        steps = list(MATCH_STEPS)
+        steps.insert(6, ("Heater Soak", 1, {}))
+        lines = recipe_datalog(steps).splitlines()
+        header = lines[0].split(",")
+        sv, program = header.index("Heater SV"), header.index("Program")
+        out, soaked = [lines[0]], False
+        for line in lines[1:]:
+            row = line.split(",")
+            soaked = soaked or row[program] == "Heater Soak"
+            if soaked:
+                row[sv] = "800"
+            out.append(",".join(row))
+        return "\n".join(out) + "\n"
+
+    def test_the_card_with_the_soak_explains_its_log(self):
+        assert rm.content_cost(_steps(self._log()), _card(self._CARD)) == 0
+
+    def test_a_card_without_the_soak_does_not(self):
+        assert rm.content_cost(_steps(self._log()), _card()) > 0
+
+    def test_a_soak_to_zero_is_heater_off_and_moves_no_setpoint(self):
+        card = _edit("MFC/PC,MFC-8 H2Se,4\n", "MFC/PC,MFC-8 H2Se,4\nHeater Soak,0,--\n")
+        assert rm.content_cost(_steps(recipe_datalog()), _card(card)) == 0

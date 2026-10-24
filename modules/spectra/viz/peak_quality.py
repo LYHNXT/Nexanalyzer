@@ -84,10 +84,11 @@ from ..models.peak import FitResult  # noqa: E402
 from ..processing.peak_metrics import (  # noqa: E402
     NEAR_ZERO_FRACTION,
     RAMAN_RATIO_PAIRS,
-    RATIO_FROM_EVERY_SPECTRUM,
     iqr_mask,
     peak_intensity,
     peak_is_measured,
+    ratio_values_by_point,
+    region_values as _region_values,
 )
 
 #: Plotly's qualitative sequence, carried over from the inherited scripts so a
@@ -205,6 +206,7 @@ _RAMAN_RATIO_PRESENTATION = {
     ("2LA", "E2g+A1g"): ("I(2LA) / I(E₂g+A₁g)", "Layer / resonance ratio", None),
     ("C", "LB"): ("I(C) / I(LB)", "Stacking ratio", None),
     ("B2g", "E2g+A1g"): ("I(B₂g) / I(E₂g+A₁g)", "Bilayer ratio", None),
+    ("2LA(M)", "A1g"): ("I(2LA(M)) / I(A₁g)", "MoS₂ defect ratio", None),
 }
 
 
@@ -225,6 +227,12 @@ def _raman_ratio_panels(
 #: Ratios drawn in the FWHM column rather than the ratio column.
 _UNDER_FWHM = {("B2g", "E2g+A1g")}
 
+#: Pairs in `RAMAN_RATIO_PAIRS` that the inherited (WSe2) figure does not draw.
+#: MoS2's defect ratio is reported in the summary table and workbook only; its
+#: figure, `MOS2_RAMAN_COLUMNS`, has no ratio column. Left in the WSe2 ratio
+#: column it would also make a MoS2 fit "match" the inherited columns.
+_NOT_IN_WSE2_FIGURE = {("2LA(M)", "A1g")}
+
 #: Raman's panels. Column order and titles match the inherited script so the
 #: output is recognisable to people already reading these reports.
 PANEL_COLUMNS: PanelColumns = (
@@ -234,14 +242,14 @@ PANEL_COLUMNS: PanelColumns = (
     # The bilayer ratio sits under it (v5.29.0), so a WSe2_QC figure is 2 | 2 | 2.
     ("FWHM", (
         PeakPanel("E2g+A1g", "fwhm", "FWHM (cm⁻¹)", "E₂g + A₁g", spec=7.0),
-    ) + tuple(p for p in _raman_ratio_panels() if (p.numerator, p.denominator) in _UNDER_FWHM)),
+    ) + tuple(p for p in _raman_ratio_panels(tuple(p for p in RAMAN_RATIO_PAIRS if p not in _NOT_IN_WSE2_FIGURE)) if (p.numerator, p.denominator) in _UNDER_FWHM)),
     ("Peak Centers", (
         PeakPanel("E2g+A1g", "center", "Raman shift (cm⁻¹)", "E₂g + A₁g center"),
         # No spec line since v5.32.0: the customer spec's "~308" is a presence
         # criterion, stated in the title, not a limit to plot against.
         PeakPanel("B2g", "center", "Raman shift (cm⁻¹)", "B₂g center"),
     )),
-    ("Diagnostic Ratios", tuple(p for p in _raman_ratio_panels()
+    ("Diagnostic Ratios", tuple(p for p in _raman_ratio_panels(tuple(p for p in RAMAN_RATIO_PAIRS if p not in _NOT_IN_WSE2_FIGURE))
                                 if (p.numerator, p.denominator) not in _UNDER_FWHM)),
 )
 
@@ -543,48 +551,14 @@ def _peak_values(records: Sequence[_PeakRecord], panel: PeakPanel) -> Dict[int, 
 
 
 def _ratio_values(records: Sequence[_PeakRecord], panel: RatioPanel) -> Dict[int, np.ndarray]:
-    """Ratios formed within one spectrum, then collected by position.
-
-    Per spectrum first, never mean(numerator)/mean(denominator): only the
-    per-spectrum form has a spread that means anything.
-    """
-    every = (panel.numerator, panel.denominator) in RATIO_FROM_EVERY_SPECTRUM
-    by_spectrum: Dict[int, Tuple[int, Dict[str, float]]] = {}
+    """Ratios formed within one spectrum, then collected by position --
+    selected by `peak_metrics.ratio_values_by_point`, the same function the
+    summary table's ratios come from."""
+    spectra: Dict[int, Tuple[int, Dict[str, Tuple[float, bool]]]] = {}
     for record in records:
-        point, intensities = by_spectrum.setdefault(record.spectrum, (record.point, {}))
-        # Same rule as the summary table's ratio (peak_metrics.peak_is_measured):
-        # a peak on a fit limit or under 3x the noise forms no ratio -- except
-        # for RATIO_FROM_EVERY_SPECTRUM (v5.32.0), formed from every spectrum.
-        if every or record.measured:
-            intensities[record.label] = record.intensity
-
-    out: Dict[int, list] = {}
-    for point, intensities in by_spectrum.values():
-        numerator = intensities.get(panel.numerator)
-        denominator = intensities.get(panel.denominator)
-        if numerator is not None and denominator:
-            out.setdefault(point, []).append(numerator / denominator)
-    values = {p: np.asarray(v, float) for p, v in out.items()}
-    if every:
-        values = _wafer_fence(values)
-    return values
-
-
-def _wafer_fence(by_point: Dict[int, np.ndarray]) -> Dict[int, np.ndarray]:
-    """Drop ratios outside the 1.5x IQR fence of the whole wafer (v5.32.0).
-
-    A ratio formed from every spectrum can come from a weak spectrum whose
-    region is itself spread wide, so the per-region fence keeps it (KRX261003
-    point 5: 20 % from a spectrum at half the usual E2g+A1g intensity, against
-    8-16 % in its region and a 19.7 % wafer fence). The per-region fence still
-    applies after this one, where the panel draws.
-    """
-    pooled = np.concatenate([v for v in by_point.values() if v.size]) if by_point else np.array([])
-    if pooled.size < 4:
-        return by_point
-    q1, q3 = np.percentile(pooled, [25, 75])
-    lo, hi = q1 - 1.5 * (q3 - q1), q3 + 1.5 * (q3 - q1)
-    return {p: v[(v >= lo) & (v <= hi)] for p, v in by_point.items()}
+        _point, peaks = spectra.setdefault(record.spectrum, (record.point, {}))
+        peaks[record.label] = (record.intensity, record.measured)
+    return ratio_values_by_point(spectra.values(), panel.numerator, panel.denominator)
 
 
 def robust_cv(values) -> float:
@@ -596,16 +570,6 @@ def robust_cv(values) -> float:
     if median == 0:
         return float("nan")
     return 1.4826 * float(np.median(np.abs(values - median))) / abs(median) * 100.0
-
-
-def _region_values(by_point: Dict[int, np.ndarray], per_position_iqr: bool) -> Dict[int, np.ndarray]:
-    """Each position's values as its panel draws them (IQR-cut within the position where the rule says so)."""
-    out = {}
-    for point, values in by_point.items():
-        clean = values[iqr_mask(values)] if per_position_iqr and values.size else values
-        if clean.size:
-            out[point] = clean
-    return out
 
 
 def region_median_cv(by_point: Dict[int, np.ndarray], per_position_iqr: bool) -> float:
@@ -683,9 +647,45 @@ MOS2_SPEC = {
 DELTA_LABEL = "Δω (A1g − E2g)"
 
 
+#: MoS2's Raman figure: FWHM (E2g, A1g) | Center (E2g, A1g) | Δω, panels
+#: 2, 2, 1 -- the layout `run_qc_mos2.py` drew by monkeypatch from 2026-10-19
+#: (no 2LA(M) FWHM panel, no defect-ratio panel; the ratio is in the summary
+#: table and workbook). In the app since v5.34.0, so a report built on the page
+#: and one built by the runner are the same figure.
+MOS2_RAMAN_COLUMNS: PanelColumns = (
+    ("FWHM", tuple(PeakPanel(lab, "fwhm", "FWHM (cm⁻¹)", lab) for lab in ("E2g", "A1g"))),
+    ("Center", tuple(PeakPanel(lab, "center", "Raman shift (cm⁻¹)", f"{lab} center")
+                     for lab in ("E2g", "A1g"))),
+    ("Δω", (PeakPanel(DELTA_LABEL, "center", "Δω (cm⁻¹)", DELTA_LABEL),)),
+)
+
+
+def delta_omega_summary(fits_by_point: Sequence[Tuple[int, FitResult]],
+                        spec: "QualityFigureSpec" = None) -> Optional[Tuple[float, float, int]]:
+    """Δω as the summary page's row states it: (median, MAD, n) over exactly the
+    values the figure's Δω panel draws -- cleaned records, IQR-cut within each
+    position -- so the row and the title's |E2g-A1g| are one number. None when
+    no spectrum has both peaks."""
+    spec = spec or RAMAN_QUALITY
+    records = _clean(_records(fits_by_point), spec.cleaning)
+    by_point = _region_values(delta_omega_by_point(records), spec.cleaning.per_position_iqr)
+    if not by_point:
+        return None
+    values = np.concatenate(list(by_point.values()))
+    median = float(np.median(values))
+    return median, float(np.median(np.abs(values - median))), int(values.size)
+
+
 def is_mos2(labels, technique: str) -> bool:
-    """MoS2 by its own peaks: E2g and A1g fitted apart (Raman), A0 (PL)."""
-    return {"E2g", "A1g"} <= set(labels) if technique == "Raman" else "A0" in labels
+    """MoS2 by its own peaks: E2g and A1g fitted apart (Raman), A0 (PL).
+
+    "WSe2 extended V2" also fits E2g and A1g apart, so a Raman fit carrying
+    WSe2's own modes (LA, 2LA, B2g) is not MoS2 -- it must not get MoS2's
+    layout and Δω row (v5.34.0)."""
+    if technique == "Raman":
+        labels = set(labels)
+        return {"E2g", "A1g"} <= labels and not labels & {"LA", "2LA", "B2g"}
+    return "A0" in labels
 
 
 def delta_omega_by_point(records: Sequence[_PeakRecord]) -> Dict[int, np.ndarray]:
@@ -744,8 +744,19 @@ def _mos2_pl_panels(columns: PanelColumns) -> PanelColumns:
 
 
 def _mos2_spec_lines(columns: PanelColumns, technique: str, layer: Optional[str]) -> PanelColumns:
-    """MoS2 1L PL: the 40 nm line on Raw FWHM (RAW_COLUMN itself carries none)."""
-    if technique != "PL" or layer != "1L":
+    """MoS2 1L: the nominal ~20 cm-1 line on Raman's Δω panel, and the 40 nm
+    line on PL's Raw FWHM (RAW_COLUMN itself carries none). Grey dashed: the
+    quote writes both as "<=", the report states them as targets."""
+    if layer != "1L":
+        return columns
+    if technique == "Raman":
+        return tuple(
+            (title, tuple(dataclasses.replace(p, spec=MOS2_SPEC["Raman"]["delta_max"], spec_nominal=True)
+                          if isinstance(p, PeakPanel) and p.peak == DELTA_LABEL else p
+                          for p in panels))
+            for title, panels in columns
+        )
+    if technique != "PL":
         return columns
     return tuple(
         (title, tuple(dataclasses.replace(p, spec=MOS2_SPEC["PL"]["fwhm_max"], spec_nominal=True)
@@ -756,7 +767,12 @@ def _mos2_spec_lines(columns: PanelColumns, technique: str, layer: Optional[str]
 
 
 def _pct(value: float) -> str:
-    """A percentage as the title and the legends both print it."""
+    """A percentage as the title and the legends both print it.
+
+    A CV needs two regions; with fewer it is NaN, which prints as a dash
+    rather than "nan %"."""
+    if not np.isfinite(value):
+        return "—"
     return f"{value:.2f} %" if value < 10 else f"{value:.1f} %"
 
 
@@ -897,6 +913,8 @@ def build_peak_quality_figure(
     elif not raw and has_raw_column:
         columns = tuple(c for c in columns if c[0] != RAW_COLUMN[0])
     if is_mos2(labels, spec.technique):
+        if spec.technique == "Raman":
+            columns = MOS2_RAMAN_COLUMNS
         columns = _mos2_spec_lines(columns, spec.technique, layer)
         if spec.technique == "PL":
             columns = _mos2_pl_panels(columns)
@@ -926,11 +944,12 @@ def build_peak_quality_figure(
                 if top is None:
                     top = ax
                     ax.set_title(title, fontsize=_FS_TITLE, fontweight="bold", pad=10)
-                values = (
-                    _ratio_values(records, panel)
-                    if isinstance(panel, RatioPanel)
-                    else _peak_values(records, panel)
-                )
+                if isinstance(panel, RatioPanel):
+                    values = _ratio_values(records, panel)
+                elif panel.peak == DELTA_LABEL:
+                    values = delta_omega_by_point(records)
+                else:
+                    values = _peak_values(records, panel)
                 # Seeded per panel rather than once for the figure: the
                 # inherited script draws jitter from one module-level generator
                 # consumed in panel order, so inserting or reordering a panel

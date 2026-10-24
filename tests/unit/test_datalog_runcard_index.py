@@ -116,3 +116,17 @@ class TestReadRunSteps:
 
     def test_a_missing_file_is_none(self, tmp_path):
         assert read_run_steps(Path(tmp_path) / "gone.csv") is None
+
+
+class TestAMalformedCardIsSkipped:
+    def test_a_csv_error_skips_the_card_not_the_folder(self, tmp_path):
+        """`csv.Error` is not a ValueError: an unclosed quote running past the
+        field limit used to raise out of `read_runcards` and break Detect."""
+        _datalog, lcy = _tool(tmp_path)
+        (lcy / "CLEANING-4.csv").write_text(MATCH_RUNCARD, encoding="utf-8")
+        (lcy / "BROKEN.csv").write_text('Wait,"' + "x" * 200_000 + "\n", encoding="utf-8")
+
+        names = {c.name for c in read_runcards(lcy)}
+
+        assert "CLEANING-4" in names
+        assert "BROKEN" not in names

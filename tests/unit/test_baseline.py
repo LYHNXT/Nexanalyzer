@@ -4,34 +4,11 @@ import numpy as np
 import pytest
 
 from modules.spectra.processing.baseline import (
-    apply_auto_shift,
     baseline_polynomial,
-    baseline_polynomial_with_autoshift,
     baseline_polynomial_with_mask,
     baseline_als,
-    baseline_als_with_autoshift,
     baseline_als_with_mask,
-    baseline_rolling_ball,
-    baseline_spline,
-    baseline_airpls,
-    calculate_baseline_quality_metrics,
 )
-
-
-class TestApplyAutoShift:
-    def test_negative_values_are_shifted_positive(self):
-        y = np.array([-50., -10., 100., 200.])
-        y_shifted, shift = apply_auto_shift(y, epsilon=1.0)
-
-        assert shift == pytest.approx(51.0)
-        assert y_shifted.min() == pytest.approx(1.0)
-
-    def test_already_positive_values_are_unshifted(self):
-        y = np.array([1., 2., 3.])
-        y_shifted, shift = apply_auto_shift(y)
-
-        assert shift == 0.0
-        np.testing.assert_array_equal(y_shifted, y)
 
 
 class TestBaselinePolynomial:
@@ -54,14 +31,15 @@ class TestBaselinePolynomial:
         with pytest.raises(ValueError):
             baseline_polynomial(np.arange(10.0), np.arange(5.0), degree=2)
 
-    def test_with_autoshift_matches_unshifted_for_positive_data(self, synthetic_spectrum):
+    def test_a_constant_offset_moves_the_baseline_not_the_corrected_spectrum(self, synthetic_spectrum):
+        """Why the v2.1 auto-shift was removed (v5.34.0): a polynomial with a
+        constant term follows any offset, negative included, by itself."""
         x, y = synthetic_spectrum(n_points=200, peaks=(), baseline_slope=0.05, baseline_offset=50.0)
-        y_corr_direct, baseline_direct = baseline_polynomial(x, y, degree=2)
-        y_corr_shifted, baseline_shifted, shift = baseline_polynomial_with_autoshift(x, y, degree=2)
+        corrected, baseline = baseline_polynomial(x, y, degree=2)
+        corrected_low, baseline_low = baseline_polynomial(x, y - 80.0, degree=2)
 
-        assert shift == 0.0  # already positive, no shift needed
-        np.testing.assert_allclose(y_corr_direct, y_corr_shifted, atol=1e-8)
-        np.testing.assert_allclose(baseline_direct, baseline_shifted, atol=1e-8)
+        np.testing.assert_allclose(baseline_low, baseline - 80.0, atol=1e-8)
+        np.testing.assert_allclose(corrected_low, corrected, atol=1e-8)
 
     def test_with_mask_excludes_peak_region(self, synthetic_spectrum):
         x, y = synthetic_spectrum(
@@ -107,11 +85,15 @@ class TestBaselineAls:
         with pytest.raises(ValueError):
             baseline_als(x, y)
 
-    def test_with_autoshift_handles_negative_data(self, synthetic_spectrum):
-        x, y = synthetic_spectrum(n_points=150, peaks=(), baseline_offset=-30.0)
-        y_corr, baseline, shift = baseline_als_with_autoshift(x, y, lambda_=1e4, p=0.01)
-        assert shift > 0.0
-        assert y_corr.shape == x.shape
+    def test_negative_data_needs_no_shift(self, synthetic_spectrum):
+        """ALS's smoothness penalty annihilates constants and its weights depend
+        only on y - z, so z - c solves the system for y - c."""
+        x, y = synthetic_spectrum(n_points=150, peaks=((75.0, 300.0, 15.0),), baseline_offset=10.0)
+        corrected, baseline = baseline_als(x, y, lambda_=1e4, p=0.01)
+        corrected_low, baseline_low = baseline_als(x, y - 40.0, lambda_=1e4, p=0.01)
+
+        np.testing.assert_allclose(baseline_low, baseline - 40.0, atol=1e-6)
+        np.testing.assert_allclose(corrected_low, corrected, atol=1e-6)
 
     def test_with_mask_runs_with_exclusions(self, synthetic_spectrum):
         x, y = synthetic_spectrum(
@@ -119,67 +101,27 @@ class TestBaselineAls:
         )
         y_corr, baseline = baseline_als_with_mask(x, y, lambda_=1e4, p=0.01, exclusions=[(60.0, 90.0)])
         assert baseline.shape == x.shape
-class TestBaselineRollingBall:
-    def test_returns_correct_shapes(self, synthetic_spectrum):
-        x, y = synthetic_spectrum(n_points=200, x_range=(0.0, 1000.0), peaks=(), baseline_offset=10.0)
-        y_corr, baseline = baseline_rolling_ball(x, y, radius=50.0)
-        assert y_corr.shape == x.shape
-        assert baseline.shape == x.shape
+class TestMaskedAlsNeedsUnexcludedPoints:
+    """An exclusion covering the window used to give a baseline of exactly 0,
+    so the fit ran on the raw offset and nothing said so."""
 
-    def test_invalid_radius_raises(self):
-        x = np.linspace(0, 10, 100)
-        y = np.ones(100)
-        with pytest.raises(ValueError):
-            baseline_rolling_ball(x, y, radius=0)
+    def _spectrum(self):
+        from modules.spectra.processing.baseline import baseline_als_with_mask
+        x = np.linspace(650, 880, 300)
+        y = 500 + 0.2 * (x - 650) + 50 * np.exp(-0.5 * ((x - 760) / 10) ** 2)
+        return baseline_als_with_mask, x, y
 
-    def test_radius_too_large_raises(self):
-        x = np.linspace(0, 10, 100)
-        y = np.ones(100)
-        with pytest.raises(ValueError):
-            baseline_rolling_ball(x, y, radius=1000)
+    def test_everything_excluded_is_refused(self):
+        als, x, y = self._spectrum()
+        with pytest.raises(ValueError, match="Not enough points"):
+            als(x, y, exclusions=[(650, 880)])
 
+    def test_a_handful_left_is_refused_too(self):
+        als, x, y = self._spectrum()
+        with pytest.raises(ValueError, match="Not enough points"):
+            als(x, y, exclusions=[(651, 880)])
 
-class TestBaselineSpline:
-    def test_returns_correct_shapes(self, synthetic_spectrum):
-        x, y = synthetic_spectrum(n_points=200, peaks=(), baseline_offset=10.0)
-        y_corr, baseline = baseline_spline(x, y)
-        assert y_corr.shape == x.shape
-        assert baseline.shape == x.shape
-
-    def test_negative_smoothness_raises(self):
-        x = np.linspace(0, 10, 100)
-        y = np.ones(100)
-        with pytest.raises(ValueError):
-            baseline_spline(x, y, smoothness=-1.0)
-
-
-class TestBaselineAirpls:
-    def test_returns_correct_shapes(self, synthetic_spectrum):
-        x, y = synthetic_spectrum(n_points=200, peaks=(), baseline_offset=10.0)
-        y_corr, baseline = baseline_airpls(x, y, lambda_=1e5)
-        assert y_corr.shape == x.shape
-        assert baseline.shape == x.shape
-
-    def test_invalid_lambda_raises(self):
-        x = np.linspace(0, 10, 100)
-        y = np.ones(100)
-        with pytest.raises(ValueError):
-            baseline_airpls(x, y, lambda_=1.0)
-
-
-class TestBaselineQualityMetrics:
-    def test_returns_expected_keys(self):
-        y = np.array([10., 12., 11., 13., 10.])
-        baseline = np.array([10., 10., 10., 10., 10.])
-        metrics = calculate_baseline_quality_metrics(y, baseline)
-
-        assert set(metrics.keys()) == {
-            "residual_std", "residual_mean", "roughness", "peak_count", "baseline_range"
-        }
-        assert metrics["baseline_range"] == (10.0, 10.0)
-
-    def test_perfect_baseline_has_zero_residual(self):
-        y = np.array([1., 2., 3., 4., 5.])
-        metrics = calculate_baseline_quality_metrics(y, y.copy())
-        assert metrics["residual_std"] == pytest.approx(0.0)
-        assert metrics["residual_mean"] == pytest.approx(0.0)
+    def test_a_normal_exclusion_still_follows_the_offset(self):
+        als, x, y = self._spectrum()
+        corrected, baseline = als(x, y, exclusions=[(740, 780)])
+        assert np.all(baseline > 400)

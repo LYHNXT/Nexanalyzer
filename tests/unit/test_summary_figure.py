@@ -686,3 +686,53 @@ class TestTenPointOverview:
             plt.close(fig)
 
         assert bytes([10]) in placed and len(placed) >= 10
+
+
+class TestTheTableStackFitsThePage:
+    """A 20-peak preset ("WSe2 extended") pushed the PL and domain tables below
+    the 7.5 in page, where they vanished from the PNG (fixed v5.34.0)."""
+
+    def _placed(self, monkeypatch, n_raman, n_ratios=4):
+        from core.report import summary_figure as sf
+        placed = []
+        real_draw, real_placeholder = sf._draw_table, sf._add_placeholder
+
+        def draw(fig, left, top, w, h, *a, **kw):
+            placed.append((top, h))
+            return real_draw(fig, left, top, w, h, *a, **kw)
+
+        def placeholder(fig, left, top, w, h, *a, **kw):
+            placed.append((top, h))
+            return real_placeholder(fig, left, top, w, h, *a, **kw)
+
+        monkeypatch.setattr(sf, "_draw_table", draw)
+        monkeypatch.setattr(sf, "_add_placeholder", placeholder)
+        sf.build_summary_figure(
+            sample_name="S", material_name="M", report_date="d", om_classes=_classes(), dpi=40,
+            raman_stats=[_stat(f"P{i}") for i in range(n_raman)],
+            raman_ratios=[(f"R{i}", (0.1, 0.01, 9)) for i in range(n_ratios)],
+            pl_stats=[_stat(l) for l in ("Raw", "Exciton", "Trion")],
+        )
+        return placed
+
+    def test_twenty_peaks_keep_every_table_on_the_page(self, monkeypatch):
+        from core.report.summary_figure import PAGE_HEIGHT_IN
+        placed = self._placed(monkeypatch, 20)
+        stack = placed[-3:]  # Raman, PL, domain (OM table is drawn first)
+        assert len(stack) == 3
+        assert max(top + h for top, h in stack) <= PAGE_HEIGHT_IN
+
+    def test_a_stack_that_fits_is_not_rescaled(self):
+        from core.report.summary_figure import _stacked_table_heights, _table_height
+        heights, scaled = _stacked_table_heights(8, 3, 1)
+        assert not scaled
+        assert heights == (_table_height(8), _table_height(3), _table_height(1))
+
+    def test_too_many_rows_to_read_is_refused_not_printed(self):
+        from core.report import summary_figure as sf
+        with pytest.raises(ValueError, match="readable size"):
+            sf.build_summary_figure(
+                sample_name="S", material_name="M", report_date="d", dpi=40,
+                raman_stats=[_stat(f"P{i}") for i in range(80)],
+                pl_stats=[_stat("Raw")],
+            )

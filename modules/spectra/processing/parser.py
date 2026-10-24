@@ -33,6 +33,19 @@ from typing import Tuple, Optional, Literal, List, NamedTuple
 from ..models.spectrum import SpectrumData
 
 
+class SpectrumFileError(ValueError):
+    """A spectrum file this app cannot use. The message is written for the
+    operator and names the file; the cause is in the chained exception."""
+
+
+class EmptyFile(SpectrumFileError):
+    """The file has no content at all."""
+
+
+class UnsupportedFormat(SpectrumFileError):
+    """Not a text file of X and Y columns (an image, a binary, a header with no data)."""
+
+
 # Tried in this order on each candidate row; None means any run of whitespace.
 # Tab first because it is the most common in instrument exports, and comma
 # before whitespace so "1, 2" is read as two fields rather than "1," and "2".
@@ -183,16 +196,18 @@ def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
     FileNotFoundError
         If the file does not exist.
     """
+    name = Path(filepath).name
     try:
         df = _read_spectrum_dataframe(filepath)
     except FileNotFoundError:
         raise FileNotFoundError(f"Spectrum file not found: {filepath}")
-    except pd.errors.EmptyDataError:
-        raise ValueError(f"File is empty: {filepath}")
+    except pd.errors.EmptyDataError as e:
+        raise EmptyFile(f"File is empty: {name}") from e
     except Exception as e:
-        raise ValueError(
-            f"Failed to parse spectrum file '{filepath}': {e}"
-        )
+        raise UnsupportedFormat(
+            f"Unsupported file format: {name}. Expected a text file of X and Y "
+            f"columns separated by tab, comma, semicolon or spaces ({e})"
+        ) from e
 
     try:
         X = df.iloc[:, 0].values.astype(np.float64)
@@ -262,68 +277,6 @@ def parse_spectrum(filepath: str) -> SpectrumData:
             f"Use parse_spectrum_multi() for multi-Y files."
         )
     return spectra[0]
-
-
-def validate_spectrum_file(filepath: str) -> Tuple[bool, str]:
-    """
-    Validate .txt spectrum file without loading it.
-
-    Parameters
-    ----------
-    filepath : str
-        Path to .txt file.
-
-    Returns
-    -------
-    is_valid : bool
-        True if file is valid.
-    message : str
-        Empty if valid, else error message.
-
-    Examples
-    --------
-    >>> is_valid, msg = validate_spectrum_file("sample.txt")
-    >>> if not is_valid:
-    ...     print(f"Validation failed: {msg}")
-    """
-    try:
-        parse_spectrum(filepath)
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-def estimate_spectral_resolution(X: np.ndarray) -> float:
-    """
-    Estimate spectral resolution (median step size).
-
-    Used for auto-calculating width_min in peak fitting bounds.
-
-    Parameters
-    ----------
-    X : np.ndarray
-        X array (wavenumber or wavelength).
-
-    Returns
-    -------
-    resolution : float
-        Median step size in X units.
-
-    Examples
-    --------
-    >>> X = np.linspace(100, 1000, 1000)
-    >>> resolution = estimate_spectral_resolution(X)
-    >>> print(f"{resolution:.3f} cm⁻¹")
-    0.901 cm⁻¹
-    """
-    if len(X) < 2:
-        return 1.0  # Fallback for single-point spectra (should not happen)
-
-    # Calculate step sizes
-    steps = np.diff(X)
-
-    # Use median to be robust to irregular spacing
-    resolution = np.median(np.abs(steps))
-
-    return resolution
 
 
 # The one place the app decides what a filename says about its technique.

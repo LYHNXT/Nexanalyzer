@@ -6,7 +6,47 @@ Fit-results CSVs live in results_csv.py — this module knows nothing about
 peaks or spectra.
 """
 
+import threading
 from typing import Optional
+
+from .native_dialog import existing_dir, run_dialog
+
+#: Seconds one PNG render may take before it is abandoned. A healthy render
+#: takes 0.1-1 s; this only has to be long enough to never fire on one.
+RENDER_TIMEOUT_S = 120.0
+
+# One render at a time: the persistent kaleido server is a process-wide
+# singleton fed through one task queue and one return queue, so two Streamlit
+# sessions rendering at once could each receive the other's image.
+_RENDER_LOCK = threading.Lock()
+
+
+def _ensure_render_server() -> None:
+    """Start kaleido's persistent Chrome once per process, if it can start.
+
+    Without it every `fig.to_image` launches and tears down its own headless
+    Chrome. Measured on this machine (2026-10-24): one-shot renders took 1.2 s
+    each, left ~4 temp folders apiece, and one of the first 15 never answered
+    -- the 12 h QC test hang and the 43 min CI stall. A persistent server did
+    500 of 500 at 0.07 s. If it cannot start (no Chrome), plotly's own one-shot
+    path is used and raises the usual error.
+    """
+    try:
+        import kaleido
+        kaleido.start_sync_server(silence_warnings=True)
+    except Exception:
+        pass
+
+
+def _abandon_render_server() -> None:
+    """Forget a server whose Chrome stopped answering, so the next render
+    starts a fresh one. Its thread is a daemon blocked on the dead Chrome and
+    goes with the process; `stop_sync_server` would block on it too."""
+    try:
+        import kaleido
+        kaleido._global_server._initialized = False  # private: no public way to drop a hung server
+    except Exception:
+        pass
 
 
 def prompt_save_path(default_dir: Optional[str],
@@ -17,8 +57,8 @@ def prompt_save_path(default_dir: Optional[str],
     """
     Open a native OS "Save As" dialog and return the chosen path.
 
-    Runs tkinter.filedialog.asksaveasfilename in a subprocess (the same pattern
-    used by the "Browse Spectrum Files" button), so the user can choose the
+    Runs tkinter.filedialog.asksaveasfilename in a subprocess (see
+    `native_dialog`), so the user can choose the
     folder AND type the filename. The dialog opens pre-pointed at ``default_dir``
     with ``default_filename`` pre-filled.
 
@@ -41,67 +81,16 @@ def prompt_save_path(default_dir: Optional[str],
     Optional[str]
         Absolute path chosen by the user, or None if the dialog was cancelled.
     """
-    import subprocess
-    import sys
-    import os
-    import tempfile
-    import json
-
-    # NOTE: asksaveasfilename returns a single path; serialize via json.dumps so
-    # paths with spaces/commas/unicode round-trip safely across the subprocess.
-    dialog_script = """
-import tkinter as tk
-from tkinter import filedialog
-import sys
-import json
-
-root = tk.Tk()
-root.withdraw()
-root.wm_attributes('-topmost', 1)
-
-initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-initial_file = sys.argv[2] if len(sys.argv) > 2 else ""
-default_ext = sys.argv[3] if len(sys.argv) > 3 else ""
-
-path = filedialog.asksaveasfilename(
-    title="__TITLE__",
-    initialdir=initial_dir,
-    initialfile=initial_file,
-    defaultextension=default_ext,
-    filetypes=__FILETYPES__
-)
-
-root.destroy()
-print(json.dumps(path))
-"""
-    # Inject title and filetypes (kept simple: title has no quotes/newlines).
-    dialog_script = dialog_script.replace("__TITLE__", title)
-    dialog_script = dialog_script.replace("__FILETYPES__", repr([list(ft) for ft in filetypes]))
-
-    safe_dir = default_dir if (default_dir and os.path.isdir(default_dir)) else ""
-
-    script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
-            f.write(dialog_script)
-            script_path = f.name
-
-        result = subprocess.run(
-            [sys.executable, script_path, safe_dir, default_filename, default_extension],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-    finally:
-        if script_path and os.path.exists(script_path):
-            os.unlink(script_path)
-
-    raw = result.stdout.strip()
-    if not raw:
-        return None
-    path = json.loads(raw)
+    path = run_dialog(
+        "asksaveasfilename",
+        title=title,
+        initialdir=existing_dir(default_dir),
+        initialfile=default_filename,
+        defaultextension=default_extension,
+        filetypes=[list(ft) for ft in filetypes],
+    )
     # Empty string => user cancelled the dialog.
-    return path if path else None
+    return path or None
 
 
 def prompt_save_folder(default_dir: Optional[str], title: str = "Select Folder") -> Optional[str]:
@@ -126,58 +115,8 @@ def prompt_save_folder(default_dir: Optional[str], title: str = "Select Folder")
     Optional[str]
         Absolute path chosen by the user, or None if the dialog was cancelled.
     """
-    import subprocess
-    import sys
-    import os
-    import tempfile
-    import json
-
-    dialog_script = """
-import tkinter as tk
-from tkinter import filedialog
-import sys
-import json
-
-root = tk.Tk()
-root.withdraw()
-root.wm_attributes('-topmost', 1)
-
-initial_dir = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] else ""
-
-path = filedialog.askdirectory(
-    title="__TITLE__",
-    initialdir=initial_dir,
-)
-
-root.destroy()
-print(json.dumps(path))
-"""
-    dialog_script = dialog_script.replace("__TITLE__", title)
-
-    safe_dir = default_dir if (default_dir and os.path.isdir(default_dir)) else ""
-
-    script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.py') as f:
-            f.write(dialog_script)
-            script_path = f.name
-
-        result = subprocess.run(
-            [sys.executable, script_path, safe_dir],
-            capture_output=True,
-            text=True,
-            timeout=300
-        )
-    finally:
-        if script_path and os.path.exists(script_path):
-            os.unlink(script_path)
-
-    raw = result.stdout.strip()
-    if not raw:
-        return None
-    path = json.loads(raw)
-    # Empty string => user cancelled the dialog.
-    return path if path else None
+    path = run_dialog("askdirectory", title=title, initialdir=existing_dir(default_dir))
+    return path or None
 
 
 def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 2.0) -> bytes:
@@ -214,19 +153,31 @@ def export_figure_png(fig, width: int = 1200, height: int = 600, scale: float = 
     >>> with open('plot.png', 'wb') as f:
     ...     f.write(png)
     """
-    try:
-        png_bytes = fig.to_image(
-            format='png',
-            width=width,
-            height=height,
-            scale=scale,
-        )
-        return png_bytes
-    except Exception as e:
+    box = {}
+
+    def render():
+        try:
+            box["png"] = fig.to_image(format='png', width=width, height=height, scale=scale)
+        except Exception as e:  # handed back to the caller's thread below
+            box["error"] = e
+
+    with _RENDER_LOCK:
+        _ensure_render_server()
+        worker = threading.Thread(target=render, daemon=True)
+        worker.start()
+        worker.join(RENDER_TIMEOUT_S)
+        if worker.is_alive():
+            _abandon_render_server()
+            raise RuntimeError(
+                f"PNG export timed out after {RENDER_TIMEOUT_S:.0f} s: the Chrome renderer "
+                f"stopped answering. Try again; a fresh renderer is started next time."
+            )
+    if "error" in box:
         raise RuntimeError(
-            f"PNG export failed: {e}. "
+            f"PNG export failed: {box['error']}. "
             f"Make sure kaleido is installed: pip install kaleido"
-        ) from e
+        ) from box["error"]
+    return box["png"]
 
 
 def export_figure_html(fig) -> str:

@@ -1,0 +1,37 @@
+{
+  "material_name": "WSe2_QC (frozen v5.34.0)",
+  "enabled": true,
+  "description": "Frozen copy of WSe2_QC's PL block at v5.34.0 for the production PL golden fit. Do not edit: tune data/materials.json instead.",
+  "raman": null,
+  "pl": {
+    "x_range_enabled": false,
+    "x_min": null,
+    "x_max": null,
+    "despike_threshold": 8.0,
+    "baseline_algorithm": "ALS",
+    "baseline_degree": null,
+    "baseline_lambda": 50000.0,
+    "baseline_p": 0.01,
+    "peak_templates": [
+      {
+        "peak_label": "Exciton",
+        "center": 765.0,
+        "center_tolerance": 15.0,
+        "width_fwhm": 30.0,
+        "shape": 0.3,
+        "color": "#d62728"
+      },
+      {
+        "peak_label": "Trion",
+        "center": 780.0,
+        "center_tolerance": 15.0,
+        "width_fwhm": 40.0,
+        "shape": 0.3,
+        "color": "#9467bd"
+      }
+    ],
+    "exclusion_ranges": "650-880",
+    "max_iterations": 10000,
+    "fit_starts": 3
+  }
+}

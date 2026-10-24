@@ -1,0 +1,12 @@
+{
+  "_comment": "Replace `preset` with the material's to_dict() as used for the reference fit (copy the object from data/materials.json). `mode` is optional when the input file name starts with RM_ or PL_.",
+  "mode": "Raman",
+  "preset": {
+    "material_name": "WSe2",
+    "enabled": true,
+    "description": "copy the real block here",
+    "raman": null,
+    "pl": null,
+    "optical": {}
+  }
+}

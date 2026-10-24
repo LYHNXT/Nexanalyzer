@@ -60,6 +60,7 @@ from modules.onenote.ui.onenote_state import (
 )
 from modules.optical.ui.qc_report_state import get_qc_report_state
 from modules.optical.ui.qc_report_state import reset_results as reset_qc_results
+from modules.optical.ui.qc_report_state import select_folder as select_qc_folder
 from modules.runcard.ui.runcard_state import get_runcard_state
 from modules.runcard.ui.runcard_state import reset_results as reset_runcard_results
 from modules.spectra.io.preset_store import load_presets
@@ -355,10 +356,8 @@ with col_qc:
                 # gets the wafer leaf and never the tool root — pointed at
                 # HA1P01 it returns a silently empty report, not an error.
                 if qc_state.get("folder") != str(optical):
-                    qc_state["folder"] = str(optical)
-                    qc_state["scan"] = scan_sample_folder(str(optical))
-                    qc_state["magnification"] = default_magnification(qc_state["scan"])
-                    reset_qc_results(qc_state)
+                    qc_scan = scan_sample_folder(str(optical))
+                    select_qc_folder(qc_state, str(optical), qc_scan, default_magnification(qc_scan))
                 st.switch_page("pages/2_QC_Report.py")
         elif optical is not None:
             # The pre-202609 months are flat `.wip` project files, so there is
@@ -417,10 +416,23 @@ if not config.configured:
         "permission `Notes.ReadWrite.All`, public client flows enabled)."
     )
 else:
-    auth = graph_client.Auth(config)
-    token = auth.token_silent()
+    # Built once per session and config, not per rerun: MSAL's constructor does
+    # instance discovery over the network. Offline, behind a proxy or with a
+    # mistyped tenant it raises -- said here, so the failed-uploads list below
+    # still renders instead of a traceback replacing the page.
+    try:
+        if state.get("auth_config") != config:
+            state["auth"], state["auth_config"] = graph_client.Auth(config), config
+        auth = state["auth"]
+        token = auth.token_silent()
+    except Exception as e:
+        state["auth"] = state["auth_config"] = None
+        st.error(f"Could not reach Microsoft sign-in: {e}")
+        auth = token = None
 
-    if token is None:
+    if auth is None:
+        pass  # the error above says why
+    elif token is None:
         flow = state.get("device_flow")
         if flow is None:
             if st.button("Sign in to OneNote"):
@@ -470,8 +482,8 @@ else:
             st.caption("Nothing is ready for this wafer yet — build it above first.")
         else:
             picked = [
-                (kind, make) for kind, make in choices
-                if st.checkbox(kind, value=True, key=f"onenote_pub_{kind}")
+                (kind, make) for index, (kind, make) in enumerate(choices)
+                if st.checkbox(kind, value=True, key=f"onenote_pub_{index}_{kind}")
             ]
             check = state.get("material_check")
             mismatch = check is not None and check.verdict == prefix_store.MISMATCH

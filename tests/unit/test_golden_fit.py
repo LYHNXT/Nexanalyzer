@@ -6,8 +6,16 @@ the same ``execute_auto_workflow`` the app's "Run" button calls -- parse,
 x-range, despike, baseline, Voigt fit -- and every reported number is compared
 with the record. The sets (``GOLDEN_SETS``):
 
-* ``tests/fixtures/golden_fit/`` -- HKU-20230524-2 (WO3+Se, i.e. WSe2) RM_1 and
-  PL_1, preset ``wse2_preset.json``.
+* ``tests/fixtures/golden_fit/HADI51/`` and ``.../VA1P012504023/`` -- one PL
+  spectrum each (PL_5) from an HA1P01 and a VA production wafer, preset
+  ``wse2_qc_pl_preset.json`` (WSe2_QC's PL block at v5.34.0). Chosen in v5.34.0
+  from a screen of HA/VA PL spectra for R2 >= 0.999 and well-conditioned fits
+  (a 1e-9 input perturbation moves no reported number by more than 3e-8).
+
+The HKU-20230524-2 set (RM_1, PL_1, the old research "WSe2" preset) was
+retired in v5.34.0: RM_1 was an 8-peak fit at R2 0.896, ill-conditioned enough
+to move ~1e-4 between CPUs, and PL_1 a 2023 non-production sample on a preset
+no report uses.
 * ``tests/fixtures/golden_fit/DDAA10/`` -- DDAA10 RM_1..RM_3, three single
   Raman spectra of a WSe2 film, preset ``wse2_qc_preset.json`` (WSe2_QC's Raman
   block at v5.30.0: one 100-315 cm-1 window, zero-line calibration, one start,
@@ -48,13 +56,14 @@ from modules.spectra.models.preset import MaterialPreset  # noqa: E402
 from modules.spectra.models.spectrum import ProcessingSettings, SpectrumFile  # noqa: E402
 from modules.spectra.processing.auto_workflow import execute_auto_workflow  # noqa: E402
 from modules.spectra.processing.parser import detect_mode_from_filename, parse_spectrum  # noqa: E402
-from modules.spectra.processing.peak_metrics import peak_intensity_and_stderr  # noqa: E402
+from modules.spectra.processing.peak_metrics import peak_intensity_and_stderr, peak_is_measured  # noqa: E402
 
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "fixtures" / "golden_fit"
 #: (set name, folder holding the spectra, preset and expected.json, preset file, spectra)
 GOLDEN_SETS = (
-    ("HKU-20230524-2", GOLDEN_DIR, "wse2_preset.json", ("RM_1.txt", "PL_1.txt")),
     ("DDAA10", GOLDEN_DIR / "DDAA10", "wse2_qc_preset.json", ("RM_1.txt", "RM_2.txt", "RM_3.txt")),
+    ("HADI51", GOLDEN_DIR / "HADI51", "wse2_qc_pl_preset.json", ("PL_5.txt",)),
+    ("VA1P012504023", GOLDEN_DIR / "VA1P012504023", "wse2_qc_pl_preset.json", ("PL_5.txt",)),
 )
 CASES = [(name, filename) for name, _, _, spectra in GOLDEN_SETS for filename in spectra]
 
@@ -62,6 +71,23 @@ CASES = [(name, filename) for name, _, _, spectra in GOLDEN_SETS for filename in
 # is for a numpy/scipy/lmfit upgrade reordering floating-point sums, which moves
 # the 8th digit, never the 5th. A real algorithm change moves far more.
 RTOL = 1e-5
+
+# On another machine (CI, a second PC) the same code fits to different last
+# digits, and an ill-conditioned fit amplifies them: on the retired HKU RM_1 a
+# 1-ulp change in the Voigt function moved chi-squared by ~1e-4 and the
+# unmeasured C and LB peaks by ~3 %, with the BLAS kernel pinned or not. With
+# NEXANALYZER_GOLDEN_PORTABLE=1 (set by CI) the fit is compared at
+# PORTABLE_FIT_RTOL and only the peaks the record marks measured
+# (peak_metrics.peak_is_measured) at PORTABLE_PEAK_RTOL, on PORTABLE_PEAK_KEYS:
+# rounding drifts those by <= 1e-3, a real algorithm change by percent. Shape is
+# left out (it drifts freely near 0) and so are the stderrs (whether lmfit can
+# estimate an ill-conditioned covariance at all flips with the last digit).
+# The strict comparison still runs in the git hooks, on the machine that wrote
+# the record.
+PORTABLE = os.environ.get("NEXANALYZER_GOLDEN_PORTABLE") == "1"
+PORTABLE_FIT_RTOL = 1e-3
+PORTABLE_PEAK_RTOL = 1e-2
+PORTABLE_PEAK_KEYS = ("center", "intensity", "area", "fwhm", "measured")
 
 
 def _golden_set(name: str):
@@ -98,6 +124,8 @@ def fit_summary(set_name: str, filename: str) -> dict:
             "fwhm": p.width_fwhm,
             "fwhm_stderr": p.width_stderr,
             "shape": p.shape,
+            # Which peaks a portable comparison may trust (see PORTABLE).
+            "measured": peak_is_measured(p, fit),
         }
     return {
         "mode": spectrum.mode,
@@ -133,14 +161,19 @@ def test_fit_matches_golden_record(set_name, filename):
     assert actual["converged"] == expected["converged"], "convergence changed"
     assert set(actual["peaks"]) == set(expected["peaks"]), "peak labels changed"
 
+    fit_rtol, peak_rtol = (PORTABLE_FIT_RTOL, PORTABLE_PEAK_RTOL) if PORTABLE else (RTOL, RTOL)
     drift = []
     for key in ("r_squared", "chi_squared"):
-        if not np.isclose(actual[key], expected[key], rtol=RTOL, atol=0):
+        if not np.isclose(actual[key], expected[key], rtol=fit_rtol, atol=0):
             drift.append(f"{key}: {expected[key]!r} -> {actual[key]!r}")
     for label, exp_peak in expected["peaks"].items():
+        if PORTABLE and not exp_peak["measured"]:
+            continue
         for key, exp_value in exp_peak.items():
+            if PORTABLE and key not in PORTABLE_PEAK_KEYS:
+                continue
             value = actual["peaks"][label][key]
-            if not np.isclose(value, exp_value, rtol=RTOL, atol=1e-12, equal_nan=True):
+            if not np.isclose(value, exp_value, rtol=peak_rtol, atol=1e-12, equal_nan=True):
                 drift.append(f"{label}.{key}: {exp_value!r} -> {value!r}")
 
     assert not drift, (

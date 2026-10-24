@@ -8,6 +8,10 @@ on:
     branches: [main]
   push:
     branches: [main]
+  # Weekly, on an unchanged tree: catches the runner image or a pinned wheel
+  # going bad between PRs, before the next PR has to discover it.
+  schedule:
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +38,7 @@ jobs:
         run: python scripts/check_algo_change.py ${{ github.event.before }}
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
 
-  # The numbers: the golden fit and the locked OM contrast record, on the pinned stack.
+  # The numbers: the golden fit and the locked OM contrast record, on the locked dependencies.
   algorithms:
     name: Golden fit + locked numbers
     runs-on: windows-latest   # the app's own platform
@@ -48,19 +52,41 @@ jobs:
           cache-dependency-path: requirements-lock.txt
       - name: Install (pinned)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest ruff -c requirements-lock.txt
+          # A fresh venv, so `pip check` sees only our tree: the runner's own
+          # Python ships pipx, whose platformdirs floor our lock undercuts
+          # (2026-10-24: "pipx 1.18.4 has requirement platformdirs>=4.12.2").
+          # Outside the checkout, so ruff and pytest never walk its site-packages.
+          python -m venv "$env:RUNNER_TEMP\ci-venv"
+          "$env:RUNNER_TEMP\ci-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install --upgrade pip
+          & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install -r requirements.txt pytest ruff -c requirements-lock.txt
+      - name: Dependencies are consistent
+        run: python -m pip check
       - name: Lint (pyflakes + syntax only)
         run: python -m ruff check .
       - name: Golden fit (must not skip)
         env:
           NEXANALYZER_REQUIRE_GOLDEN: "1"
+          # Not the machine that wrote the record: compare what rounding cannot
+          # move (tests/unit/test_golden_fit.py, PORTABLE).
+          NEXANALYZER_GOLDEN_PORTABLE: "1"
         run: python -m pytest tests/unit/test_golden_fit.py -q -p no:cacheprovider
       - name: Locked algorithm numbers
         run: >
           python -m pytest -q -p no:cacheprovider
           tests/unit/test_om_contrast.py tests/unit/test_zero_line.py
           tests/unit/test_peak_metrics.py tests/unit/test_fitting.py
+      # The other tier: not "unchanged" but "right", against independent
+      # references (tests/golden/README.md). Its report is the validation record.
+      - name: Validated golden set
+        run: python -m tests.golden.run --out dist/golden
+      - name: Golden report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-report
+          path: dist/golden/
+          if-no-files-found: ignore
 
   # Everything else.
   tests:
@@ -77,9 +103,33 @@ jobs:
           cache-dependency-path: requirements-lock.txt
       - name: Install (pinned)
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest ruff -c requirements-lock.txt
-      - name: pytest
-        env:
-          NEXANALYZER_REQUIRE_GOLDEN: "1"
-        run: python -m pytest -q -p no:cacheprovider
+          # A fresh venv, so `pip check` sees only our tree: the runner's own
+          # Python ships pipx, whose platformdirs floor our lock undercuts
+          # (2026-10-24: "pipx 1.18.4 has requirement platformdirs>=4.12.2").
+          # Outside the checkout, so ruff and pytest never walk its site-packages.
+          python -m venv "$env:RUNNER_TEMP\ci-venv"
+          "$env:RUNNER_TEMP\ci-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install --upgrade pip
+          & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install -r requirements.txt pytest pytest-cov ruff -c requirements-lock.txt
+      # The golden fit already ran, required, in `algorithms`; everything else
+      # runs here under coverage. The floor is a ratchet, set just under the
+      # measured total: raise it as coverage grows, never lower it to pass.
+      # A test over 10 min dumps every thread's stack, so a hang on the runner
+      # names itself (NexAnalyzer_TSMC, 2026-10-24: a QC flow test stalled
+      # CI for 43 min and took 12 s locally).
+      - name: pytest (with coverage)
+        run: >
+          python -m pytest -q -p no:cacheprovider -o faulthandler_timeout=600
+          --ignore=tests/unit/test_golden_fit.py
+          --cov=core --cov=modules --cov-report=term-missing:skip-covered
+          --cov-report=xml:coverage.xml --cov-fail-under=87
+          --junitxml=junit.xml --durations=15
+      - name: Upload test and coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            junit.xml
+            coverage.xml
+          if-no-files-found: ignore

@@ -12,22 +12,44 @@ Architecture, data model and the reasoning behind them live in
 ```bash
 pytest                  # ~1,560 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
+python -m tests.golden.run   # validated golden set -> dist/golden/golden_report.md
+powershell -File scripts\ship.ps1   # strict golden + gates, push, open the PR, wait for CI
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
+
+The tripwire (below) proves *unchanged*; the validated set under
+[tests/golden/](tests/golden/README.md) proves *right*: every case carries an
+independent `reference`, and the runner refuses one without.
 
 ## Golden fit — commits and pushes are gated on it
 
 `.githooks/` (enable per clone: `git config core.hooksPath .githooks`) runs
 [tests/unit/test_golden_fit.py](tests/unit/test_golden_fit.py) before every
 commit and push two golden sets, each fitted with its own frozen preset and
-reproducing its `expected.json` to 1e-5: HKU-20230524-2's RM_1 and PL_1 (the
-WSe2 preset, `tests/fixtures/golden_fit/`) and DDAA10's RM_1..3 (WSe2_QC's
-Raman block at v5.30.0, `tests/fixtures/golden_fit/DDAA10/`).
+reproducing its `expected.json` to 1e-5: DDAA10's RM_1..3 (WSe2_QC's Raman
+block at v5.30.0, `tests/fixtures/golden_fit/DDAA10/`) lock Raman, and one
+production PL_5 each from HADI51 and VA1P012504023 (WSe2_QC's PL block at
+v5.34.0, `tests/fixtures/golden_fit/<wafer>/`) lock PL. The HKU-20230524-2
+pair was retired in v5.34.0 (RM_1 an ill-conditioned 8-peak fit, PL_1 a
+non-production sample, both on a preset no report uses); don't bring it back.
 A failure means the parser, despike, baseline or fit changed. Preset edits don't
 trip it. Moving the numbers on purpose: `python tests/unit/test_golden_fit.py
 --regenerate [SET]` in the same commit, and say so in CHANGELOG. The five `.txt`
 spectra are committed through `.gitignore` exceptions — the only measurement
 data in the repo; don't widen them further.
+
+**1e-5 holds only on the machine that wrote the record.** Elsewhere the last
+digits differ (CPU, BLAS kernel, Windows runtime) and an ill-conditioned fit
+amplifies them, so CI sets `NEXANALYZER_GOLDEN_PORTABLE=1`: R²/chi² at 1e-3,
+and only measured peaks' (`peak_is_measured`) centre/FWHM/intensity/area at
+1 %. On the current sets rounding moves those by <= 7e-5. The hooks stay
+strict, and the record is regenerated only on the designated machine (this
+laptop). A clone on another PC opts its hooks into portable mode with
+`git config nexanalyzer.goldenPortable true`. A portable failure is
+a real change; don't loosen it to pass. Don't try to make fits bit-reproducible
+across machines by pinning the OpenBLAS kernel either: v5.33.0 did that and
+v5.35.0 removed it, because a 1-ulp change in the Voigt function alone moved
+HKU RM_1's chi-squared by ~1e-4.
 
 **CI repeats this on every pull request** (`.github/workflows/ci.yml`), on the
 versions pinned in `requirements-lock.txt`, and adds `scripts/check_algo_change.py`:
@@ -70,9 +92,14 @@ The full reasoning is in the
   rule" in docs/Summary.md.
 - **The diagnostic ratios live in one constant.** `peak_metrics.RAMAN_RATIO_PAIRS`
   is `LA/E2g+A1g` (defect), `2LA/E2g+A1g` (layer/resonance, v5.29.0, not a defect
-  metric), `C/LB` and `B2g/E2g+A1g` (restored in v5.25.0); only LA has a spec line. The
+  metric), `C/LB` and `B2g/E2g+A1g` (restored in v5.25.0), and MoS2's
+  `2LA(M)/A1g` (v5.34.0; table and workbook only -- MoS2's figure has no ratio
+  column); only LA has a spec line. The
   figure skips a ratio whose peaks a preset does not fit, as the table already does. The quality figure and the QC Report's summary
-  table both read it; don't write the pair out again.
+  table both read it; don't write the pair out again. Which *values* each
+  surface uses is one function too, `peak_metrics.ratio_values_by_point`
+  (gate, wafer fence) plus the region fence -- table and figure title agree
+  by construction since v5.34.0.
 - **Spec lines are drawn and never evaluated, and there are only three**
   (red dashed since v5.32.0). `peak_quality` carries Raman's `E2g+A1g` FWHM =
   7 and `LA/E2g+A1g` = 0.13 (drawn as 13 %), and PL's Raw FWHM = 40 (on

@@ -14,7 +14,8 @@
         "area_stderr": NaN,
         "fwhm": 4.997143510548355,
         "fwhm_stderr": NaN,
-        "shape": 0.8361032625658024
+        "shape": 0.8361032625658024,
+        "measured": true
       },
       "2LA": {
         "center": 260.99309834344865,
@@ -25,7 +26,8 @@
         "area_stderr": NaN,
         "fwhm": 7.311298972100933,
         "fwhm_stderr": NaN,
-        "shape": 0.1183293273804375
+        "shape": 0.1183293273804375,
+        "measured": true
       },
       "2ZA(M)": {
         "center": 239.86424870760158,
@@ -36,7 +38,8 @@
         "area_stderr": NaN,
         "fwhm": 8.999999999894943,
         "fwhm_stderr": NaN,
-        "shape": 0.9050767664845782
+        "shape": 0.9050767664845782,
+        "measured": false
       },
       "B2g": {
         "center": 311.7853976576949,
@@ -47,7 +50,8 @@
         "area_stderr": NaN,
         "fwhm": 5.999999999941207,
         "fwhm_stderr": NaN,
-        "shape": 1.2088023848947062e-06
+        "shape": 1.2088023848947062e-06,
+        "measured": false
       },
       "LA": {
         "center": 130.9625782405482,
@@ -58,7 +62,8 @@
         "area_stderr": NaN,
         "fwhm": 36.166937335743114,
         "fwhm_stderr": NaN,
-        "shape": 2.6920829255635696e-11
+        "shape": 2.6920829255635696e-11,
+        "measured": true
       }
     }
   },
@@ -77,7 +82,8 @@
         "area_stderr": NaN,
         "fwhm": 5.258500695605466,
         "fwhm_stderr": NaN,
-        "shape": 0.843639265676275
+        "shape": 0.843639265676275,
+        "measured": true
       },
       "2LA": {
         "center": 260.72305609785013,
@@ -88,7 +94,8 @@
         "area_stderr": NaN,
         "fwhm": 7.350620823166318,
         "fwhm_stderr": NaN,
-        "shape": 0.08978482261890836
+        "shape": 0.08978482261890836,
+        "measured": true
       },
       "2ZA(M)": {
         "center": 240.07570639491738,
@@ -99,7 +106,8 @@
         "area_stderr": NaN,
         "fwhm": 8.999999999894943,
         "fwhm_stderr": NaN,
-        "shape": 0.9050767690942704
+        "shape": 0.9050767690942704,
+        "measured": false
       },
       "B2g": {
         "center": 310.2585267783474,
@@ -110,7 +118,8 @@
         "area_stderr": NaN,
         "fwhm": 5.999999720932712,
         "fwhm_stderr": NaN,
-        "shape": 2.2772827367438273e-08
+        "shape": 2.2772827367438273e-08,
+        "measured": false
       },
       "LA": {
         "center": 130.6520077360848,
@@ -121,7 +130,8 @@
         "area_stderr": NaN,
         "fwhm": 37.37131657697891,
         "fwhm_stderr": NaN,
-        "shape": 6.786881454817514e-10
+        "shape": 6.786881454817514e-10,
+        "measured": true
       }
     }
   },
@@ -140,7 +150,8 @@
         "area_stderr": 70.16773471949371,
         "fwhm": 4.760549143982379,
         "fwhm_stderr": 0.0973353119912215,
-        "shape": 0.828624150268551
+        "shape": 0.828624150268551,
+        "measured": true
       },
       "2LA": {
         "center": 261.09807214851975,
@@ -151,7 +162,8 @@
         "area_stderr": 46.60501556247181,
         "fwhm": 7.234000841922295,
         "fwhm_stderr": 0.30810380298250695,
-        "shape": 0.323868623708312
+        "shape": 0.323868623708312,
+        "measured": true
       },
       "2ZA(M)": {
         "center": 240.9673451619231,
@@ -162,7 +174,8 @@
         "area_stderr": 64.13307937536528,
         "fwhm": 8.999999999886938,
         "fwhm_stderr": 77.25778220270112,
-        "shape": 0.9050764377418908
+        "shape": 0.9050764377418908,
+        "measured": false
       },
       "B2g": {
         "center": 309.8139010339321,
@@ -173,7 +186,8 @@
         "area_stderr": 22.779572316879616,
         "fwhm": 5.999999999470841,
         "fwhm_stderr": 382650.9514791307,
-        "shape": 0.8616670703282081
+        "shape": 0.8616670703282081,
+        "measured": false
       },
       "LA": {
         "center": 130.85308990770105,
@@ -184,7 +198,8 @@
         "area_stderr": 84.4107471162488,
         "fwhm": 37.526308034518095,
         "fwhm_stderr": 2.862773676880227,
-        "shape": 0.4508935171194354
+        "shape": 0.4508935171194354,
+        "measured": true
       }
     }
   }
