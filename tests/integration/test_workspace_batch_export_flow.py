@@ -1,4 +1,4 @@
-"""Integration test for the Spectra sidebar's "Save PNGs to folder" batch
+"""Integration test for the Spectra page's "Save PNGs" batch
 image export button.
 
 Runs through AppTest rather than calling the export helpers directly: the
@@ -12,7 +12,7 @@ import os
 import numpy as np
 from streamlit.testing.v1 import AppTest
 
-import modules.spectra.ui.sidebar as sidebar_module
+import modules.spectra.ui.workspace as workspace_module
 from core.paths import PROJECT_ROOT
 
 
@@ -39,10 +39,10 @@ def _app_with_fitted_files(tmp_path, count=3):
     at.session_state["pending_files_to_load"] = paths
     at.run()
 
-    material = next(s for s in at.sidebar.selectbox if "aterial" in (s.label or ""))
+    material = next(s for s in at.selectbox if "aterial" in (s.label or ""))
     material.set_value("Silicon").run()
 
-    next(b for b in at.sidebar.button if "Run All Files" in b.label).click().run()
+    next(b for b in at.button if "Run All Files" in b.label).click().run()
     assert all(f.fit_done for f in at.session_state["files"].values())
     return at
 
@@ -53,8 +53,8 @@ class TestBatchImageExportButton:
         out_dir.mkdir()
         at = _app_with_fitted_files(tmp_path, count=3)
 
-        monkeypatch.setattr(sidebar_module, "prompt_save_folder", lambda **kwargs: str(out_dir))
-        next(b for b in at.sidebar.button if "Save PNGs to folder" in b.label).click().run()
+        monkeypatch.setattr(workspace_module, "prompt_save_folder", lambda **kwargs: str(out_dir))
+        next(b for b in at.button if "Save PNGs" in b.label).click().run()
 
         assert not at.exception
         saved = os.listdir(out_dir)
@@ -66,11 +66,11 @@ class TestBatchImageExportButton:
         no-op, not an error."""
         at = _app_with_fitted_files(tmp_path, count=3)
 
-        monkeypatch.setattr(sidebar_module, "prompt_save_folder", lambda **kwargs: None)
-        next(b for b in at.sidebar.button if "Save PNGs to folder" in b.label).click().run()
+        monkeypatch.setattr(workspace_module, "prompt_save_folder", lambda **kwargs: None)
+        next(b for b in at.button if "Save PNGs" in b.label).click().run()
 
         assert not at.exception
-        assert not any("Saved" in m.value for m in at.sidebar.success)
+        assert not any("Saved" in m.value for m in at.success)
 
     def test_the_success_message_survives_the_run(self, tmp_path, monkeypatch):
         """Matches the master-CSV button's own convention: the summary must
@@ -80,8 +80,8 @@ class TestBatchImageExportButton:
         out_dir.mkdir()
         at = _app_with_fitted_files(tmp_path, count=3)
 
-        monkeypatch.setattr(sidebar_module, "prompt_save_folder", lambda **kwargs: str(out_dir))
-        next(b for b in at.sidebar.button if "Save PNGs to folder" in b.label).click().run()
+        monkeypatch.setattr(workspace_module, "prompt_save_folder", lambda **kwargs: str(out_dir))
+        next(b for b in at.button if "Save PNGs" in b.label).click().run()
 
-        messages = [m.value for m in at.sidebar.success]
+        messages = [m.value for m in at.success]
         assert any("3" in m and str(out_dir) in m for m in messages), messages

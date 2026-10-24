@@ -6,7 +6,7 @@ on screen beside settings it was not made with and said nothing. `fit_stale`
 existed but covered despike and baseline only, and nothing rendered it.
 
 These exercise the two helpers directly. Whether the warning is *drawn* is one
-`st.warning` call in `render_sidebar`; what it decides is the part worth
+`st.warning` call in `render_run_setup`; what it decides is the part worth
 pinning.
 """
 
@@ -17,7 +17,7 @@ from modules.spectra.models.preset import (
     PeakTemplate,
     TechniquePreset,
 )
-from modules.spectra.ui.sidebar import (
+from modules.spectra.ui.workspace import (
     _FIT_PRESET_KEY,
     _remember_fit_preset,
     _warn_if_preset_moved,

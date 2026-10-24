@@ -48,8 +48,8 @@ st.set_page_config(
     page_title=APP_NAME,
     page_icon="📊",
     layout="wide",
-    # Expanded by default — the sidebar (file upload, material preset,
-    # Run Auto-Workflow) is the only way to process a spectrum.
+    # Expanded by default — the sidebar is the page navigation. (Until
+    # v5.43.0 it also held the Spectra page's whole workflow.)
     initial_sidebar_state="expanded",
 )
 

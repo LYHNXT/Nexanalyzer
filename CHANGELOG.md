@@ -5,6 +5,39 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.43.0] - 2026-10-24
+
+### Changed
+
+- **The Spectra page's workflow moved out of the sidebar into the page**,
+  top to bottom in the order it is used (`modules/spectra/ui/workspace.py`,
+  replacing `sidebar.py`; the sidebar is now only the page navigation):
+  - **Run setup**: the file switcher (◀ / dropdown / ▶, a position counter,
+    **Add files…**, **Remove File**, **Delete All**) and, for 2-30 files, a
+    row of file buttons with a fit-status dot (green fitted, orange stopped at
+    max_iterations, grey not run); then **Material preset**, **Technique**
+    (what the filename says, or "assumed"), **Run Auto-Workflow**, **Run All
+    Files (N)** and **Reset to Raw**. Run and Run All Files are shown
+    disabled until a preset is picked, rather than hidden.
+  - **Fitted spectrum**: an **On background / Baseline removed** switch
+    replaces the "Peaks on Background" checkbox and is pinned the same way;
+    the other View Options are a row of toggles above the plot instead of an
+    expander at the bottom of the sidebar. The plot is the same Plotly figure
+    from `create_unified_figure`.
+  - **Fit results**: the table gains **Area** (the integral) and **Status**
+    (`peak_is_measured`: Measured, On fit limit, Below 3× noise) and names its
+    unit in each header; R², χ², fit status and the pipeline are cards under it.
+  - **Exports**, top right: **Quick export** (PNG, HTML, CSV of this file) and
+    **Batch export** (Save Master CSV…, Save PNGs…), shown disabled until
+    there is something to export.
+- The integration tests that drove the sidebar now drive the page, and were
+  renamed `test_workspace_*`; `test_spectra_workspace.py` covers the new
+  switcher, the baseline switch and the table's columns.
+
+No numbers move: nothing here touches parsing, fitting or the exports'
+contents. The table's Intensity is still `peak_intensity()`, the same number
+both CSVs carry.
+
 ## [5.42.0] - 2026-10-24
 
 ### Added

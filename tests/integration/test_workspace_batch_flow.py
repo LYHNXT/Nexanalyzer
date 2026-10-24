@@ -1,6 +1,7 @@
-"""Integration test for the sidebar's "Run All Files" batch path.
+"""Integration test for the Spectra page's "Run All Files" batch path.
 
-Two defects motivated it, both in modules/spectra/ui/sidebar.py:
+Two defects motivated it, both in the batch path (then
+modules/spectra/ui/sidebar.py, now workspace.py):
 
   - the progress bar advanced BEFORE each file's work, so it read 100% for the
     whole of the final (usually slowest) fit and was then torn down;
@@ -31,7 +32,7 @@ def _write_silicon_raman_file(path, seed, peak_center=520.0):
 def _app_with_files(tmp_path, count=3):
     """The Spectra page with `count` files loaded through the app's own loader.
 
-    `pending_files_to_load` is the seam the Browse button writes and the sidebar
+    `pending_files_to_load` is the seam the Browse button writes and the page
     pops, so the fixture exercises the real parse-and-register path.
     """
     paths = []
@@ -53,7 +54,7 @@ def _select_silicon(at):
     format_func, so set_value needs the tuple; passing the formatted label makes
     format_func index into the string ('S (i)').
     """
-    material = next(s for s in at.sidebar.selectbox if "aterial" in (s.label or ""))
+    material = next(s for s in at.selectbox if "aterial" in (s.label or ""))
     material.set_value("Silicon").run()
     return at
 
@@ -64,18 +65,18 @@ class TestRunAllFilesBatch:
         still be able to read how many files succeeded."""
         at = _select_silicon(_app_with_files(tmp_path, count=3))
 
-        next(b for b in at.sidebar.button if "Run All Files" in b.label).click().run()
+        next(b for b in at.button if "Run All Files" in b.label).click().run()
 
         assert not at.exception
-        messages = [m.value for m in at.sidebar.success] + [m.value for m in at.sidebar.warning]
+        messages = [m.value for m in at.success] + [m.value for m in at.warning]
         assert any("3" in m for m in messages), f"no batch summary survived: {messages}"
 
     def test_the_status_resolves_instead_of_spinning(self, tmp_path):
         at = _select_silicon(_app_with_files(tmp_path, count=3))
 
-        next(b for b in at.sidebar.button if "Run All Files" in b.label).click().run()
+        next(b for b in at.button if "Run All Files" in b.label).click().run()
 
-        statuses = at.sidebar.status
+        statuses = at.status
         assert statuses, "no status was rendered for the batch"
         assert statuses[0].state == "complete"
         assert "3" in statuses[0].label
@@ -85,7 +86,7 @@ class TestRunAllFilesBatch:
         off-by-one in the loop would show here."""
         at = _select_silicon(_app_with_files(tmp_path, count=3))
 
-        next(b for b in at.sidebar.button if "Run All Files" in b.label).click().run()
+        next(b for b in at.button if "Run All Files" in b.label).click().run()
 
         files = at.session_state["files"]
         assert len(files) == 3
@@ -97,7 +98,7 @@ class TestRunAllFilesBatch:
         run that renders the results, including the export block below it."""
         at = _select_silicon(_app_with_files(tmp_path, count=3))
 
-        next(b for b in at.sidebar.button if "Run All Files" in b.label).click().run()
+        next(b for b in at.button if "Run All Files" in b.label).click().run()
 
         assert not at.exception
         # show_fit / show_components are written during the batch and read by
@@ -114,14 +115,14 @@ class TestRunAutoWorkflowSingle:
 
     @staticmethod
     def _run(at):
-        next(b for b in at.sidebar.button if "Run Auto-Workflow" in b.label).click().run()
+        next(b for b in at.button if "Run Auto-Workflow" in b.label).click().run()
         return at
 
     def test_the_success_summary_survives_the_run(self, tmp_path):
         at = self._run(_select_silicon(_app_with_files(tmp_path, count=1)))
 
         assert not at.exception
-        assert at.sidebar.success, "the single-run success summary was discarded"
+        assert at.success, "the single-run success summary was discarded"
 
     def test_a_failed_run_says_why(self, tmp_path):
         # Silicon has no PL block, so a PL file cannot be fitted with it.
@@ -134,7 +135,7 @@ class TestRunAutoWorkflowSingle:
         at = self._run(_select_silicon(at))
 
         assert not at.exception
-        assert at.sidebar.error, "a failed run left no error on the page"
+        assert at.error, "a failed run left no error on the page"
 
 
 class TestSameNameFromAnotherFolder:
@@ -169,7 +170,7 @@ class TestSameNameFromAnotherFolder:
     def test_the_rename_is_reported(self, tmp_path):
         at = self._load(self._two_wafers(tmp_path))
 
-        assert any("RM_center (W02).txt" in m.value for m in at.sidebar.info)
+        assert any("RM_center (W02).txt" in m.value for m in at.info)
 
     def test_the_same_file_twice_is_still_skipped(self, tmp_path):
         path = self._two_wafers(tmp_path)[0]
@@ -178,4 +179,4 @@ class TestSameNameFromAnotherFolder:
         at.run()
 
         assert list(at.session_state["files"]) == ["RM_center.txt"]
-        assert any("already loaded" in m.value for m in at.sidebar.info)
+        assert any("already loaded" in m.value for m in at.info)

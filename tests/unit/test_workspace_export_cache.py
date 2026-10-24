@@ -17,7 +17,7 @@ import pytest
 import streamlit as st
 from streamlit.runtime.caching.hashing import update_hash
 
-from modules.spectra.ui.sidebar import _export_png_cached
+from modules.spectra.ui.workspace import _export_png_cached
 from modules.spectra.viz import fit_plot
 
 
@@ -74,7 +74,7 @@ class TestTheFigureIsTheKey:
 
     def test_changed_residuals_miss(self):
         """Residuals are drawn on every Quick Export -- show_residuals defaults
-        to True and the sidebar never passes it. A hand-rolled key that treated
+        to True and the Spectra page never passes it. A hand-rolled key that treated
         them as derivable from Y - total_fit_curve would bet correctness on
         lmfit's sign convention, which nothing here enforces."""
         assert _key(_figure(residual_sign=-1.0)) != _key(_figure())
@@ -100,13 +100,13 @@ class TestTheFigureIsTheKey:
 class TestTheCacheActuallyCaches:
     def test_a_repeat_call_does_not_rasterize_again(self, monkeypatch):
         calls = []
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
         def _counting_export(fig, width, height, scale):
             calls.append((width, height, scale))
             return b"png-bytes"
 
-        monkeypatch.setattr(sidebar_module, "export_figure_png", _counting_export)
+        monkeypatch.setattr(workspace_module, "export_figure_png", _counting_export)
         _export_png_cached.clear()
 
         fig = _figure()
@@ -118,10 +118,10 @@ class TestTheCacheActuallyCaches:
 
     def test_a_different_figure_rasterizes_again(self, monkeypatch):
         calls = []
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
         monkeypatch.setattr(
-            sidebar_module, "export_figure_png",
+            workspace_module, "export_figure_png",
             lambda fig, width, height, scale: calls.append(1) or b"x",
         )
         _export_png_cached.clear()
@@ -133,10 +133,10 @@ class TestTheCacheActuallyCaches:
 
     def test_the_export_size_is_part_of_the_identity(self, monkeypatch):
         calls = []
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
         monkeypatch.setattr(
-            sidebar_module, "export_figure_png",
+            workspace_module, "export_figure_png",
             lambda fig, width, height, scale: calls.append(1) or b"x",
         )
         _export_png_cached.clear()
@@ -152,13 +152,13 @@ class TestTheCacheActuallyCaches:
         re-pays the failing render every rerun. Pinned so nobody assumes the
         error path is cheap."""
         calls = []
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
         def _boom(fig, width, height, scale):
             calls.append(1)
             raise RuntimeError("kaleido missing")
 
-        monkeypatch.setattr(sidebar_module, "export_figure_png", _boom)
+        monkeypatch.setattr(workspace_module, "export_figure_png", _boom)
         _export_png_cached.clear()
 
         fig = _figure()
@@ -175,18 +175,18 @@ class TestCacheIsBounded:
         refit would add one forever."""
         import inspect
 
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
-        assert "max_entries=" in inspect.getsource(sidebar_module)
+        assert "max_entries=" in inspect.getsource(workspace_module)
 
     def test_the_spinner_is_suppressed(self):
         """The default would render 'Running _export_png_cached(...)' inside the
         narrow Quick Export column."""
         import inspect
 
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
-        assert "show_spinner=False" in inspect.getsource(sidebar_module)
+        assert "show_spinner=False" in inspect.getsource(workspace_module)
 
 
 class TestCachesAreIsolatedBetweenTests:
@@ -195,10 +195,10 @@ class TestCachesAreIsolatedBetweenTests:
 
     def test_no_entry_survives_from_another_test(self, monkeypatch):
         calls = []
-        import modules.spectra.ui.sidebar as sidebar_module
+        import modules.spectra.ui.workspace as workspace_module
 
         monkeypatch.setattr(
-            sidebar_module, "export_figure_png",
+            workspace_module, "export_figure_png",
             lambda fig, width, height, scale: calls.append(1) or b"x",
         )
 

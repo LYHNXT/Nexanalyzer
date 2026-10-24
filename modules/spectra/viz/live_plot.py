@@ -9,7 +9,6 @@ Key Functions:
 - create_empty_figure(): Creates placeholder figure when no file loaded
 - compute_default_visibility(): Determines which layers to show based on processing stage
 - create_unified_figure(): Builds main Plotly figure with all data layers
-- render_unified_plot(): Main entry point called from app.py (handles navigation + rendering)
 
 Data Flow:
 ----------
@@ -523,10 +522,10 @@ def create_unified_figure(spectrum: SpectrumFile, layer_config: Optional[Dict[st
 def _update_visibility_for_file(spectrum):
     """Update plot visibility settings based on file's processing state.
 
-    Writes st.session_state['show_raw'] etc., which back the View Options
-    checkboxes in the sidebar. Streamlit forbids writing to a widget's key
-    after that widget has already been instantiated in the same script run,
-    so any caller that isn't itself running before the sidebar (e.g. a
+    Writes st.session_state['show_raw'] etc., which back the layer toggles
+    above the plot. Streamlit forbids writing to a widget's key after that
+    widget has already been instantiated in the same script run, so any
+    caller that isn't itself running before the toggles (e.g. a
     same-run reaction to a widget change) must go through
     sync_pending_file_switch() instead of calling this directly — see there.
 
@@ -569,10 +568,11 @@ def _update_visibility_for_file(spectrum):
 def sync_pending_view_options():
     """Apply a pending "Follow the data again" reset from the View Options.
 
-    That button sits below the checkboxes it would write, so it only records
-    the intent and reruns; the write happens here, before the sidebar
+    That button sits beside the toggles it would write, so it only records
+    the intent and reruns; the write happens here, before the page
     instantiates them. Same ordering constraint as sync_pending_file_switch(),
-    and this must likewise run once per script run before render_sidebar().
+    and this must likewise run once per script run before the layer toggles
+    render (workspace.render_spectrum()).
     """
     if not st.session_state.pop('_pending_view_options_reset', False):
         return
@@ -586,12 +586,12 @@ def sync_pending_view_options():
 def sync_pending_file_switch():
     """
     Apply a pending file switch (from the prev/next arrows or the file
-    selector in render_unified_plot()) and update plot-layer visibility for
-    the newly-current file.
+    switcher in workspace.render_run_setup()) and update plot-layer
+    visibility for the newly-current file.
 
-    Must be called once per script run, before render_sidebar() — the
-    sidebar instantiates the View Options checkboxes (key="show_raw" etc.),
-    and Streamlit raises StreamlitAPIException if st.session_state[key] is
+    Must be called once per script run, before the page renders the layer
+    toggles (key="show_raw" etc., in workspace.render_spectrum()): Streamlit
+    raises StreamlitAPIException if st.session_state[key] is
     written after that key's widget has already rendered in the same run.
     Running this first keeps the write strictly before the widget.
     """
@@ -603,141 +603,3 @@ def sync_pending_file_switch():
     if target in files:
         st.session_state['current_file'] = target
         _update_visibility_for_file(files[target])
-
-
-def render_unified_plot():
-    """
-    Render the unified plot in the center panel.
-
-    This function is called from app.py within the center column (70% width).
-    Handles file navigation UI and plot rendering.
-    """
-    # ==================== FILE NAVIGATION UI ====================
-    # Get files dict and current_file from Streamlit session state
-    # Session state persists across Streamlit reruns (like global variables)
-    files = st.session_state.get("files", {})  # Dict mapping filename -> SpectrumFile object
-    current_file = st.session_state.get("current_file")  # Currently selected filename (string)
-
-    # Only show navigation if files were loaded
-    if files:
-        file_list = list(files.keys())  # Convert dict keys to list for indexing
-
-        # Resolve current index
-        current_idx = file_list.index(current_file) if current_file in file_list else 0
-
-        nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 6, 1, 1])
-
-        with nav_col1:
-            if st.button("◀", key="file_prev", help="Previous file"):
-                prev_idx = (current_idx - 1) % len(file_list)
-                st.session_state['_pending_file_switch'] = file_list[prev_idx]
-                st.rerun()
-
-        with nav_col2:
-            # Use return value instead of key+callback to avoid widget state conflicts.
-            # A changed selection is applied on the next rerun via
-            # sync_pending_file_switch() (called before the sidebar renders) rather
-            # than here, since the View Options checkboxes have already been
-            # instantiated in the sidebar by the time this widget runs.
-            selected = st.selectbox(
-                "File",
-                options=file_list,
-                index=current_idx,
-                label_visibility="collapsed"
-            )
-            if selected != current_file:
-                st.session_state['_pending_file_switch'] = selected
-                st.rerun()
-
-        with nav_col3:
-            if st.button("▶", key="file_next", help="Next file"):
-                next_idx = (current_idx + 1) % len(file_list)
-                st.session_state['_pending_file_switch'] = file_list[next_idx]
-                st.rerun()
-
-        with nav_col4:
-            st.markdown(
-                f"<div style='text-align: center; padding-top: 8px; color: #666;'>{current_idx + 1}/{len(file_list)}</div>",
-                unsafe_allow_html=True
-            )
-
-    # ==================== GET CURRENT SPECTRUM ====================
-    # Retrieve SpectrumFile object for currently selected file
-    spectrum = files.get(current_file)  # Returns None if current_file not in files dict
-
-    # ==================== CREATE PLOT FIGURE ====================
-    if spectrum is None:
-        # No file selected yet - show empty placeholder figure
-        fig = create_empty_figure()
-    else:
-        # File loaded - create unified figure with all data layers
-        # Get layer visibility from the sidebar's View Options checkboxes
-        # These session state keys are set by checkboxes in sidebar.py
-        layer_config = {
-            "raw": st.session_state.get("show_raw", True),  # Default: show raw data
-            "despiked": st.session_state.get("show_despiked", False),  # Default: hide despiked
-            "baseline_corrected": st.session_state.get("show_corrected", False),  # Default: hide corrected
-            "fit_total": st.session_state.get("show_fit", False),  # Default: hide fit
-            "components": st.session_state.get("show_components", False),  # Default: hide components
-            "residuals": st.session_state.get("show_residuals", False),  # Default: hide residuals
-            "on_background": st.session_state.get("show_on_background", True),
-        }
-
-        # Call create_unified_figure() to build Plotly figure with all layers
-        fig = create_unified_figure(spectrum, layer_config)
-
-    # ==================== RENDER PLOT ====================
-    # Add HTML anchor for mobile "Jump to Plot" link (allows mobile users to skip controls)
-    st.markdown('<div id="plot-anchor"></div>', unsafe_allow_html=True)
-
-    # Render Plotly figure using width-aware helper (respects Display Settings)
-    from core.viz.render import render_plot
-    render_plot(fig, key="unified_plot")
-
-    if (spectrum is not None and layer_config.get("on_background")
-            and getattr(spectrum, "fit_result", None) is not None and spectrum.fit_result.success
-            and spectrum.processing_settings.baseline_applied
-            and background_offset(spectrum, layer_config) is None):
-        st.caption("Peaks on Background needs the baseline from this session's fit "
-                   "— re-run Auto-Workflow on this file to show it.")
-
-    # Display fit results table below the plot
-    if spectrum is not None and getattr(spectrum, 'fit_result', None) is not None and spectrum.fit_result.success:
-        import pandas as pd
-
-        from ..processing.peak_metrics import peak_intensity, raw_peak_stats
-
-        st.markdown("**Fit Results**")
-        results_data = []
-
-        # PL mode only: prepend the unfitted spectrum's own peak stats
-        if spectrum.mode == "PL":
-            raw = raw_peak_stats(spectrum.processed_data.X, spectrum.processed_data.Y)
-            if raw is not None:
-                results_data.append({
-                    "Label": "Raw",
-                    "Intensity": f"{raw.intensity:.0f}",
-                    "Center": f"{raw.center:.2f}",
-                    "FWHM": f"{raw.fwhm:.2f}" if raw.fwhm is not None else "—",
-                    # No fit, so there is no sigma/gamma the pre-v3.4.0
-                    # formula could be computed from.
-                    "FWHM (v1)": "—",
-                })
-
-        for peak in spectrum.fit_result.fitted_peaks:
-            results_data.append({
-                "Label": peak.label,
-                "Intensity": f"{peak_intensity(peak):.0f}",
-                "Center": f"{peak.center:.2f}",
-                "FWHM": f"{peak.width_fwhm:.2f}",
-                "FWHM (v1)": (
-                    f"{peak.width_fwhm_v1:.2f}" if peak.width_fwhm_v1 is not None else "—"
-                ),
-            })
-
-        df_results = pd.DataFrame(results_data)
-        st.dataframe(df_results, hide_index=True, width="stretch")
-        st.caption(f"✓ R² = {spectrum.fit_result.r_squared:.4f}, χ² = {spectrum.fit_result.chi_squared:.2e}")
-        if not spectrum.fit_result.converged:
-            from ..processing.auto_workflow import convergence_warning
-            st.warning(convergence_warning(spectrum.fit_result))

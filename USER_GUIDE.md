@@ -280,17 +280,17 @@ To change a material later, expand it in the list on the same page, edit its fie
 
 ### 2. Load Your Spectrum Files
 
-1. In the sidebar under **Load Spectra**, click **"Browse Spectrum Files"**
+1. On the **Spectra** page, click **"Add files…"** beside the **Spectrum file** dropdown
 2. A native file dialog opens, filtered to `.txt` files (use the dropdown to switch to "All files" if needed)
 3. Pick one file, or Ctrl-click (Cmd-click on macOS) to pick multiple files at once
-4. Each file is parsed and added to the loaded-files list; files with multiple Y columns appear as separate entries named `file__1.txt`, `file__2.txt`, etc.
+4. Each file is parsed and added to the dropdown and to the row of file buttons under it; files with multiple Y columns appear as separate entries named `file__1.txt`, `file__2.txt`, etc.
 5. The mode (Raman/PL) is auto-detected from filename patterns (e.g., `RM*` → Raman, `PL*` → PL)
 6. Re-picking a file that's already loaded is skipped silently (with a count); the dialog opens at the last-picked directory on subsequent uses
 
 ### 3. Select a Material
 
-1. Back on the **Spectra** page, in the sidebar under **Material Presets**, use the **material dropdown** to select the target material (all configured materials are listed, both Raman and PL)
-2. A summary of the preset settings (baseline algorithm, peak count, notes) appears below
+1. On the **Spectra** page, use the **Material preset** dropdown under the file switcher to select the target material (all configured materials are listed, both Raman and PL)
+2. A summary of the preset settings (baseline algorithm, peak count, notes) appears below it, and **Technique** shows what the current file's name says it is
 
 ### 4. Run the Workflow
 
@@ -300,16 +300,18 @@ To change a material later, expand it in the list on the same page, edit its fie
 - Results appear in the plot and fit results table below it
 
 **All files (batch):**
-- If multiple files are loaded, a **"Run All Files"** button appears
+- If multiple files are loaded, **"Run All Files (N)"** beside it is enabled
 - Click it to process every loaded file using the selected preset
 - A progress bar shows the batch status
 - After completion, a summary shows how many files succeeded
 
 ### 5. Review and Export
 
-- Use the **file navigation arrows** (above the plot) to browse through processed files
-- Check the **fit results table** below each plot for peak parameters and R² values
-- In the sidebar, use **Quick Export** to download PNG/HTML/CSV, or **Batch Export** to download a master CSV across all fitted files
+- Switch files with the **◀ / ▶ arrows**, the **Spectrum file** dropdown, or the row of file buttons under it (a green dot means fitted, orange means the fit stopped at the preset's iteration budget, grey means not run)
+- Above the plot, **On background / Baseline removed** chooses whether the fit is drawn on the subtracted baseline, and the row of toggles shows or hides Data, Fit total, Components, Residuals, Raw and De-spiked. A toggle you set stays set across files until you click **Follow the data again**
+- The **Fit results** table below the plot gives each peak's Centre, FWHM (Voigt), Intensity (the fitted maximum), Area (the integral) and Status (Measured, On fit limit, or Below 3× noise); R², χ², the fit status and the pipeline are under it
+- At the top right of the page, **Quick export** downloads this file's PNG, HTML or CSV, and **Batch export** saves a master CSV or one PNG per fitted file into a folder
+- **Remove File** / **Delete All** (beside the file dropdown) and **Reset to Raw** (beside the Run buttons) undo loading and processing
 
 ---
 
