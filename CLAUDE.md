@@ -12,8 +12,13 @@ Architecture, data model and the reasoning behind them live in
 ```bash
 pytest                  # ~1,560 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
+python -m tests.golden.run   # validated golden set -> dist/golden/golden_report.md
 streamlit run app.py     # or start.bat, which also creates venv and pulls updates
 ```
+
+The tripwire (below) proves *unchanged*; the validated set under
+[tests/golden/](tests/golden/README.md) proves *right*: every case carries an
+independent `reference`, and the runner refuses one without.
 
 ## Golden fit — commits and pushes are gated on it
 

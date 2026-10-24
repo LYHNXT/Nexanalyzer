@@ -4,6 +4,8 @@ import numpy as np
 import pytest
 
 from modules.spectra.processing.parser import (
+    EmptyFile,
+    UnsupportedFormat,
     parse_spectrum,
     count_spectra,
     parse_spectrum_multi,
@@ -247,3 +249,28 @@ class TestCountSpectra:
         """A caller sizing work shouldn't handle an exception for a file the
         fit loop will report as an error moments later anyway."""
         assert count_spectra(str(tmp_path / "does_not_exist.txt")) == 0
+
+
+class TestTypedErrors:
+    """Bad input gives a typed, operator-readable error -- never a crash, never a number."""
+
+    def test_empty_file(self, tmp_path):
+        f = tmp_path / "RM_1.txt"
+        f.write_bytes(b"")
+        with pytest.raises(EmptyFile, match="empty: RM_1.txt"):
+            parse_spectrum_multi(str(f))
+
+    def test_binary_file_is_unsupported(self, tmp_path):
+        f = tmp_path / "OM_1.bmp"
+        f.write_bytes(bytes(range(256)) * 8)
+        with pytest.raises(UnsupportedFormat, match="Unsupported file format: OM_1.bmp"):
+            parse_spectrum_multi(str(f))
+
+    def test_header_without_data_is_unsupported(self, tmp_path):
+        f = tmp_path / "notes.txt"
+        f.write_text("Sample: A\nOperator: B\nNo numbers here\n")
+        with pytest.raises(UnsupportedFormat, match="No rows of numbers"):
+            parse_spectrum_multi(str(f))
+
+    def test_typed_errors_are_still_value_errors(self):
+        assert issubclass(EmptyFile, ValueError) and issubclass(UnsupportedFormat, ValueError)

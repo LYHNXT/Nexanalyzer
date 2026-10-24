@@ -1,0 +1,5 @@
+{
+  "reference": "Quality Guide §2.3: a text file with no numeric rows is an unsupported format, reported as such.",
+  "error": "UnsupportedFormat",
+  "message_contains": "No rows of numbers found"
+}

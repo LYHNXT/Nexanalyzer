@@ -70,6 +70,17 @@ jobs:
           python -m pytest -q -p no:cacheprovider
           tests/unit/test_om_contrast.py tests/unit/test_zero_line.py
           tests/unit/test_peak_metrics.py tests/unit/test_fitting.py
+      # The other tier: not "unchanged" but "right", against independent
+      # references (tests/golden/README.md). Its report is the validation record.
+      - name: Validated golden set
+        run: python -m tests.golden.run --out dist/golden
+      - name: Golden report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-report
+          path: dist/golden/
+          if-no-files-found: ignore
 
   # Everything else.
   tests:

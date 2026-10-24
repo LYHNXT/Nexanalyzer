@@ -64,6 +64,9 @@ tests/fixtures/*.txt
 !tests/fixtures/golden_fit/DDAA10/RM_[123].txt
 !tests/fixtures/golden_fit/HADI51/PL_5.txt
 !tests/fixtures/golden_fit/VA1P012504023/PL_5.txt
+# And the validated set's bad-input cases: hand-written, a few bytes each,
+# no measurement in them (an empty file, a header, one column).
+!tests/golden/cases/bad_input/*/input.txt
 
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).

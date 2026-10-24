@@ -33,6 +33,19 @@ from typing import Tuple, Optional, Literal, List, NamedTuple
 from ..models.spectrum import SpectrumData
 
 
+class SpectrumFileError(ValueError):
+    """A spectrum file this app cannot use. The message is written for the
+    operator and names the file; the cause is in the chained exception."""
+
+
+class EmptyFile(SpectrumFileError):
+    """The file has no content at all."""
+
+
+class UnsupportedFormat(SpectrumFileError):
+    """Not a text file of X and Y columns (an image, a binary, a header with no data)."""
+
+
 # Tried in this order on each candidate row; None means any run of whitespace.
 # Tab first because it is the most common in instrument exports, and comma
 # before whitespace so "1, 2" is read as two fields rather than "1," and "2".
@@ -183,16 +196,18 @@ def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
     FileNotFoundError
         If the file does not exist.
     """
+    name = Path(filepath).name
     try:
         df = _read_spectrum_dataframe(filepath)
     except FileNotFoundError:
         raise FileNotFoundError(f"Spectrum file not found: {filepath}")
-    except pd.errors.EmptyDataError:
-        raise ValueError(f"File is empty: {filepath}")
+    except pd.errors.EmptyDataError as e:
+        raise EmptyFile(f"File is empty: {name}") from e
     except Exception as e:
-        raise ValueError(
-            f"Failed to parse spectrum file '{filepath}': {e}"
-        )
+        raise UnsupportedFormat(
+            f"Unsupported file format: {name}. Expected a text file of X and Y "
+            f"columns separated by tab, comma, semicolon or spaces ({e})"
+        ) from e
 
     try:
         X = df.iloc[:, 0].values.astype(np.float64)

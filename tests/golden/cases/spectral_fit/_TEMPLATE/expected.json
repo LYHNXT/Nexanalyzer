@@ -1,0 +1,9 @@
+{
+  "reference": "REQUIRED. Where these values come from, e.g. 'WITec Project 5 Voigt fit of the same file, 2026-10-20, by <initials>' or 'Literature: <paper>, Table 1'.",
+  "mode": "Raman",
+  "r_squared_min": 0.99,
+  "peaks": {
+    "E2g+A1g": {"center": [250.3, 0.1], "fwhm": [4.2, 0.05]},
+    "B2g":     {"center": [308.0, 0.3]}
+  }
+}

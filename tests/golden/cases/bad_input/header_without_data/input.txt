@@ -1,0 +1,6 @@
+[Header]
+Sample = unnamed
+Laser = 532 nm
+Integration time = 1 s
+[Data]
+(no spectrum was saved)

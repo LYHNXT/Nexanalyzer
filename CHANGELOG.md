@@ -5,6 +5,38 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.38.0] - 2026-10-24
+
+### Validated golden set (from NexAnalyzer_TSMC)
+
+- **A second golden tier: "right", not just "unchanged".** The tripwire
+  (`test_golden_fit.py`) proves the numbers did not move. It cannot prove
+  they are correct, because its record is the program's own output.
+  `tests/golden/` holds cases whose expected values carry an independent
+  `reference` (a WITec or Origin fit, literature, a by-eye classification)
+  and a tolerance per value. The runner refuses a case without a reference.
+  - Run with `python -m tests.golden.run`. It writes
+    `dist/golden/golden_report.md` / `.html`, the validation record.
+  - It also runs under pytest (`tests/golden/test_golden_cases.py`).
+  - CI runs it in the `algorithms` job and uploads the report as an artifact.
+  - Shipped with the three bad-input cases and a `spectral_fit/_TEMPLATE`.
+    The spectral cases need data with an independent reference, which is
+    still to be chosen.
+- `modules/spectra/processing/fit_record.py`: a fit's reported numbers as a
+  record, the validated comparison, and the tripwire comparison with its
+  portable rule. It is the same module as the customer edition's;
+  `tests/unit/test_fit_record.py` covers it.
+- **Typed input errors.** The parser raises `EmptyFile` / `UnsupportedFormat`
+  (both `SpectrumFileError`, still `ValueError`, so every existing handler
+  catches them). The messages are written for the operator and name the
+  file, e.g. "Unsupported file format: OM_1.bmp. Expected a text file of X
+  and Y columns separated by tab, comma, semicolon or spaces". Before, the
+  message was "Failed to parse spectrum file '<full path>': ...".
+- The three bad-input `input.txt` files get a narrow `.gitignore` exception.
+  They are hand-written and hold no measurement.
+- **No number moves.** The golden tripwire passes 5/5 strict and is
+  unchanged. Only error types and messages change.
+
 ## [5.37.0] - 2026-10-24
 
 ### Spectra

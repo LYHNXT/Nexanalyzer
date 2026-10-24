@@ -1,0 +1,5 @@
+{
+  "reference": "Quality Guide §2.3: an empty file must give a clear error, not a crash or a number.",
+  "error": "EmptyFile",
+  "message_contains": "File is empty: input.txt"
+}
