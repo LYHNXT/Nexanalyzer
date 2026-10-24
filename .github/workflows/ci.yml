@@ -38,7 +38,7 @@ jobs:
         run: python scripts/check_algo_change.py ${{ github.event.before }}
         if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
 
-  # The numbers: the golden fit and the locked OM contrast record, on the pinned stack.
+  # The numbers: the golden fit and the locked OM contrast record, on the locked dependencies.
   algorithms:
     name: Golden fit + locked numbers
     runs-on: windows-latest   # the app's own platform
@@ -91,9 +91,12 @@ jobs:
       # The golden fit already ran, required, in `algorithms`; everything else
       # runs here under coverage. The floor is a ratchet, set just under the
       # measured total: raise it as coverage grows, never lower it to pass.
+      # A test over 10 min dumps every thread's stack, so a hang on the runner
+      # names itself (NexAnalyzer_TSMC, 2026-10-24: a QC flow test stalled
+      # CI for 43 min and took 12 s locally).
       - name: pytest (with coverage)
         run: >
-          python -m pytest -q -p no:cacheprovider
+          python -m pytest -q -p no:cacheprovider -o faulthandler_timeout=600
           --ignore=tests/unit/test_golden_fit.py
           --cov=core --cov=modules --cov-report=term-missing:skip-covered
           --cov-report=xml:coverage.xml --cov-fail-under=87
