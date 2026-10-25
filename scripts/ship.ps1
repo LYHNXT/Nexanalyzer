@@ -19,7 +19,7 @@
   3. Pushes the branch and opens a PR into main, or reuses the open one. A new
      PR's description is the CHANGELOG lines this branch adds, then the PR
      template's checklist.
-  4. Waits for CI's three jobs and prints pass or fail; on a failure, the
+  4. Waits for CI's two jobs and prints pass or fail; on a failure, the
      failing lines of the log.
 
   It never merges: main has no branch protection on this plan, so the PR page's

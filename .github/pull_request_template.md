@@ -18,4 +18,4 @@
 
 ## Gates
 
-CI must be green before merging: **Algorithm-change guard**, **Golden fit + locked numbers**, **Full test suite**.
+CI must be green before merging: **Algorithm-change guard**, **Golden fit + test suite**.

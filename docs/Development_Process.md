@@ -53,13 +53,18 @@ The template asks: do numbers move, was the version bumped, was a locked record
 changed and why, and was it checked on a real wafer. Fill it in honestly; "no
 numbers move" is a claim CI and reviewers can check.
 
-## 5. CI: three gates (`.github/workflows/ci.yml`)
+## 5. CI: two gates (`.github/workflows/ci.yml`)
+
+CI runs on pull requests into `main` that are not drafts and change more than
+Markdown, plus once a month and on demand (Actions → CI → Run workflow). It
+does not run on pushes: the PR run already tested the tree that merges, and the
+account's 2,000 Actions minutes a month count Windows minutes double. Open a PR
+as a draft while still pushing to it; CI starts when it is marked ready.
 
 | Gate | Runner | What fails it |
 | --- | --- | --- |
 | **Algorithm-change guard** | Ubuntu, ~30 s | an algorithm file changed without `core/version.py` + `CHANGELOG.md`; or a locked record (golden-fit fixtures, `test_golden_fit.py`, `test_om_contrast.py`) changed without the CHANGELOG saying so ("golden", "locked" or "regenerated") |
-| **Golden fit + locked numbers** | Windows | ruff; the golden fit (`NEXANALYZER_REQUIRE_GOLDEN=1`, so missing fixtures fail instead of skipping); OM contrast, zero-line, peak-metrics and fitting tests |
-| **Full test suite** | Windows | any of the ~1,570 tests |
+| **Golden fit + test suite** | Windows | ruff; the golden fit (`NEXANALYZER_REQUIRE_GOLDEN=1`, so missing fixtures fail instead of skipping) and the validated golden set, first; then any of the ~1,760 tests, on 4 workers (`pytest -n 4`), the locked OM contrast, zero-line, peak-metrics and fitting tests among them |
 
 CI installs exactly the versions in `requirements-lock.txt`. The golden fit is
 compared to 1e-5, and a numpy/scipy/lmfit upgrade can move numbers on its own;
@@ -76,7 +81,7 @@ regenerate them and say so in the CHANGELOG.
 
 ## 7. Merge
 
-- Merge only when all three gates are green (`scripts/ship.ps1` says which) **and** the change was tried in the
+- Merge only when both gates are green (`scripts/ship.ps1` says which) **and** the change was tried in the
   app on a recent wafer (the template's last box).
 - Use a normal merge commit, so each version's commit stays visible in `main`.
 - Delete the branch after merging.
@@ -96,7 +101,7 @@ Settings → Branches → Add branch ruleset (or classic rule) for `main`:
 
 - Require a pull request before merging.
 - Require status checks to pass: **Algorithm-change guard**, **Golden fit +
-  locked numbers**, **Full test suite**; require branches to be up to date.
+  test suite**; require branches to be up to date.
 - Block force pushes and deletions.
 - "Require review from Code Owners": only once a second reviewer is in
   `.github/CODEOWNERS`. GitHub does not let authors approve their own pull requests.
