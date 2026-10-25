@@ -3,15 +3,17 @@
 # "required status checks" on main (Settings -> Branches) so nothing merges red.
 name: CI
 
+# Pull requests only (2026-10-25): the Actions allowance is 2,000
+# min a month, Windows minutes count double, and a run on the push to main
+# repeated the PR run on the same tree. Markdown-only changes skip CI.
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
-  # Weekly, on an unchanged tree: catches the runner image or a pinned wheel
+    paths-ignore: ["**.md"]
+  # Monthly, on an unchanged tree: catches the runner image or a pinned wheel
   # going bad between PRs, before the next PR has to discover it.
   schedule:
-    - cron: "0 3 * * 1"
+    - cron: "0 3 1 * *"
   workflow_dispatch:
 
 concurrency:
@@ -34,9 +36,6 @@ jobs:
       - name: Version bump + CHANGELOG for algorithm changes; stated reason for locked records
         run: python scripts/check_algo_change.py origin/${{ github.base_ref }}
         if: github.event_name == 'pull_request'
-      - name: (push to main) compare with the previous main
-        run: python scripts/check_algo_change.py ${{ github.event.before }}
-        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
 
   # The numbers: the golden fit and the locked OM contrast record, on the locked dependencies.
   algorithms:
