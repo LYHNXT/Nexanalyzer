@@ -64,7 +64,7 @@ as a draft while still pushing to it; CI starts when it is marked ready.
 | Gate | Runner | What fails it |
 | --- | --- | --- |
 | **Algorithm-change guard** | Ubuntu, ~30 s | an algorithm file changed without `core/version.py` + `CHANGELOG.md`; or a locked record (golden-fit fixtures, `test_golden_fit.py`, `test_om_contrast.py`) changed without the CHANGELOG saying so ("golden", "locked" or "regenerated") |
-| **Golden fit + test suite** | Windows | ruff; the golden fit (`NEXANALYZER_REQUIRE_GOLDEN=1`, so missing fixtures fail instead of skipping) and the validated golden set, first; then any of the ~1,760 tests, on 4 workers (`pytest -n 4`), the locked OM contrast, zero-line, peak-metrics and fitting tests among them |
+| **Golden fit + test suite** | self-hosted, the golden laptop (`golden-machine`) | ruff; the golden fit, strict 1e-5 (`NEXANALYZER_REQUIRE_GOLDEN=1`, so missing fixtures fail instead of skipping) and the validated golden set, first; then any of the ~1,760 tests, on 4 workers (`pytest -n 4`), the locked OM contrast, zero-line, peak-metrics and fitting tests among them |
 
 CI installs exactly the versions in `requirements-lock.txt`. The golden fit is
 compared to 1e-5, and a numpy/scipy/lmfit upgrade can move numbers on its own;

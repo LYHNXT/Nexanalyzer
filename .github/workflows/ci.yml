@@ -40,28 +40,24 @@ jobs:
         run: python scripts/check_algo_change.py origin/${{ github.base_ref }}
         if: github.event_name == 'pull_request'
 
-  # The numbers, then everything else, in one Windows job so Python and the
-  # locked dependencies are installed once (Windows minutes count double).
-  # Golden fit first: a moved fit fails in two minutes, not after the suite.
+  # The numbers, then everything else, in one job on the self-hosted runner
+  # on the machine that wrote the golden record (label `golden-machine`;
+  # C:\actions-runner, started by C:\actions-runner\start-runners.ps1). It
+  # uses no Actions minutes; while that laptop is off, the job waits (GitHub
+  # drops it after 24 h). Golden fit first: a moved fit fails in seconds.
   tests:
     name: Golden fit + test suite
     if: github.event.pull_request.draft != true
-    runs-on: windows-latest   # the app's own platform
+    runs-on: [self-hosted, windows, golden-machine]
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: requirements-lock.txt
       - name: Install (pinned)
         run: |
-          # A fresh venv, so `pip check` sees only our tree: the runner's own
-          # Python ships pipx, whose platformdirs floor our lock undercuts
-          # (2026-10-24: "pipx 1.18.4 has requirement platformdirs>=4.12.2").
+          # A fresh venv from the machine's Python 3.12 every run, so `pip check`
+          # sees only our tree and nothing is left over from the last run.
           # Outside the checkout, so ruff and pytest never walk its site-packages.
-          python -m venv "$env:RUNNER_TEMP\ci-venv"
+          py -3.12 -m venv "$env:RUNNER_TEMP\ci-venv"
           "$env:RUNNER_TEMP\ci-venv\Scripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install --upgrade pip
           & "$env:RUNNER_TEMP\ci-venv\Scripts\python.exe" -m pip install -r requirements.txt pytest pytest-cov pytest-xdist==3.8.0 ruff -c requirements-lock.txt
@@ -69,24 +65,23 @@ jobs:
         run: python -m pip check
       - name: Lint (pyflakes + syntax only)
         run: python -m ruff check .
-      - name: Golden fit (must not skip)
+      - name: Golden fit, strict 1e-5 (must not skip)
         env:
           NEXANALYZER_REQUIRE_GOLDEN: "1"
-          # Not the machine that wrote the record: compare what rounding cannot
-          # move (tests/unit/test_golden_fit.py, PORTABLE).
-          NEXANALYZER_GOLDEN_PORTABLE: "1"
+          # The machine that wrote the record, so no PORTABLE: the same 1e-5
+          # the hooks and ship.ps1 check.
         run: python -m pytest tests/unit/test_golden_fit.py -q -p no:cacheprovider
       # The other tier: not "unchanged" but "right", against independent
       # references (tests/golden/README.md). Its report is the validation record.
       - name: Validated golden set
         run: python -m tests.golden.run --out dist/golden
       # Everything else, the locked OM contrast / zero-line / peak-metrics /
-      # fitting numbers included, under coverage on the runner's 4 cores
-      # (-n 4; 1,757 tests pass in parallel, 8.3 -> 6.2 min locally).
+      # fitting numbers included, under coverage on 4 workers
+      # (-n 4; 1,757 tests pass in parallel, 8.3 -> 6.2 min on this laptop).
       # The floor is a ratchet, set just under the measured total: raise it as
       # coverage grows, never lower it to pass. A test over 10 min dumps every
-      # thread's stack, so a hang on the runner names itself (NexAnalyzer_TSMC,
-      # 2026-10-24: a QC flow test stalled CI for 43 min and took 12 s locally).
+      # thread's stack, so a hang names itself (NexAnalyzer_TSMC, 2026-10-24:
+      # a QC flow test stalled hosted CI for 43 min and took 12 s locally).
       - name: pytest (with coverage)
         run: >
           python -m pytest -q -p no:cacheprovider -n 4 -o faulthandler_timeout=600
