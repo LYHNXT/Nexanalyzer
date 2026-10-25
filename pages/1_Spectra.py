@@ -7,6 +7,7 @@ The layout and its ordering constraints are in modules/spectra/ui/workspace.py.
 
 import streamlit as st
 
+from core.ui.theme import page_header
 from core.version import APP_NAME, REPO_URL, __version__
 from modules.spectra.ui.session_state import initialize_session_state
 from modules.spectra.ui.workspace import (
@@ -36,9 +37,7 @@ process_pending_loads()
 
 title_col, export_col = st.columns([1, 1.6], vertical_alignment="bottom")
 with title_col:
-    st.caption("ANALYSIS · SPECTRA")
-    st.title("Raman & PL Spectra")
-    st.markdown("Load a file, pick a material, run.")
+    page_header("Analysis · Spectra", "Raman & PL Spectra", "Load a file, pick a material, run.")
 # Filled last (see render_exports()): the exports follow this run's toggles
 # and fit, which the sections below set.
 export_slot = export_col.container()

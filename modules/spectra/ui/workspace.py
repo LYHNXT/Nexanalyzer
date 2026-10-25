@@ -38,6 +38,7 @@ import streamlit as st
 from ..models.spectrum import SpectrumFile, ProcessingSettings
 from ..processing.parser import parse_spectrum_multi, detect_mode_from_filename
 from core.io.native_dialog import run_dialog
+from core.ui.theme import card
 from core.io.export import (
     export_figure_png,
     export_figure_html,
@@ -365,7 +366,7 @@ def _render_file_switcher(files: dict, current_file) -> None:
 
     cols = st.columns([0.55, 6, 0.55, 0.8, 1.5, 1.5, 1.4], vertical_alignment="bottom")
     with cols[0]:
-        if st.button("◀", key="file_prev", help="Previous file", disabled=n < 2, width="stretch"):
+        if st.button(":material/chevron_left:", key="file_prev", help="Previous file", disabled=n < 2, width="stretch"):
             st.session_state['_pending_file_switch'] = file_list[(current_idx - 1) % n]
             st.rerun()
     with cols[1]:
@@ -381,7 +382,7 @@ def _render_file_switcher(files: dict, current_file) -> None:
         else:
             st.selectbox("Spectrum file", options=["No files loaded"], disabled=True)
     with cols[2]:
-        if st.button("▶", key="file_next", help="Next file", disabled=n < 2, width="stretch"):
+        if st.button(":material/chevron_right:", key="file_next", help="Next file", disabled=n < 2, width="stretch"):
             st.session_state['_pending_file_switch'] = file_list[(current_idx + 1) % n]
             st.rerun()
     with cols[3]:
@@ -554,7 +555,7 @@ def _technique_badge(spectrum) -> None:
     else:
         text, bg, fg = f"{spectrum.mode} (assumed)", "#FBEEDF", "#8A3F0A"
     st.markdown(
-        f"<div style='font-size: 14px; color: #31333F; margin-bottom: 8px' "
+        f"<div style='font-size: 14px; color: #5A616B; margin-bottom: 8px' "
         f"title='Read from the filename (RM_*, Raman_*, PL_*)'>Technique</div>"
         f"<div style='display: flex; align-items: center; min-height: 40px; padding: 0 12px; "
         f"border-radius: 8px; background: {bg}; color: {fg}; font-weight: 600'>{text}</div>",
@@ -573,7 +574,7 @@ def render_run_setup() -> None:
     current_file = st.session_state.get("current_file")
     current_spectrum = files.get(current_file) if files else None
 
-    with st.container(border=True):
+    with card("run-setup"):
         _render_file_switcher(files, current_file)
         pills_slot = st.container()
 
@@ -717,7 +718,7 @@ def render_spectrum() -> None:
     files = st.session_state.get("files", {})
     spectrum = files.get(st.session_state.get("current_file"))
 
-    with st.container(border=True):
+    with card("spectrum"):
         head, view = st.columns([3, 2], vertical_alignment="center")
         with head:
             name = f" · `{spectrum.filename}`" if spectrum is not None else ""
@@ -805,7 +806,7 @@ def render_fit_results() -> None:
             "Status": _peak_status(peak, fit),
         })
 
-    with st.container(border=True):
+    with card("fit-results"):
         head, note = st.columns([1, 2], vertical_alignment="bottom")
         with head:
             st.markdown("#### Fit results")
@@ -837,14 +838,14 @@ def render_fit_summary() -> None:
         return
     fit = spectrum.fit_result
     c1, c2, c3, c4 = st.columns(4)
-    with c1, st.container(border=True):
+    with c1, card("r2"):
         st.metric("R²", f"{fit.r_squared:.4f}")
-    with c2, st.container(border=True):
+    with c2, card("chi2"):
         chi = fit.chi_squared
         st.metric("χ²", f"{chi:,.0f}".replace(",", " ") if chi < 1e7 else f"{chi:.2e}")
-    with c3, st.container(border=True):
+    with c3, card("fit-status"):
         st.metric("Fit status", "Converged" if fit.converged else "Stopped early")
-    with c4, st.container(border=True):
+    with c4, card("pipeline"):
         st.caption("Pipeline")
         st.markdown(_pipeline_text(spectrum))
     if not fit.converged:

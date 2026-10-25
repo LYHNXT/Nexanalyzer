@@ -48,6 +48,7 @@ import streamlit as st
 from core.io.export import export_figure_html, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.io.tool_layout import RUNCARD
+from core.ui.theme import card, page_header
 from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
 from modules.runcard.io.config_store import load_runcard_folder, save_runcard_folder
@@ -94,10 +95,11 @@ _FIXED_COLUMNS = (
 #: comparison they were ticked for is better read off the table anyway.
 _MAX_CHARTS = 4
 
-st.title("📋 Runcard")
-st.markdown(
+page_header(
+    "Process · Runcard",
+    "Runcard",
     "Every recipe in a folder, replayed onto its own clock: what it ran, how "
-    "hot, for how long, and with what flowing."
+    "hot, for how long, and with what flowing.",
 )
 
 state = get_runcard_state()
@@ -270,250 +272,261 @@ def _render_metrics(stats: dict) -> None:
 
 
 # --------------------------------------------------------------- Folder pick
-st.subheader("1. Runcard Folder")
-tool, tool_changed = render_tool_select(RUNCARD, state["folder"], key="runcard_tool")
-tool_folder = tool.subfolder(RUNCARD) if tool_changed else None
-if tool_changed and tool_folder is None:
-    st.error(f"{tool.name} declares no runcard folder in tool_layouts.json.")
+with card("source"):
+    st.markdown("#### Runcard folder")
+    tool, tool_changed = render_tool_select(RUNCARD, state["folder"], key="runcard_tool")
+    tool_folder = tool.subfolder(RUNCARD) if tool_changed else None
+    if tool_changed and tool_folder is None:
+        st.error(f"{tool.name} declares no runcard folder in tool_layouts.json.")
 
-col_pick, col_scan = st.columns([1, 1])
-with col_pick:
-    pick_clicked = st.button("Select Runcard Folder", width="stretch")
-with col_scan:
-    # One button with one label, rather than "Scan" before the first read and
-    # "Reload" after: the buttons are drawn before the handlers below run, so a
-    # state-dependent label would describe the previous run for one rerun.
-    scan_clicked = st.button(
-        "Scan / Reload",
-        width="stretch",
-        disabled=not state["folder"],
-        help="Read every CSV under this folder. Parsing is keyed on each file's "
-             "modification time, so a recipe edited in place is picked up here.",
-    )
+    col_pick, col_scan = st.columns([1, 1])
+    with col_pick:
+        pick_clicked = st.button(
+            "Select Runcard Folder", icon=":material/folder_open:", width="stretch"
+        )
+    with col_scan:
+        # One button with one label, rather than "Scan" before the first read and
+        # "Reload" after: the buttons are drawn before the handlers below run, so a
+        # state-dependent label would describe the previous run for one rerun.
+        scan_clicked = st.button(
+            "Scan / Reload",
+            type="primary",
+            icon=":material/refresh:",
+            width="stretch",
+            disabled=not state["folder"],
+            help="Read every CSV under this folder. Parsing is keyed on each file's "
+                 "modification time, so a recipe edited in place is picked up here.",
+        )
 
-if pick_clicked:
-    try:
-        picked = prompt_folder_path(default_dir=state["folder"] or "", title="Select Runcard Folder")
-    except Exception as e:
-        st.error(f"Failed to open folder browser: {e}")
-        picked = None
-else:
-    # Choosing a tool is a pick like any other: remembered, and read at once.
-    picked = str(tool_folder) if tool_folder is not None else None
+    if pick_clicked:
+        try:
+            picked = prompt_folder_path(default_dir=state["folder"] or "", title="Select Runcard Folder")
+        except Exception as e:
+            st.error(f"Failed to open folder browser: {e}")
+            picked = None
+    else:
+        # Choosing a tool is a pick like any other: remembered, and read at once.
+        picked = str(tool_folder) if tool_folder is not None else None
 
-if picked:
-    state["folder"] = picked
-    try:
-        save_runcard_folder(picked)
-    except OSError as e:
-        # A preference that cannot be written is not a reason to lose the
-        # pick, and — unguarded — it was not just the preference that was
-        # lost: a read-only `data/` (an install under Program Files, a
-        # checkout without write access, a full disk) raised PermissionError
-        # here and aborted the script *before* `_scan_folder`, so naming a
-        # folder appeared to do nothing at all. Same guard as the Datalog
-        # page's pick.
-        st.warning(f"Could not remember this folder: {e}")
-    reset_results(state)
-    # Scanned here rather than after an `st.rerun()`: naming a folder in the
-    # dialog *is* the request to read it, and a rerun would either lose the
-    # status box or need a flag in state to say a scan was owed. Nothing
-    # stale is left on screen because everything below this point — the
-    # path caption included — is drawn after this handler.
-    _scan_folder(state)
+    if picked:
+        state["folder"] = picked
+        try:
+            save_runcard_folder(picked)
+        except OSError as e:
+            # A preference that cannot be written is not a reason to lose the
+            # pick, and — unguarded — it was not just the preference that was
+            # lost: a read-only `data/` (an install under Program Files, a
+            # checkout without write access, a full disk) raised PermissionError
+            # here and aborted the script *before* `_scan_folder`, so naming a
+            # folder appeared to do nothing at all. Same guard as the Datalog
+            # page's pick.
+            st.warning(f"Could not remember this folder: {e}")
+        reset_results(state)
+        # Scanned here rather than after an `st.rerun()`: naming a folder in the
+        # dialog *is* the request to read it, and a rerun would either lose the
+        # status box or need a flag in state to say a scan was owed. Nothing
+        # stale is left on screen because everything below this point — the
+        # path caption included — is drawn after this handler.
+        _scan_folder(state)
 
-if scan_clicked:
-    reset_results(state)
-    _scan_folder(state)
+    if scan_clicked:
+        reset_results(state)
+        _scan_folder(state)
 
-if state["folder"] and state["runcards"] is None and state.get("focus"):
-    # Handed over by the Split Table: the operator asked for one recipe, and
-    # making them press Scan before it appears would hide it behind a button.
-    _scan_folder(state)
+    if state["folder"] and state["runcards"] is None and state.get("focus"):
+        # Handed over by the Split Table: the operator asked for one recipe, and
+        # making them press Scan before it appears would hide it behind a button.
+        _scan_folder(state)
 
-st.caption(state["folder"] or "No folder selected yet.")
-if state["folder"] and state["runcards"] is None:
-    st.info("Click **Scan / Reload** to read the recipes in this folder.")
+    st.caption(state["folder"] or "No folder selected yet.")
+    if state["folder"] and state["runcards"] is None:
+        st.info("Click **Scan / Reload** to read the recipes in this folder.",
+                icon=":material/info:")
 
 # ------------------------------------------------------------------- Recipes
 if state["folder"] and state["rows"] is not None:
-    st.subheader("2. Recipes")
+    with card("recipes"):
+        st.markdown("#### Recipes")
 
-    rows = state["rows"]
-    rejected = state.get("rejected") or 0
-    if not rows:
-        # Two different absences, said differently: a folder full of rejected
-        # CSVs was pointed at the wrong place (a datalog archive, most likely),
-        # while a folder with no CSVs at all is a path problem. They are fixed
-        # in different places.
-        if rejected:
-            st.warning(
-                f"None of the {rejected} CSV file(s) here read as a recipe. Every "
-                "one of them parsed but never advanced its clock, which is what a "
-                "datalog export does — check that this is the runcard folder and "
-                "not the datalog folder."
-            )
+        rows = state["rows"]
+        rejected = state.get("rejected") or 0
+        if not rows:
+            # Two different absences, said differently: a folder full of rejected
+            # CSVs was pointed at the wrong place (a datalog archive, most likely),
+            # while a folder with no CSVs at all is a path problem. They are fixed
+            # in different places.
+            if rejected:
+                st.warning(
+                    f"None of the {rejected} CSV file(s) here read as a recipe. Every "
+                    "one of them parsed but never advanced its clock, which is what a "
+                    "datalog export does — check that this is the runcard folder and "
+                    "not the datalog folder."
+                )
+            else:
+                st.warning("No CSV files under this folder.")
         else:
-            st.warning("No CSV files under this folder.")
-    else:
-        st.markdown(
-            f"**Found:** {len(rows)} recipe(s)"
-            + (f" · {rejected} other CSV file(s) skipped" if rejected else "")
-        )
-        if rejected:
+            st.markdown(
+                f"**Found:** {len(rows)} recipe(s)"
+                + (f" · {rejected} other CSV file(s) skipped" if rejected else "")
+            )
+            if rejected:
+                st.caption(
+                    "↳ Skipped files parsed but their clock never advanced — the test "
+                    "that separates a recipe from a datalog export sharing the folder."
+                )
+            for name, message in state.get("errors") or []:
+                st.warning(f"Could not replay {name}: {message}")
+
             st.caption(
-                "↳ Skipped files parsed but their clock never advanced — the test "
-                "that separates a recipe from a datalog export sharing the folder."
+                "Every setpoint column is the value holding at the **growth "
+                "midpoint** — the quietest point in the window, since both its edges "
+                "are moments when something changed. A blank cell means the channel "
+                "was not running, not that it was zero. **RTV** is the throttle "
+                "valve's second parameter, carried through as the reactor writes it; "
+                "it is not the achieved tube pressure and is deliberately unitless."
             )
-        for name, message in state.get("errors") or []:
-            st.warning(f"Could not replay {name}: {message}")
 
-        st.caption(
-            "Every setpoint column is the value holding at the **growth "
-            "midpoint** — the quietest point in the window, since both its edges "
-            "are moments when something changed. A blank cell means the channel "
-            "was not running, not that it was zero. **RTV** is the throttle "
-            "valve's second parameter, carried through as the reactor writes it; "
-            "it is not the achieved tube pressure and is deliberately unitless."
-        )
-
-        display = pd.DataFrame([{k: v for k, v in row.items() if k != "path"} for row in rows])
-        event = st.dataframe(
-            display,
-            width="stretch",
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="multi-row",
-            # Keyed by folder, so switching folders is a new widget with
-            # nothing ticked; see `runcard_table_key` for why clearing
-            # `state["selected"]` instead does not work.
-            key=runcard_table_key(state["folder"]),
-            column_config={
-                "Modified": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm"),
-                "Total (min)": st.column_config.NumberColumn(format="%.0f"),
-                "Peak T (°C)": st.column_config.NumberColumn(format="%.0f"),
-                "Growth (min)": st.column_config.NumberColumn(format="%.1f"),
-                "Growth start (min)": st.column_config.NumberColumn(format="%.0f"),
-            },
-        )
-
-        picked_rows = list(event.selection.rows) if event is not None else []
-        selected = tuple(rows[i]["path"] for i in picked_rows if i < len(rows))
-        focus = state.get("focus")
-        if selected:
-            state["focus"] = None
-        elif focus:
-            target = os.path.normcase(os.path.normpath(focus))
-            selected = tuple(
-                row["path"] for row in rows
-                if os.path.normcase(os.path.normpath(row["path"])) == target
+            display = pd.DataFrame([{k: v for k, v in row.items() if k != "path"} for row in rows])
+            event = st.dataframe(
+                display,
+                width="stretch",
+                hide_index=True,
+                on_select="rerun",
+                selection_mode="multi-row",
+                # Keyed by folder, so switching folders is a new widget with
+                # nothing ticked; see `runcard_table_key` for why clearing
+                # `state["selected"]` instead does not work.
+                key=runcard_table_key(state["folder"]),
+                column_config={
+                    "Modified": st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm"),
+                    "Total (min)": st.column_config.NumberColumn(format="%.0f"),
+                    "Peak T (°C)": st.column_config.NumberColumn(format="%.0f"),
+                    "Growth (min)": st.column_config.NumberColumn(format="%.1f"),
+                    "Growth start (min)": st.column_config.NumberColumn(format="%.0f"),
+                },
             )
+
+            picked_rows = list(event.selection.rows) if event is not None else []
+            selected = tuple(rows[i]["path"] for i in picked_rows if i < len(rows))
+            focus = state.get("focus")
             if selected:
-                st.caption(f"Opened from the Split Table: `{os.path.basename(focus)}`. "
-                           "Tick a row to chart something else.")
-        if selected != tuple(state["selected"] or ()):
-            # Only the figures are invalidated. Re-ticking must not re-walk the
-            # folder: the walk parsed every file in the tree, the figures are
-            # arithmetic over a few dozen events.
-            state["selected"] = selected
-            reset_figures(state)
+                state["focus"] = None
+            elif focus:
+                target = os.path.normcase(os.path.normpath(focus))
+                selected = tuple(
+                    row["path"] for row in rows
+                    if os.path.normcase(os.path.normpath(row["path"])) == target
+                )
+                if selected:
+                    st.caption(f"Opened from the Split Table: `{os.path.basename(focus)}`. "
+                               "Tick a row to chart something else.")
+            if selected != tuple(state["selected"] or ()):
+                # Only the figures are invalidated. Re-ticking must not re-walk the
+                # folder: the walk parsed every file in the tree, the figures are
+                # arithmetic over a few dozen events.
+                state["selected"] = selected
+                reset_figures(state)
 
-        st.caption(
-            f"Tick a row to chart it. Up to {_MAX_CHARTS} are drawn at once; "
-            "past that, the comparison is what the table above is for."
-        )
+            st.caption(
+                f"Tick a row to chart it. Up to {_MAX_CHARTS} are drawn at once; "
+                "past that, the comparison is what the table above is for."
+            )
 
 # -------------------------------------------------------------------- Charts
 # Asked before the heading is written, not inside the loop: a ticked path with
 # no profile behind it draws nothing, and every one of them having no profile
-# used to leave "3. Profile" standing over an empty section.
+# used to leave the Profile card standing over an empty section.
 chartable = chartable_selection(state)
 
 if chartable:
-    st.markdown("---")
-    st.subheader("3. Profile")
+    with card("profile"):
+        st.markdown("#### Profile")
+        st.caption("Recipe clock, not wall-clock: every time is short by the pump-down "
+                   "before it.")
 
-    figures = dict(state.get("figures") or {})
-    profiles = state["profiles"]
-    drawn = []
+        figures = dict(state.get("figures") or {})
+        profiles = state["profiles"]
+        drawn = []
 
-    for index, path in enumerate(chartable[:_MAX_CHARTS]):
-        profile = profiles[path]
-        run_id = derive_run_id(path)
-        st.markdown(f"#### {run_id}")
-        _render_metrics(profile_stats(profile))
-        if tube_series_for(run_id) is None:
-            # The reference prints the same note. Without it a run id that
-            # names no series is drawn with HA's inner/outer plumbing and
-            # nothing on screen says the tube rows are a guess.
-            st.caption(
-                f"Tube rows assume HA plumbing (MFC 1+3+4 inner / 6+7+8 outer): "
-                f"'{run_id}' names no known reactor series."
-            )
-        try:
-            if path not in figures:
-                figures[path] = build_profile_figure(run_id, profile)
-            # Widget keys are namespaced by the row's own identity, not by
-            # position alone: two folders can hold the same run id, and two
-            # charts sharing a key is not an error Streamlit reports.
-            render_plot(figures[path], key=f"runcard_profile_{index}_{run_id}")
-            drawn.append((run_id, path))
-        except Exception as e:
-            st.warning(f"Could not draw {run_id}: {e}")
-
-    state["figures"] = figures
-
-    if len(chartable) > _MAX_CHARTS:
-        st.caption(
-            f"{len(chartable) - _MAX_CHARTS} more recipe(s) are ticked "
-            f"than are drawn. The table carries their numbers."
-        )
-
-    # ---------------------------------------------------------------- Save
-    if drawn:
-        st.subheader("Save")
-        st.caption(
-            f"One dialog, one name, two files per chart — {len(drawn)} PNG for a "
-            f"report and {len(drawn)} HTML that keeps the hover this chart was "
-            "built around, where every bar carries its setpoint, its unit and "
-            "its span whether or not it is wide enough to print them."
-        )
-        if st.button("💾 Save Chart(s) As...", width="stretch"):
-            try:
-                save_path = prompt_save_path(
-                    default_dir=state["folder"],
-                    default_filename=f"{drawn[0][0]}_profile.png",
-                    title="Save Runcard Profile",
-                    filetypes=(("PNG images", "*.png"), ("All files", "*.*")),
-                    default_extension=".png",
+        for index, path in enumerate(chartable[:_MAX_CHARTS]):
+            profile = profiles[path]
+            run_id = derive_run_id(path)
+            st.markdown(f"##### {run_id}")
+            _render_metrics(profile_stats(profile))
+            if tube_series_for(run_id) is None:
+                # The reference prints the same note. Without it a run id that
+                # names no series is drawn with HA's inner/outer plumbing and
+                # nothing on screen says the tube rows are a guess.
+                st.caption(
+                    f"Tube rows assume HA plumbing (MFC 1+3+4 inner / 6+7+8 outer): "
+                    f"'{run_id}' names no known reactor series."
                 )
-                if save_path:
-                    # The chosen name supplies the stem and each run appends its
-                    # own id, so a multi-selection cannot overwrite itself. The
-                    # extension the dialog collected is dropped: it named only
-                    # the first image, and half the files are not PNGs.
-                    base, _ext = os.path.splitext(save_path)
-                    saved = []
-                    seen = {}
-                    for run_id, path in drawn:
-                        # derive_run_id maps `0810_NX123_runcard.csv` and
-                        # `NX123.csv` to one id on purpose; the second chart
-                        # must not overwrite the first's files.
-                        seen[run_id] = seen.get(run_id, 0) + 1
-                        stem = run_id if seen[run_id] == 1 else f"{run_id}_{seen[run_id]}"
-                        figure = figures[path]
-                        height = int(profile_stats(profiles[path])["canvas_h"])
-                        png_target = f"{base}_{stem}.png"
-                        with open(png_target, "wb") as f:
-                            f.write(export_figure_png(figure, width=1200, height=height, scale=2.0))
-                        saved.append(png_target)
-
-                        html_target = f"{base}_{stem}.html"
-                        with open(html_target, "w", encoding="utf-8") as f:
-                            f.write(export_figure_html(figure))
-                        saved.append(html_target)
-
-                    st.success("Saved:\n" + "\n".join(f"- {p}" for p in saved))
-                # save_path is None => user cancelled => no-op
+            try:
+                if path not in figures:
+                    figures[path] = build_profile_figure(run_id, profile)
+                # Widget keys are namespaced by the row's own identity, not by
+                # position alone: two folders can hold the same run id, and two
+                # charts sharing a key is not an error Streamlit reports.
+                render_plot(figures[path], key=f"runcard_profile_{index}_{run_id}")
+                drawn.append((run_id, path))
             except Exception as e:
-                st.error(f"Failed to save: {e}")
+                st.warning(f"Could not draw {run_id}: {e}")
+
+        state["figures"] = figures
+
+        if len(chartable) > _MAX_CHARTS:
+            st.caption(
+                f"{len(chartable) - _MAX_CHARTS} more recipe(s) are ticked "
+                f"than are drawn. The table carries their numbers."
+            )
+
+        # -------------------------------------------------------------- Save
+        # In the Profile card, not the page header the design puts it in: the
+        # button exists only once a chart is drawn, and its saved/failed
+        # messages need the card's width.
+        if drawn:
+            st.caption(
+                f"One dialog, one name, two files per chart — {len(drawn)} PNG for a "
+                f"report and {len(drawn)} HTML that keeps the hover this chart was "
+                "built around, where every bar carries its setpoint, its unit and "
+                "its span whether or not it is wide enough to print them."
+            )
+            if st.button("Save Chart(s) As…", icon=":material/save:", width="stretch"):
+                try:
+                    save_path = prompt_save_path(
+                        default_dir=state["folder"],
+                        default_filename=f"{drawn[0][0]}_profile.png",
+                        title="Save Runcard Profile",
+                        filetypes=(("PNG images", "*.png"), ("All files", "*.*")),
+                        default_extension=".png",
+                    )
+                    if save_path:
+                        # The chosen name supplies the stem and each run appends its
+                        # own id, so a multi-selection cannot overwrite itself. The
+                        # extension the dialog collected is dropped: it named only
+                        # the first image, and half the files are not PNGs.
+                        base, _ext = os.path.splitext(save_path)
+                        saved = []
+                        seen = {}
+                        for run_id, path in drawn:
+                            # derive_run_id maps `0810_NX123_runcard.csv` and
+                            # `NX123.csv` to one id on purpose; the second chart
+                            # must not overwrite the first's files.
+                            seen[run_id] = seen.get(run_id, 0) + 1
+                            stem = run_id if seen[run_id] == 1 else f"{run_id}_{seen[run_id]}"
+                            figure = figures[path]
+                            height = int(profile_stats(profiles[path])["canvas_h"])
+                            png_target = f"{base}_{stem}.png"
+                            with open(png_target, "wb") as f:
+                                f.write(export_figure_png(figure, width=1200, height=height, scale=2.0))
+                            saved.append(png_target)
+
+                            html_target = f"{base}_{stem}.html"
+                            with open(html_target, "w", encoding="utf-8") as f:
+                                f.write(export_figure_html(figure))
+                            saved.append(html_target)
+
+                        st.success("Saved:\n" + "\n".join(f"- {p}" for p in saved))
+                    # save_path is None => user cancelled => no-op
+                except Exception as e:
+                    st.error(f"Failed to save: {e}")

@@ -77,7 +77,7 @@ class TestFileSwitcher:
         at.session_state["current_file"] = files[0]
         at.run()
 
-        _button(at, "▶").click().run()
+        _button(at, ":material/chevron_right:").click().run()
 
         assert at.session_state["current_file"] == files[1]
 
@@ -116,7 +116,7 @@ class TestBaselineView:
         at.segmented_control[0].set_value("Baseline removed").run()
 
         assert "show_on_background" in at.session_state[VIEW_OPTIONS_PINNED_KEY]
-        _button(at, "▶").click().run()
+        _button(at, ":material/chevron_right:").click().run()
         assert at.session_state["show_on_background"] is False
 
 

@@ -5,6 +5,45 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.44.0] - 2026-10-25
+
+### Changed
+
+- **A new look across every page**, from the "NexAnalyzer UI" design canvas.
+  No numbers move: this is layout and styling only.
+  - **Theme** (`.streamlit/config.toml`, now committed; the rest of
+    `.streamlit/` stays ignored): grey page, white cards, a dark navigation
+    sidebar, IBM Plex Sans / Mono and one blue accent (#1D5FB8). The fonts
+    load from Google Fonts and fall back to the system sans when offline.
+  - **Navigation** uses line icons instead of emoji.
+  - **`core/ui/theme.py`**: `page_header()` gives every page the same
+    header (section · page eyebrow, title, one-line purpose), and `card()`
+    replaces `st.container(border=True)` so sections draw as white cards.
+  - **Every page** opens with that header and lays its sections out as
+    cards, in the canvas's order. Emoji in titles, buttons and status
+    messages became Material icons; the main action on each page is the
+    blue primary button. Widget keys, session state and the order things
+    run in are unchanged.
+  - **Spectra**: the previous / next file buttons are chevron icons.
+  - **QC Report**: setup is five cards (Sample, OM magnification, Film
+    layer, Material, Run); results are OM coverage, Figures, Run notes
+    (drawn only when a note has something to say) and Save report.
+  - **Material Presets**: "New material" sits above the list; Enabled and
+    each technique are switches; Raman / PL / Optical are tabs; a technique
+    block reads Processing, Peak templates, Fit windows; an optical layer is
+    a Segmentation row and a Domain size row instead of 12 narrow columns.
+  - **Datalog**: Source (with the three filename tools as expanders), Find
+    runs, Runs and Selected run cards; Channels now come before the
+    tolerance settings, and violations / summary statistics are tabs.
+  - **Runcard**: Runcard folder, Recipes and Profile cards; Scan / Reload
+    is the primary button.
+  - **Split Table**: Workbook, Find runs (Wafer search first), Runs, Open
+    run and Charts cards; the open-run buttons read "Open in …".
+  - **OneNote**: Wafer and Material check side by side, then the three
+    "What's ready" cards with a status badge each, Publish, and Not uploaded.
+  - **Tools**: a card saying which file holds folders on this PC and which
+    holds the shared layouts; one card per tool; "Add a tool" at the bottom.
+
 ## [5.43.0] - 2026-10-24
 
 ### Changed

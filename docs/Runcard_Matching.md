@@ -18,7 +18,7 @@ DATALOG and `RUNCARD/lcy` on 2026-09-28.
 ## Using it
 
 1. Open **Datalog** and pick the tool's `DATALOG` folder as usual.
-2. Section **2. Filenames → Detect runcards for untagged runs**. The runcard
+2. In the **Source** card, **Detect runcards for untagged runs**. The runcard
    folder is guessed from the datalog folder — `…\HA1P01\RUNCARD\lcy` for
    HA1P01 — and **Change…** points it elsewhere.
 3. Choose **Runs from** (default: the newest 60 days of runs) and press

@@ -40,30 +40,34 @@ where each tool's folders are, for every page above to use.
 
 import streamlit as st
 
+from core.ui.theme import apply_theme
 from core.version import APP_NAME, APP_TAGLINE, __version__
 from modules.spectra.ui.session_state import initialize_session_state
 
 # Configure page (must run once, before any other Streamlit command)
 st.set_page_config(
     page_title=APP_NAME,
-    page_icon="📊",
+    page_icon=":material/show_chart:",
     layout="wide",
     # Expanded by default — the sidebar is the page navigation. (Until
     # v5.43.0 it also held the Spectra page's whole workflow.)
     initial_sidebar_state="expanded",
 )
 
+# Shared CSS for every page: white cards, nav labels, page headers.
+apply_theme()
+
 # Initialize each module's session state (shared across all its pages)
 initialize_session_state()
 
-spectra_page = st.Page("pages/1_Spectra.py", title="Spectra", icon="📊", default=True)
-qc_report_page = st.Page("pages/2_QC_Report.py", title="QC Report", icon="🔬")
-material_presets_page = st.Page("pages/3_Material_Presets.py", title="Material Presets", icon="🧪")
-datalog_page = st.Page("pages/4_Datalog.py", title="Datalog", icon="📈")
-runcard_page = st.Page("pages/5_Runcard.py", title="Runcard", icon="📋")
-split_table_page = st.Page("pages/8_Split_Table.py", title="Split Table", icon="🧾")
-onenote_page = st.Page("pages/6_OneNote.py", title="OneNote", icon="📓")
-tools_page = st.Page("pages/7_Tools.py", title="Tools", icon="🧰")
+spectra_page = st.Page("pages/1_Spectra.py", title="Spectra", icon=":material/show_chart:", default=True)
+qc_report_page = st.Page("pages/2_QC_Report.py", title="QC Report", icon=":material/grid_view:")
+material_presets_page = st.Page("pages/3_Material_Presets.py", title="Material Presets", icon=":material/science:")
+datalog_page = st.Page("pages/4_Datalog.py", title="Datalog", icon=":material/bar_chart:")
+runcard_page = st.Page("pages/5_Runcard.py", title="Runcard", icon=":material/timeline:")
+split_table_page = st.Page("pages/8_Split_Table.py", title="Split Table", icon=":material/table_chart:")
+onenote_page = st.Page("pages/6_OneNote.py", title="OneNote", icon=":material/menu_book:")
+tools_page = st.Page("pages/7_Tools.py", title="Tools", icon=":material/settings:")
 
 nav = st.navigation(
     {

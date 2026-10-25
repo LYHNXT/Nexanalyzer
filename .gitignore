@@ -44,8 +44,10 @@ htmlcov/
 .tox/
 .nox/
 
-# Streamlit
-.streamlit/
+# Streamlit: secrets and per-machine settings stay local, but the theme is the
+# app's look and every clone needs it (v5.44.0).
+.streamlit/*
+!.streamlit/config.toml
 
 # OS
 .DS_Store

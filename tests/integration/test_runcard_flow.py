@@ -125,7 +125,7 @@ class TestTheProfileSectionIsSkippedWhenNothingCanBeCharted:
     is a table. A folder whose CSVs all read as datalogs draws none, so
     `selected` goes on naming the previous folder's paths with no profile
     behind them. The heading was written before that was known, leaving
-    "3. Profile" standing over an empty section, which reads as a chart that
+    the Profile heading standing over an empty section, which reads as a chart that
     broke rather than as a folder with nothing to chart.
     """
 
@@ -148,7 +148,7 @@ class TestTheProfileSectionIsSkippedWhenNothingCanBeCharted:
         at = self._page_with_a_stale_selection(tmp_path)
 
         assert not at.exception, [e.value for e in at.exception]
-        assert not any(s.value == "3. Profile" for s in at.subheader)
+        assert not any(m.value == "#### Profile" for m in at.markdown)
 
     def test_the_folder_is_still_reported_as_empty(self, tmp_path):
         # The section that *should* speak for this state is section 2's

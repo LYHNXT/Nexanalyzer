@@ -56,6 +56,7 @@ import streamlit as st
 from core.io.export import create_filename, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
 from core.io.tool_layout import DATALOG
+from core.ui.theme import card, page_header
 from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
 from modules.datalog.io import duplicates, renamer
@@ -189,15 +190,15 @@ def _render_bulk_rename(root_folder: str, state: dict) -> None:
     reruns so the "renamed 47 files" banner is still there after the list
     refreshes underneath it.
     """
-    st.caption(
-        "Rename every run in this folder (recursively) to `<timestamp>~<tag>.csv`. "
-        "Target names are recomputed from current data, so this also fixes files "
-        "renamed under a tag that has since been edited. In a folder a sync writes into, "
-        "the sync must keep renamed files (SulfurSync: keepRenamed, on for HA-DataRecord) "
-        "or it copies the original name back beside every renamed file."
-    )
     pending = state.get("rename_plans")
     with st.expander("Bulk rename", expanded=bool(pending or state.get("rename_result"))):
+        st.caption(
+            "Rename every run in this folder (recursively) to `<timestamp>~<tag>.csv`. "
+            "Target names are recomputed from current data, so this also fixes files "
+            "renamed under a tag that has since been edited. In a folder a sync writes into, "
+            "the sync must keep renamed files (SulfurSync: keepRenamed, on for HA-DataRecord) "
+            "or it copies the original name back beside every renamed file."
+        )
         if st.button("Preview rename all", width="stretch"):
             state["rename_plans"] = [p for p in renamer.plan_renames(root_folder) if p.will_change]
             # A new preview clears the previous sweep's banner, which would
@@ -227,7 +228,7 @@ def _render_bulk_rename(root_folder: str, state: dict) -> None:
                     hide_index=True, width="stretch",
                 )
                 col_confirm, col_cancel = st.columns(2)
-                if col_confirm.button("Confirm rename all", width="stretch"):
+                if col_confirm.button("Confirm rename all", width="stretch", type="primary"):
                     try:
                         state["rename_result"] = renamer.execute_sweep(root_folder, plans)
                     except ValueError as e:
@@ -268,13 +269,13 @@ def _render_duplicate_cleanup(root_folder: str, state: dict) -> None:
     not looking at a wrong table, only at a folder using more disk than it
     needs.
     """
-    st.caption(
-        "Find runs stored twice — once under the recorder's original filename, "
-        "once under the renamed one — and move the original to the Recycle Bin. "
-        "The run list already hides these; this reclaims the disk space."
-    )
     pending = state.get("duplicate_plans")
     with st.expander("Duplicate cleanup", expanded=bool(pending or state.get("duplicate_result"))):
+        st.caption(
+            "Find runs stored twice — once under the recorder's original filename, "
+            "once under the renamed one — and move the original to the Recycle Bin. "
+            "The run list already hides these; this reclaims the disk space."
+        )
         if st.button("Scan for duplicates", width="stretch"):
             state["duplicate_plans"] = duplicates.find_duplicates(
                 root_folder, scan_folder(root_folder)
@@ -299,7 +300,7 @@ def _render_duplicate_cleanup(root_folder: str, state: dict) -> None:
                     hide_index=True, width="stretch",
                 )
                 col_confirm, col_cancel = st.columns(2)
-                if col_confirm.button("Confirm cleanup", width="stretch"):
+                if col_confirm.button("Confirm cleanup", width="stretch", type="primary"):
                     try:
                         state["duplicate_result"] = duplicates.remove_duplicates(root_folder, plans)
                     except ValueError as e:
@@ -526,7 +527,8 @@ def _render_runcard_detection(root_folder: str, state: dict) -> None:
         with col_folder:
             st.caption(f"Runcard folder: {runcard_folder or 'none found next to this datalog folder'}")
         with col_change:
-            if st.button("Change...", key="datalog_runcard_folder_pick", width="stretch"):
+            if st.button("Change...", key="datalog_runcard_folder_pick", width="stretch",
+                         icon=":material/folder_open:"):
                 try:
                     picked = prompt_folder_path(default_dir=runcard_folder or root_folder,
                                                 title="Select Runcard Folder")
@@ -884,35 +886,28 @@ def _render_run_table(root_folder: str, mode: str):
     runs = duplicates.without_duplicates(root_folder, scanned)
     hidden = len(scanned) - len(runs)
 
-    col_caption, col_refresh = st.columns([3, 1])
-    with col_caption:
-        st.caption(f"{len(runs)} run(s) found on disk · auto-refreshes every 60s")
-        if hidden:
-            st.caption(
-                f"{hidden} duplicate file(s) hidden — the same run also stored "
-                "under its original filename. Duplicate cleanup deletes them."
-            )
-    with col_refresh:
-        # The return value is ignored on purpose: pressing it *is* the refresh,
-        # because the resulting fragment rerun re-walks the folder and re-scans
-        # any file whose mtime moved.
-        st.button("Refresh now", key="datalog_refresh", width="stretch")
-
     if not runs:
-        st.info("No CSV files found in this folder.")
+        with card("runs"):
+            _render_runs_head(runs, hidden)
+            st.info("No CSV files found in this folder.")
         return []
 
     tags = load_runcard_tags(root_folder)
 
-    query = st.text_input("Search (timestamp or runcard)", key=SEARCH_KEY).strip().lower()
-    if query:
-        # Search always looks across every run, not just the recent window --
-        # the whole reason to search is that the run is not in the last 50.
-        candidate_runs = runs
-    else:
-        window_label = st.selectbox("Show", list(RECENT_WINDOW_OPTIONS), key="datalog_window")
-        limit = RECENT_WINDOW_OPTIONS[window_label]
-        candidate_runs = runs[:limit] if limit else runs
+    with card("find-runs"):
+        st.markdown("#### Find runs")
+        col_search, col_window = st.columns([3, 1])
+        with col_search:
+            query = st.text_input("Search (timestamp or runcard)", key=SEARCH_KEY).strip().lower()
+        if query:
+            # Search always looks across every run, not just the recent window --
+            # the whole reason to search is that the run is not in the last 50.
+            candidate_runs = runs
+        else:
+            with col_window:
+                window_label = st.selectbox("Show", list(RECENT_WINDOW_OPTIONS), key="datalog_window")
+            limit = RECENT_WINDOW_OPTIONS[window_label]
+            candidate_runs = runs[:limit] if limit else runs
 
     table_rows = []
     row_meta = []
@@ -929,11 +924,36 @@ def _render_run_table(root_folder: str, mode: str):
             "Runcard": tag,
         })
 
-    if not table_rows:
-        st.info("No run matches that search.")
-        return []
+    with card("runs"):
+        _render_runs_head(runs, hidden)
+        if not table_rows:
+            st.info("No run matches that search.")
+            return []
+        st.caption(f"Showing {len(table_rows)} run(s)")
+        return _render_run_selection(root_folder, mode, table_rows, row_meta, query, tags, runs)
 
-    st.caption(f"Showing {len(table_rows)} run(s)")
+
+def _render_runs_head(runs, hidden: int) -> None:
+    """The Runs card's head: its title, the on-disk count, and the refresh button."""
+    col_caption, col_refresh = st.columns([3, 1], vertical_alignment="center")
+    with col_caption:
+        st.markdown("#### Runs")
+        st.caption(f"{len(runs)} run(s) found on disk · auto-refreshes every 60s")
+        if hidden:
+            st.caption(
+                f"{hidden} duplicate file(s) hidden — the same run also stored "
+                "under its original filename. Duplicate cleanup deletes them."
+            )
+    with col_refresh:
+        # The return value is ignored on purpose: pressing it *is* the refresh,
+        # because the resulting fragment rerun re-walks the folder and re-scans
+        # any file whose mtime moved.
+        st.button("Refresh now", key="datalog_refresh", width="stretch", icon=":material/refresh:")
+
+
+def _render_run_selection(root_folder: str, mode: str, table_rows, row_meta, query: str,
+                          tags: dict, runs) -> list:
+    """The run table and the tag editor under it. Returns selected paths."""
 
     # The mode is in the key, so switching Single/Compare starts a fresh widget
     # and drops the selection. That is deliberate: the two modes disagree about
@@ -962,7 +982,7 @@ def _render_run_table(root_folder: str, mode: str):
 
     if selected_metas:
         st.divider()
-        st.caption("Edit runcard tag for the selected run(s):")
+        st.caption("Runcard tag of the selected run(s)")
         for meta in selected_metas:
             _render_tag_editor(root_folder, meta, tags, runs)
 
@@ -993,7 +1013,7 @@ def _render_tolerance_settings(root_folder: str, pv_sv_pairs) -> dict:
     deleted the override of every channel the open run happens not to carry.
     """
     thresholds = load_thresholds(root_folder)
-    with st.expander("PV/SV tolerance settings"):
+    with st.expander("PV/SV tolerance settings", icon=":material/tune:"):
         # Keyed by folder: `value` seeds a keyed widget once and is ignored on
         # every later pass, so one global key would carry the previous folder's
         # tolerance across a folder change and show a number that folder's
@@ -1051,12 +1071,13 @@ def _render_save(fig, tables, default_dir: str, default_stem: str) -> None:
     figure's height carries its panel count — exporting at a fixed 600 px would
     squash twelve panels into a strip.
     """
-    st.subheader("Save")
-    st.caption(
+    col_note, col_save = st.columns([3, 1], vertical_alignment="center")
+    col_note.caption(
         "One dialog, one name. The chart lands as `_1_chart.png` and each table "
         "beside it as CSV, numbered so a file browser lists them in reading order."
     )
-    if not st.button("💾 Save Datalog Report As...", width="stretch"):
+    if not col_save.button("Save report...", type="primary", width="stretch",
+                           icon=":material/save:"):
         return
 
     try:
@@ -1148,15 +1169,15 @@ def _render_single_run_view(path: str, df: pd.DataFrame, plot_items, pv_sv_pairs
     # at 1e-3, and nothing on screen saying it is not the full trace.
     render_plot(fig, key=f"datalog_single_plot_{path}")
 
-    st.subheader("Summary statistics")
     summary_df = compute_summary_stats(df, _plotted_channels(plot_items))
-    st.dataframe(summary_df, width="stretch", hide_index=True)
-
-    st.subheader("Out-of-tolerance violations")
-    if violations_df.empty:
-        st.success("No PV/SV violations found for this run.")
-    else:
-        st.dataframe(violations_df, width="stretch", hide_index=True)
+    tab_violations, tab_summary = st.tabs(["Out-of-tolerance violations", "Summary statistics"])
+    with tab_violations:
+        if violations_df.empty:
+            st.success("No PV/SV violations found for this run.")
+        else:
+            st.dataframe(violations_df, width="stretch", hide_index=True)
+    with tab_summary:
+        st.dataframe(summary_df, width="stretch", hide_index=True)
 
     _render_save(fig, (summary_df, violations_df), root_folder, Path(path).stem)
 
@@ -1219,14 +1240,14 @@ def _render_comparison_view(root_folder: str, loaded, plot_items, pv_sv_pairs,
         pd.concat(violation_tables, ignore_index=True) if violation_tables else pd.DataFrame()
     )
 
-    st.subheader("Summary statistics")
-    st.dataframe(summary_df, width="stretch", hide_index=True)
-
-    st.subheader("Out-of-tolerance violations")
-    if violations_df.empty:
-        st.success("No PV/SV violations found across selected runs.")
-    else:
-        st.dataframe(violations_df, width="stretch", hide_index=True)
+    tab_violations, tab_summary = st.tabs(["Out-of-tolerance violations", "Summary statistics"])
+    with tab_violations:
+        if violations_df.empty:
+            st.success("No PV/SV violations found across selected runs.")
+        else:
+            st.dataframe(violations_df, width="stretch", hide_index=True)
+    with tab_summary:
+        st.dataframe(summary_df, width="stretch", hide_index=True)
 
     _render_save(fig, (summary_df, violations_df), root_folder, "comparison")
 
@@ -1255,139 +1276,145 @@ def _render_workspace(root_folder: str, mode: str) -> None:
     file's metadata is cached against its mtime, so an unchanged folder costs
     one `stat` per file.
     """
-    st.subheader("4. Runs")
     selected_paths = _render_run_table(root_folder, mode)
     if not selected_paths:
         st.info("Select a run above to view its data.")
         return
 
-    loaded = []
-    with st.spinner("Reading run CSVs..."):
-        for path in selected_paths:
-            # Per-run, so one truncated or locked file costs its own row rather
-            # than the whole comparison.
-            try:
-                df = load_run(path)
-            except Exception as e:
-                st.warning(f"Could not read {Path(path).name}: {e}")
-                continue
-            if df.empty:
-                st.warning(f"{Path(path).name} has no rows with a readable timestamp.")
-                continue
-            loaded.append((path, df))
+    with card("selected-run"):
+        st.markdown("#### Selected run" if mode == "Single run" else "#### Selected runs")
+        loaded = []
+        with st.spinner("Reading run CSVs..."):
+            for path in selected_paths:
+                # Per-run, so one truncated or locked file costs its own row rather
+                # than the whole comparison.
+                try:
+                    df = load_run(path)
+                except Exception as e:
+                    st.warning(f"Could not read {Path(path).name}: {e}")
+                    continue
+                if df.empty:
+                    st.warning(f"{Path(path).name} has no rows with a readable timestamp.")
+                    continue
+                loaded.append((path, df))
 
-    if not loaded:
-        return
+        if not loaded:
+            return
 
-    # The channel catalog comes from the first selected run. In comparison mode
-    # a run whose controller logged a different column set simply contributes no
-    # trace to the panels it lacks (see build_comparison_figure) rather than
-    # forcing the offered channels down to the intersection, which would hide
-    # channels the operator can see on the run they picked first.
-    columns = list(loaded[0][1].columns)
-    catalog = _build_plot_item_catalog(columns)
-    pv_sv_pairs = detect_pv_sv_pairs(columns)
+        # The channel catalog comes from the first selected run. In comparison mode
+        # a run whose controller logged a different column set simply contributes no
+        # trace to the panels it lacks (see build_comparison_figure) rather than
+        # forcing the offered channels down to the intersection, which would hide
+        # channels the operator can see on the run they picked first.
+        columns = list(loaded[0][1].columns)
+        catalog = _build_plot_item_catalog(columns)
+        pv_sv_pairs = detect_pv_sv_pairs(columns)
 
-    st.subheader("5. Tolerances")
-    thresholds = _render_tolerance_settings(root_folder, pv_sv_pairs)
+        labels = [item["label"] for item in catalog]
+        default_labels = [label for label in labels if label in DEFAULT_CHANNEL_LABELS]
+        # Keyed, so the selection survives switching to another run. Streamlit
+        # stores a multiselect's value as its option *labels*, not as indices, so a
+        # run with a different column set drops the labels it doesn't have rather
+        # than silently selecting whatever is now at that position.
+        selected_labels = st.multiselect(
+            "Channels to plot", labels, default=default_labels, key="datalog_channels",
+        )
+        plot_items = [item for item in catalog if item["label"] in selected_labels]
 
-    st.subheader("6. Channels")
-    labels = [item["label"] for item in catalog]
-    default_labels = [label for label in labels if label in DEFAULT_CHANNEL_LABELS]
-    # Keyed, so the selection survives switching to another run. Streamlit
-    # stores a multiselect's value as its option *labels*, not as indices, so a
-    # run with a different column set drops the labels it doesn't have rather
-    # than silently selecting whatever is now at that position.
-    selected_labels = st.multiselect(
-        "Channels to plot", labels, default=default_labels, key="datalog_channels",
-    )
-    plot_items = [item for item in catalog if item["label"] in selected_labels]
-    if not plot_items:
-        st.info("Select at least one channel to plot.")
-        return
+        # Drawn before the empty-selection check, so the tolerances stay
+        # editable with no channel picked, as they always have.
+        thresholds = _render_tolerance_settings(root_folder, pv_sv_pairs)
+        if not plot_items:
+            st.info("Select at least one channel to plot.")
+            return
 
-    try:
-        if mode == "Single run":
-            path, df = loaded[0]
-            _render_single_run_view(path, df, plot_items, pv_sv_pairs, thresholds, root_folder)
-        else:
-            _render_comparison_view(root_folder, loaded, plot_items, pv_sv_pairs, thresholds)
-    except Exception as e:
-        st.error(f"Could not draw this run: {e}")
+        try:
+            if mode == "Single run":
+                path, df = loaded[0]
+                _render_single_run_view(path, df, plot_items, pv_sv_pairs, thresholds, root_folder)
+            else:
+                _render_comparison_view(root_folder, loaded, plot_items, pv_sv_pairs, thresholds)
+        except Exception as e:
+            st.error(f"Could not draw this run: {e}")
 
 
-st.title("📈 Datalog")
-st.markdown(
-    "Tool-controller run logs: one run's channels against their setpoints, or "
-    "several runs overlaid on the moment each reached its growth temperature."
+page_header(
+    "Process · Datalog", "Datalog",
+    "One run's channels against their setpoints, or several runs overlaid on the "
+    "moment each reached growth temperature.",
 )
 
 state = get_datalog_state()
 
-# ------------------------------------------------------------------ Folder
-st.subheader("1. Data Folder")
+# ------------------------------------------------------------------ Source
 if state["folder"] is None:
     # Only before the first pick of the session. The folder is several levels
     # down a share and picking it is a dozen clicks; a page that charges that
     # on every restart is a page nobody opens twice.
     state["folder"] = load_last_folder()
 
-tool, tool_changed = render_tool_select(DATALOG, state["folder"], key="datalog_tool")
-if tool_changed:
-    tool_folder = tool.subfolder(DATALOG)
-    if tool_folder is None:
-        st.error(f"{tool.name} declares no datalog folder in tool_layouts.json.")
-    else:
-        state["folder"] = str(tool_folder)
+with card("source"):
+    st.markdown("#### Source")
+    col_tool, col_path, col_pick = st.columns([1, 2, 1], vertical_alignment="bottom")
+    with col_tool:
+        tool, tool_changed = render_tool_select(DATALOG, state["folder"], key="datalog_tool")
+    if tool_changed:
+        tool_folder = tool.subfolder(DATALOG)
+        if tool_folder is None:
+            st.error(f"{tool.name} declares no datalog folder in tool_layouts.json.")
+        else:
+            state["folder"] = str(tool_folder)
+            try:
+                save_last_folder(state["folder"])
+            except OSError as e:
+                st.warning(f"Could not remember this folder: {e}")
+            # The runcard folder is left to the guess from the new datalog folder,
+            # not the layout's runcard subfolder: matching needs the operator's
+            # whole recipe folder (HA1P01's CLEANING cards sit at RUNCARD/lcy, one
+            # level above the layout's RUNCARD/lcy/NSHA1P01).
+            reset_results(state)
+            st.rerun()
+
+    with col_path:
+        st.caption("Datalog folder")
+        st.caption(state["folder"] or "No folder selected yet.")
+    with col_pick:
+        pick_clicked = st.button("Select Datalog Folder", width="stretch",
+                                 icon=":material/folder_open:")
+
+    if pick_clicked:
         try:
-            save_last_folder(state["folder"])
-        except OSError as e:
-            st.warning(f"Could not remember this folder: {e}")
-        # The runcard folder is left to the guess from the new datalog folder,
-        # not the layout's runcard subfolder: matching needs the operator's
-        # whole recipe folder (HA1P01's CLEANING cards sit at RUNCARD/lcy, one
-        # level above the layout's RUNCARD/lcy/NSHA1P01).
-        reset_results(state)
-        st.rerun()
+            picked = prompt_folder_path(default_dir=state["folder"] or "", title="Select Datalog Folder")
+        except Exception as e:
+            st.error(f"Failed to open folder browser: {e}")
+            picked = None
 
-col_pick, col_path = st.columns([1, 3])
-with col_pick:
-    pick_clicked = st.button("Select Datalog Folder", width="stretch")
-with col_path:
-    st.caption(state["folder"] or "No folder selected yet.")
+        if picked:
+            state["folder"] = picked
+            try:
+                save_last_folder(picked)
+            except OSError as e:
+                # A preference that cannot be written is not a reason to lose the
+                # pick itself, so this says so and carries on.
+                st.warning(f"Could not remember this folder: {e}")
+            # A pending rename plan holds absolute paths into the previous folder.
+            reset_results(state)
+            st.rerun()
 
-if pick_clicked:
-    try:
-        picked = prompt_folder_path(default_dir=state["folder"] or "", title="Select Datalog Folder")
-    except Exception as e:
-        st.error(f"Failed to open folder browser: {e}")
-        picked = None
+    root_folder = state["folder"]
+    if not root_folder:
+        st.info("Choose a data folder to get started.")
+        st.stop()
 
-    if picked:
-        state["folder"] = picked
-        try:
-            save_last_folder(picked)
-        except OSError as e:
-            # A preference that cannot be written is not a reason to lose the
-            # pick itself, so this says so and carries on.
-            st.warning(f"Could not remember this folder: {e}")
-        # A pending rename plan holds absolute paths into the previous folder.
-        reset_results(state)
-        st.rerun()
-
-root_folder = state["folder"]
-if not root_folder:
-    st.info("Choose a data folder to get started.")
-    st.stop()
-
-# ------------------------------------------------------------------ Renaming
-st.subheader("2. Filenames")
-_render_runcard_detection(root_folder, state)
-_render_bulk_rename(root_folder, state)
-_render_duplicate_cleanup(root_folder, state)
+    # Filename tools: they sit with the folder they act on, outside the fragment
+    # for the reason `_render_bulk_rename` gives.
+    st.caption("Filename tools")
+    _render_runcard_detection(root_folder, state)
+    _render_bulk_rename(root_folder, state)
+    _render_duplicate_cleanup(root_folder, state)
 
 # ------------------------------------------------------------------ View mode
-st.subheader("3. View Mode")
+# Outside the fragment, as the folder picker is: see `_render_workspace`.
 mode = st.radio(
     "View mode", ["Single run", "Compare runs"], horizontal=True, label_visibility="collapsed",
     key=VIEW_MODE_KEY,
