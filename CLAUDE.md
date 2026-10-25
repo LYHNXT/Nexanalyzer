@@ -40,11 +40,14 @@ data in the repo; don't widen them further.
 
 **1e-5 holds only on the machine that wrote the record.** Elsewhere the last
 digits differ (CPU, BLAS kernel, Windows runtime) and an ill-conditioned fit
-amplifies them, so CI sets `NEXANALYZER_GOLDEN_PORTABLE=1`: R²/chi² at 1e-3,
-and only measured peaks' (`peak_is_measured`) centre/FWHM/intensity/area at
-1 %. On the current sets rounding moves those by <= 7e-5. The hooks stay
-strict, and the record is regenerated only on the designated machine (this
-laptop). A clone on another PC opts its hooks into portable mode with
+amplifies them, so portable mode (`NEXANALYZER_GOLDEN_PORTABLE=1`) checks
+R²/chi² at 1e-3, and only measured peaks' (`peak_is_measured`)
+centre/FWHM/intensity/area at 1 %. On the current sets rounding moves those by
+<= 7e-5. The hooks stay strict, and the record is regenerated only on the
+designated machine (this laptop). CI's test job runs on a self-hosted runner on
+that same laptop (label `golden-machine`, `C:\actions-runner`, no Actions
+minutes) and is strict too; run `C:\actions-runner\start-runners.ps1` after
+logon or PRs wait for it. A clone on another PC opts its hooks into portable mode with
 `git config nexanalyzer.goldenPortable true`. A portable failure is
 a real change; don't loosen it to pass. Don't try to make fits bit-reproducible
 across machines by pinning the OpenBLAS kernel either: v5.33.0 did that and
