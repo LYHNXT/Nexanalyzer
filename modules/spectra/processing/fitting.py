@@ -484,9 +484,6 @@ def fit_voigt_peaks(
         # parameter, so its stderr comes straight from lmfit's covariance.
         width_fwhm_fit = get_param_value(result.params[f"{prefix}vfwhm"])
         width_stderr = get_param_stderr(result.params[f"{prefix}vfwhm"])
-        # The pre-v3.4.0 value, kept only for the "FWHM (v1)" comparison
-        # column -- see FittedPeak.width_fwhm_v1.
-        width_fwhm_v1_fit = _GAUSSIAN_FWHM_PER_SIGMA * sigma_fit
 
         # Calculate shape parameter (Lorentzian fraction)
         # shape = gamma / (gamma + sigma)
@@ -528,7 +525,6 @@ def fit_voigt_peaks(
             shape=shape_fit,
             component_curve=component_curve,
             color=peak.color,  # Copy color from PeakDefinition
-            width_fwhm_v1=width_fwhm_v1_fit,
             on_limit=on_limit,
         ))
 

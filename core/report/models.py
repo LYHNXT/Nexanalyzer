@@ -71,14 +71,6 @@ class PeakStat:
     measured — the empirical "Raw" row on a spectrum with no half-maximum
     crossing. The renderer dashes that cell rather than printing a 0.0 that
     would read as a measurement. Fitted peaks always have a width.
-
-    ``fwhm_v1_mean``/``fwhm_v1_std`` are the pre-v3.4.0 Gaussian-only width
-    (see ``FittedPeak.width_fwhm_v1``), aggregated the same way as
-    ``fwhm_mean``/``fwhm_std``. Always None for the "Raw" row: it has no fit,
-    so there is no sigma/gamma to compute the old formula from. Reporting
-    surfaces show this only when a caller explicitly opts in — see
-    ``build_summary_figure``'s and ``build_sample_results_xlsx``'s
-    ``show_fwhm_v1`` parameter.
     """
 
     label: str
@@ -89,8 +81,6 @@ class PeakStat:
     intensity_std: float
     fwhm_mean: Optional[float]
     fwhm_std: Optional[float]
-    fwhm_v1_mean: Optional[float] = None
-    fwhm_v1_std: Optional[float] = None
 
 
 class OpticalClassStat(NamedTuple):

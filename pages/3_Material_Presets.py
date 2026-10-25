@@ -27,6 +27,7 @@ import pandas as pd
 import streamlit as st
 
 from core.io.om_calibration import load_om_calibration, save_om_calibration
+from core.ui.theme import card, page_header
 from modules.optical.processing.contrast import layer_word
 from modules.spectra.models.preset import (
     OPTICAL_LAYERS,
@@ -128,6 +129,19 @@ _OPTICAL_FIELDS = {
     ),
 }
 
+#: The optical fields as each layer's two rows show them: what the
+#: segmentation itself reads, then what only the QC Report's domain-size pass
+#: reads. Twelve boxes in one row left every one too narrow to read.
+_OPTICAL_GROUPS = (
+    ("Segmentation", ("nsigma", "abs_threshold_below", "abs_threshold_above",
+                      "minpx", "mask_margin", "ff_divisor")),
+    ("Domain size (QC Report only)", ("domain_size_enabled", "marker_margin_sigma",
+                                      "marker_min_distance", "mask_closing_radius",
+                                      "min_domain_um_50x", "min_domain_um_100x")),
+)
+# A field missing from the groups would never be drawn, and so never saved.
+assert sorted(n for _, names in _OPTICAL_GROUPS for n in names) == sorted(_OPTICAL_FIELDS)
+
 
 def _peaks_to_df(peak_templates: list[PeakTemplate]) -> pd.DataFrame:
     if not peak_templates:
@@ -200,6 +214,7 @@ def _render_technique_block(key_prefix: str, mode: str,
     """
     d = block  # shorthand
 
+    st.markdown("**Processing**")
     col3, col4 = st.columns(2)
     with col3:
         despike_threshold = st.number_input(
@@ -293,36 +308,12 @@ def _render_technique_block(key_prefix: str, mode: str,
         key=f"{key_prefix}_exclusion"
     )
 
-    st.caption("Fit windows (optional)")
+    st.markdown("**Peak templates**")
     st.caption(
-        "Leave empty to fit every peak at once. Otherwise each row is a stretch of "
-        "the spectrum with **its own baseline and its own fit**, holding the peaks "
-        "whose centre falls in it; the results are shown together as one spectrum. "
-        "A window owns `x_min ≤ x < x_max` (the last one includes its x_max). "
-        "Empty baseline cells use the settings above."
-    )
-    windows_df = st.data_editor(
-        _windows_to_df(d.fit_windows) if d else pd.DataFrame(columns=WINDOW_COLUMNS),
-        num_rows="dynamic",
-        width="stretch",
-        column_config={
-            "x_min": st.column_config.NumberColumn("x min", required=True),
-            "x_max": st.column_config.NumberColumn("x max", required=True),
-            "baseline_algorithm": st.column_config.SelectboxColumn(
-                "Baseline", options=[_INHERIT, *BASELINE_ALGORITHMS], default=_INHERIT),
-            "baseline_lambda": st.column_config.NumberColumn("ALS lambda", min_value=1000.0, max_value=1000000.0),
-            "baseline_p": st.column_config.NumberColumn("ALS p", min_value=0.001, max_value=0.1, format="%.3f"),
-            "baseline_degree": st.column_config.NumberColumn("Poly degree", min_value=1, max_value=10, step=1),
-            "exclusion_ranges": st.column_config.TextColumn("Exclusions"),
-        },
-        key=f"{key_prefix}_windows"
-    )
-
-    st.caption("Peak templates")
-    st.caption(
-        "**± Tolerance** is the half-width of the window the fitted centre may "
-        "move in, and it is honoured exactly — since v4.0.0 the fitter no "
-        "longer overwrites it with the mode default."
+        "The preset owns position and width; intensity is estimated from each "
+        "spectrum at fit time. **± Tolerance** is the half-width of the window "
+        "the fitted centre may move in, and it is honoured exactly — since "
+        "v4.0.0 the fitter no longer overwrites it with the mode default."
     )
     peaks_df = st.data_editor(
         _peaks_to_df(d.peak_templates) if d else pd.DataFrame(columns=PEAK_COLUMNS),
@@ -351,6 +342,31 @@ def _render_technique_block(key_prefix: str, mode: str,
         help="Every other peak's fitted maximum is held at or below this one's. "
              "A peak held level with it is flagged on its limit. (none) fits every peak freely.",
         key=f"{key_prefix}_dominant_peak",
+    )
+
+    st.markdown("**Fit windows** (optional)")
+    st.caption(
+        "Leave empty to fit every peak at once. Otherwise each row is a stretch of "
+        "the spectrum with **its own baseline and its own fit**, holding the peaks "
+        "whose centre falls in it; the results are shown together as one spectrum. "
+        "A window owns `x_min ≤ x < x_max` (the last one includes its x_max). "
+        "Empty baseline cells use the settings above."
+    )
+    windows_df = st.data_editor(
+        _windows_to_df(d.fit_windows) if d else pd.DataFrame(columns=WINDOW_COLUMNS),
+        num_rows="dynamic",
+        width="stretch",
+        column_config={
+            "x_min": st.column_config.NumberColumn("x min", required=True),
+            "x_max": st.column_config.NumberColumn("x max", required=True),
+            "baseline_algorithm": st.column_config.SelectboxColumn(
+                "Baseline", options=[_INHERIT, *BASELINE_ALGORITHMS], default=_INHERIT),
+            "baseline_lambda": st.column_config.NumberColumn("ALS lambda", min_value=1000.0, max_value=1000000.0),
+            "baseline_p": st.column_config.NumberColumn("ALS p", min_value=0.001, max_value=0.1, format="%.3f"),
+            "baseline_degree": st.column_config.NumberColumn("Poly degree", min_value=1, max_value=10, step=1),
+            "exclusion_ranges": st.column_config.TextColumn("Exclusions"),
+        },
+        key=f"{key_prefix}_windows"
     )
 
     return TechniquePreset(
@@ -382,37 +398,40 @@ def _render_optical_block(key_prefix: str, layer: str,
     moment anyone opened the expander.
     """
     values = {}
-    columns = st.columns(len(_OPTICAL_FIELDS))
-    for column, (name, (label, help_text)) in zip(columns, _OPTICAL_FIELDS.items()):
-        current = getattr(params, name) if params else None
-        with column:
-            raw = st.text_input(
-                label,
-                value="" if current is None else str(current),
-                placeholder="default",
-                help=help_text,
-                key=f"{key_prefix}_{layer}_{name}",
-            )
-        raw = raw.strip()
-        if not raw:
-            values[name] = None
-            continue
-        if name in _BOOL_OPTICAL_FIELDS:
-            word = raw.lower()
-            if word in ("yes", "y", "true", "on", "1"):
-                values[name] = True
-            elif word in ("no", "n", "false", "off", "0"):
-                values[name] = False
-            else:
-                st.error(f"{layer} {label}: '{raw}' is not yes or no.")
+    for heading, names in _OPTICAL_GROUPS:
+        st.caption(heading)
+        columns = st.columns(len(names))
+        for column, name in zip(columns, names):
+            label, help_text = _OPTICAL_FIELDS[name]
+            current = getattr(params, name) if params else None
+            with column:
+                raw = st.text_input(
+                    label,
+                    value="" if current is None else str(current),
+                    placeholder="default",
+                    help=help_text,
+                    key=f"{key_prefix}_{layer}_{name}",
+                )
+            raw = raw.strip()
+            if not raw:
                 values[name] = None
-            continue
-        try:
-            is_int_field = name in ("minpx", "marker_min_distance", "mask_closing_radius")
-            values[name] = int(raw) if is_int_field else float(raw)
-        except ValueError:
-            st.error(f"{layer} {label}: '{raw}' is not a number.")
-            values[name] = None
+                continue
+            if name in _BOOL_OPTICAL_FIELDS:
+                word = raw.lower()
+                if word in ("yes", "y", "true", "on", "1"):
+                    values[name] = True
+                elif word in ("no", "n", "false", "off", "0"):
+                    values[name] = False
+                else:
+                    st.error(f"{layer} {label}: '{raw}' is not yes or no.")
+                    values[name] = None
+                continue
+            try:
+                is_int_field = name in ("minpx", "marker_min_distance", "mask_closing_radius")
+                values[name] = int(raw) if is_int_field else float(raw)
+            except ValueError:
+                st.error(f"{layer} {label}: '{raw}' is not a number.")
+                values[name] = None
 
     return OpticalParams(**values)
 
@@ -426,7 +445,7 @@ def _render_preset_form(presets: dict, key_prefix: str,
     """
     d = existing  # shorthand
 
-    col1, col2 = st.columns([3, 1])
+    col1, col2 = st.columns([3, 1], vertical_alignment="bottom")
     with col1:
         material_name = st.text_input(
             "Material name", value=d.material_name if d else "", key=f"{key_prefix}_name"
@@ -435,9 +454,9 @@ def _render_preset_form(presets: dict, key_prefix: str,
         # A real control at last. Until v4.0.0 this was hardcoded True on save,
         # so nothing could write False and editing a hand-disabled preset
         # silently re-enabled it.
-        enabled = st.checkbox(
+        enabled = st.toggle(
             "Enabled", value=d.enabled if d else True,
-            help="Unchecked materials stay in the file but are hidden from "
+            help="Switched-off materials stay in the file but are hidden from "
                  "every material dropdown.",
             key=f"{key_prefix}_enabled"
         )
@@ -446,72 +465,81 @@ def _render_preset_form(presets: dict, key_prefix: str,
         "Notes (optional)", value=d.description if d else "", key=f"{key_prefix}_description"
     )
 
+    # One tab per block. Tabs only hide, they don't skip: every block's
+    # widgets still run on every rerun, so a save collects all three whichever
+    # tab is showing.
+    tab_raman, tab_pl, tab_optical = st.tabs(["Raman", "PL", "Optical"])
+
     # ------------------------------------------------------------- Technique
     blocks = {}
-    for mode in MODES:
-        current = d.block_for(mode) if d else None
-        has_block = st.checkbox(
-            f"{mode} settings",
-            value=current is not None,
-            key=f"{key_prefix}_has_{mode.lower()}",
-            help=f"Unchecking removes this material's {mode} block entirely.",
-        )
-        if has_block:
-            with st.container(border=True):
-                blocks[mode] = _render_technique_block(
-                    f"{key_prefix}_{mode.lower()}", mode, current
-                )
-        else:
-            blocks[mode] = None
+    for mode, tab in zip(MODES, (tab_raman, tab_pl)):
+        with tab:
+            current = d.block_for(mode) if d else None
+            has_block = st.toggle(
+                f"This material has {mode} settings",
+                value=current is not None,
+                key=f"{key_prefix}_has_{mode.lower()}",
+                help=f"Turning it off removes this material's {mode} block on save.",
+            )
+            if has_block:
+                with card(f"{key_prefix}-{mode.lower()}"):
+                    blocks[mode] = _render_technique_block(
+                        f"{key_prefix}_{mode.lower()}", mode, current
+                    )
+            else:
+                blocks[mode] = None
 
     # --------------------------------------------------------------- Optical
-    st.markdown("**Optical (layer segmentation)**")
-    st.caption(
-        "Blank means the algorithm's own default. A layer with every field "
-        "blank stores no block at all, and the QC Report says it is running "
-        "defaults."
-    )
     optical = {}
-    for index, layer in enumerate(OPTICAL_LAYERS):
-        # One full-width row per layer, not side-by-side columns: each row
-        # already splits into st.columns(len(_OPTICAL_FIELDS)) (9, once the
-        # domain-size-only fields are counted), and nesting that inside a
-        # half-width column left every field box uselessly narrow.
-        if index > 0:
-            st.divider()
-        st.caption(f"**{layer_word(layer)}** ({layer})")
-        candidate = _render_optical_block(
-            f"{key_prefix}_optical", layer,
-            d.optical.get(layer) if d else None,
+    with tab_optical:
+        st.caption(
+            "Layer segmentation for the QC Report's OM analysis. Blank means the "
+            "algorithm's own default. A layer with every field blank stores no "
+            "block at all, and the QC Report says it is running defaults."
         )
-        # Only store a block that says something. An all-blank layer is
-        # "untuned", which is the absence of a block, not an empty one.
-        if candidate.to_dict():
-            optical[layer] = candidate
+        for index, layer in enumerate(OPTICAL_LAYERS):
+            # One full-width block per layer, not side-by-side columns: each
+            # layer already splits into rows of six boxes (_OPTICAL_GROUPS),
+            # and nesting those inside a half-width column left every field box
+            # uselessly narrow.
+            if index > 0:
+                st.divider()
+            st.markdown(f"**{layer_word(layer)}** ({layer})")
+            candidate = _render_optical_block(
+                f"{key_prefix}_optical", layer,
+                d.optical.get(layer) if d else None,
+            )
+            # Only store a block that says something. An all-blank layer is
+            # "untuned", which is the absence of a block, not an empty one.
+            if candidate.to_dict():
+                optical[layer] = candidate
 
-    # Unknown layers round-trip untouched rather than being dropped on edit.
-    if d:
-        for layer, params in d.optical.items():
-            if layer not in OPTICAL_LAYERS:
-                optical[layer] = params
-                st.warning(
-                    f"Keeping unknown optical layer '{layer}', which this page "
-                    f"cannot edit. Nothing reads it."
-                )
+        # Unknown layers round-trip untouched rather than being dropped on edit.
+        if d:
+            for layer, params in d.optical.items():
+                if layer not in OPTICAL_LAYERS:
+                    optical[layer] = params
+                    st.warning(
+                        f"Keeping unknown optical layer '{layer}', which this page "
+                        f"cannot edit. Nothing reads it."
+                    )
 
     # ---------------------------------------------------------------- Buttons
-    button_col1, button_col2 = st.columns([1, 1])
+    # Delete on the left, away from Save, as the design places them.
+    button_col1, _, button_col2 = st.columns([1, 2, 1])
     with button_col1:
-        save_clicked = st.button(
-            "💾 Save" if d else "➕ Create Material",
-            key=f"{key_prefix}_save", type="primary", width="stretch"
-        )
-    with button_col2:
         delete_clicked = False
         if d:
             delete_clicked = st.button(
-                "🗑️ Delete", key=f"{key_prefix}_delete", width="stretch"
+                "Delete material", icon=":material/delete:",
+                key=f"{key_prefix}_delete", width="stretch"
             )
+    with button_col2:
+        save_clicked = st.button(
+            "Save" if d else "Create material",
+            icon=":material/save:" if d else ":material/add:",
+            key=f"{key_prefix}_save", type="primary", width="stretch"
+        )
 
     if delete_clicked:
         del presets[original_key]
@@ -553,10 +581,11 @@ def _render_preset_form(presets: dict, key_prefix: str,
         st.rerun()
 
 
-st.title("🧪 Material Presets")
-st.markdown(
-    "Create and edit the material presets used by **Run Auto-Workflow** / "
-    "**Run All Files** on the Spectra page, and by the QC Report."
+page_header(
+    "Analysis · Material Presets",
+    "Material Presets",
+    "Create and edit the material presets used by Run Auto-Workflow / Run All "
+    "Files on the Spectra page, and by the QC Report.",
 )
 
 store = load_store()
@@ -570,71 +599,74 @@ if store.migrated:
 for warning in store.warnings:
     st.info(warning)
 
-st.caption(f"{len(presets)} material(s) configured")
+# Above the list, where the design puts its New material button: adding one
+# should not mean scrolling past every existing material first.
+with card("new-material"):
+    with st.expander("New material", icon=":material/add:", expanded=len(presets) == 0):
+        _render_preset_form(presets, key_prefix="new")
 
-for key in sorted(presets.keys()):
-    preset = presets[key]
-    techniques = [m for m in MODES if preset.block_for(m)]
-    layers = sorted(preset.optical)
-    summary = " · ".join(filter(None, [
-        ", ".join(techniques) or "no spectra",
-        f"optical {', '.join(layers)}" if layers else "",
-        "" if preset.enabled else "disabled",
-    ]))
-    with st.expander(f"{preset.material_name} — {summary}"):
-        _render_preset_form(
-            presets, key_prefix=f"edit_{key}", existing=preset, original_key=key
-        )
+with card("materials"):
+    st.markdown("#### Materials")
+    st.caption(f"{len(presets)} material(s) · stored in data/materials.json")
 
-st.markdown("---")
-st.subheader("Add New Material")
-with st.expander("➕ New material", expanded=len(presets) == 0):
-    _render_preset_form(presets, key_prefix="new")
+    for key in sorted(presets.keys()):
+        preset = presets[key]
+        techniques = [m for m in MODES if preset.block_for(m)]
+        layers = sorted(preset.optical)
+        summary = " · ".join(filter(None, [
+            ", ".join(techniques) or "no spectra",
+            f"optical {', '.join(layers)}" if layers else "",
+            "" if preset.enabled else "disabled",
+        ]))
+        with st.expander(f"{preset.material_name} — {summary}"):
+            _render_preset_form(
+                presets, key_prefix=f"edit_{key}", existing=preset, original_key=key
+            )
 
-st.markdown("---")
-st.subheader("Objective / Magnification Calibration")
-st.caption(
-    "Micron-per-pixel of the full-size camera image (as saved by the "
-    "microscope, before any resizing), by magnification group — not by material: a 50X "
-    "objective has the same field of view regardless of what film is under "
-    "it. Used by the QC Report's domain-size analysis to convert measured "
-    "pixel sizes into real units. A magnification with no row here is "
-    "reported in pixels, honestly, rather than guessed."
-)
+with card("calibration"):
+    st.markdown("#### Objective calibration")
+    st.caption(
+        "Micron-per-pixel of the full-size camera image (as saved by the "
+        "microscope, before any resizing), by magnification group — not by material: a 50X "
+        "objective has the same field of view regardless of what film is under "
+        "it. Used by the QC Report's domain-size analysis to convert measured "
+        "pixel sizes into real units. A magnification with no row here is "
+        "reported in pixels, honestly, rather than guessed."
+    )
 
-calibration = load_om_calibration()
-calibration_df = pd.DataFrame(
-    [{"Magnification": mag, "um_per_px": value} for mag, value in sorted(calibration.items())],
-    columns=["Magnification", "um_per_px"],
-)
-edited_calibration_df = st.data_editor(
-    calibration_df,
-    num_rows="dynamic",
-    width="stretch",
-    column_config={
-        "Magnification": st.column_config.TextColumn(
-            "Magnification", required=True, help='e.g. "50x", matching the OM folder naming.'
-        ),
-        "um_per_px": st.column_config.NumberColumn(
-            "µm/px", required=True, min_value=0.0, format="%.5f"
-        ),
-    },
-    key="om_calibration_editor",
-)
+    calibration = load_om_calibration()
+    calibration_df = pd.DataFrame(
+        [{"Magnification": mag, "um_per_px": value} for mag, value in sorted(calibration.items())],
+        columns=["Magnification", "um_per_px"],
+    )
+    edited_calibration_df = st.data_editor(
+        calibration_df,
+        num_rows="dynamic",
+        width="stretch",
+        column_config={
+            "Magnification": st.column_config.TextColumn(
+                "Magnification", required=True, help='e.g. "50x", matching the OM folder naming.'
+            ),
+            "um_per_px": st.column_config.NumberColumn(
+                "µm/px", required=True, min_value=0.0, format="%.5f"
+            ),
+        },
+        key="om_calibration_editor",
+    )
 
-if st.button("💾 Save Calibration"):
-    rows = edited_calibration_df.dropna(subset=["Magnification", "um_per_px"]).to_dict("records")
-    magnifications = [str(r["Magnification"]).strip() for r in rows]
-    duplicates = {m for m in magnifications if magnifications.count(m) > 1}
-    if duplicates:
-        st.error(f"Duplicate magnification(s): {', '.join(sorted(duplicates))}")
-    elif any(not m for m in magnifications):
-        st.error("Magnification cannot be blank.")
-    elif any(float(r["um_per_px"]) <= 0 for r in rows):
-        st.error("µm/px must be > 0.")
-    else:
-        save_om_calibration({
-            str(r["Magnification"]).strip(): float(r["um_per_px"]) for r in rows
-        })
-        st.success("Calibration saved.")
-        st.rerun()
+    if st.button("Save calibration", icon=":material/save:", type="primary"):
+        rows = edited_calibration_df.dropna(subset=["Magnification", "um_per_px"]).to_dict("records")
+        magnifications = [str(r["Magnification"]).strip() for r in rows]
+        duplicates = {m for m in magnifications if magnifications.count(m) > 1}
+        if duplicates:
+            st.error(f"Duplicate magnification(s): {', '.join(sorted(duplicates))}")
+        elif any(not m for m in magnifications):
+            st.error("Magnification cannot be blank.")
+        elif any(float(r["um_per_px"]) <= 0 for r in rows):
+            st.error("µm/px must be > 0.")
+        else:
+            save_om_calibration({
+                str(r["Magnification"]).strip(): float(r["um_per_px"]) for r in rows
+            })
+            st.success("Calibration saved.")
+            st.rerun()

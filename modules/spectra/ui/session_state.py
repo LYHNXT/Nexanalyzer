@@ -110,8 +110,8 @@ def set_view_options(values: dict, *, respect_pinned: bool = True) -> None:
     """Write stage-derived View Options, skipping any the user pinned.
 
     Every automatic writer of the show_* keys goes through here, so one place
-    knows that a hand-set checkbox outranks a stage default. Callers must run
-    before the sidebar instantiates those checkboxes: Streamlit forbids
+    knows that a hand-set toggle outranks a stage default. Callers must run
+    before the page instantiates those toggles: Streamlit forbids
     writing a widget's key after the widget exists in the same script run.
     """
     pinned = pinned_view_options() if respect_pinned else set()

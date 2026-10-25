@@ -5,6 +5,90 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.44.0] - 2026-10-25
+
+### Changed
+
+- **A new look across every page**, from the "NexAnalyzer UI" design canvas.
+  No numbers move: this is layout and styling only.
+  - **Theme** (`.streamlit/config.toml`, now committed; the rest of
+    `.streamlit/` stays ignored): grey page, white cards, a dark navigation
+    sidebar, IBM Plex Sans / Mono and one blue accent (#1D5FB8). The fonts
+    load from Google Fonts and fall back to the system sans when offline.
+  - **Navigation** uses line icons instead of emoji.
+  - **`core/ui/theme.py`**: `page_header()` gives every page the same
+    header (section · page eyebrow, title, one-line purpose), and `card()`
+    replaces `st.container(border=True)` so sections draw as white cards.
+  - **Every page** opens with that header and lays its sections out as
+    cards, in the canvas's order. Emoji in titles, buttons and status
+    messages became Material icons; the main action on each page is the
+    blue primary button. Widget keys, session state and the order things
+    run in are unchanged.
+  - **Spectra**: the previous / next file buttons are chevron icons.
+  - **QC Report**: setup is five cards (Sample, OM magnification, Film
+    layer, Material, Run); results are OM coverage, Figures, Run notes
+    (drawn only when a note has something to say) and Save report.
+  - **Material Presets**: "New material" sits above the list; Enabled and
+    each technique are switches; Raman / PL / Optical are tabs; a technique
+    block reads Processing, Peak templates, Fit windows; an optical layer is
+    a Segmentation row and a Domain size row instead of 12 narrow columns.
+  - **Datalog**: Source (with the three filename tools as expanders), Find
+    runs, Runs and Selected run cards; Channels now come before the
+    tolerance settings, and violations / summary statistics are tabs.
+  - **Runcard**: Runcard folder, Recipes and Profile cards; Scan / Reload
+    is the primary button.
+  - **Split Table**: Workbook, Find runs (Wafer search first), Runs, Open
+    run and Charts cards; the open-run buttons read "Open in …".
+  - **OneNote**: Wafer and Material check side by side, then the three
+    "What's ready" cards with a status badge each, Publish, and Not uploaded.
+  - **Tools**: a card saying which file holds folders on this PC and which
+    holds the shared layouts; one card per tool; "Add a tool" at the bottom.
+
+## [5.43.0] - 2026-10-24
+
+### Changed
+
+- **The Spectra page's workflow moved out of the sidebar into the page**,
+  top to bottom in the order it is used (`modules/spectra/ui/workspace.py`,
+  replacing `sidebar.py`; the sidebar is now only the page navigation):
+  - **Run setup**: the file switcher (◀ / dropdown / ▶, a position counter,
+    **Add files…**, **Remove File**, **Delete All**) and, for 2-30 files, a
+    row of file buttons with a fit-status dot (green fitted, orange stopped at
+    max_iterations, grey not run); then **Material preset**, **Technique**
+    (what the filename says, or "assumed"), **Run Auto-Workflow**, **Run All
+    Files (N)** and **Reset to Raw**. Run and Run All Files are shown
+    disabled until a preset is picked, rather than hidden.
+  - **Fitted spectrum**: an **On background / Baseline removed** switch
+    replaces the "Peaks on Background" checkbox and is pinned the same way;
+    the other View Options are a row of toggles above the plot instead of an
+    expander at the bottom of the sidebar. The plot is the same Plotly figure
+    from `create_unified_figure`.
+  - **Fit results**: the table gains **Area** (the integral) and **Status**
+    (`peak_is_measured`: Measured, On fit limit, Below 3× noise) and names its
+    unit in each header; R², χ², fit status and the pipeline are cards under it.
+  - **Exports**, top right: **Quick export** (PNG, HTML, CSV of this file) and
+    **Batch export** (Save Master CSV…, Save PNGs…), shown disabled until
+    there is something to export.
+- The integration tests that drove the sidebar now drive the page, and were
+  renamed `test_workspace_*`; `test_spectra_workspace.py` covers the new
+  switcher, the baseline switch and the table's columns.
+
+### Removed
+
+- **The legacy FWHM (v1)** -- the pre-v3.4.0 `2.355 x sigma` width that
+  dropped the Lorentzian half and understated every width by 59-108 %. Gone
+  from everywhere it could still appear: the QC Report's "Include legacy FWHM
+  (v1) column" option (summary figure tables and the workbook's
+  `FWHM_v1`/`FWHM_v1_Stderr`/`FWHM_v1_Mean`/`FWHM_v1_Std` columns), the
+  Spectra page's Fit Results column, `FittedPeak.width_fwhm_v1`, its
+  computation in `fit_voigt_peaks`, and `PeakStat.fwhm_v1_mean`/`fwhm_v1_std`.
+  A fit saved with the old key still loads; the key is ignored.
+
+No numbers move: nothing here touches parsing, the fit itself or any reported
+value. The fit no longer computes the removed v1 width, which nothing reported
+by default; FWHM is still the Voigt FWHM. The table's Intensity is still
+`peak_intensity()`, the same number both CSVs carry.
+
 ## [5.42.0] - 2026-10-24
 
 ### Added

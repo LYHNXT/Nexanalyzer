@@ -120,12 +120,12 @@ class TestRatioRows:
         assert len(rows) == 1
         assert bold_from == 1
 
-    def test_the_ratio_row_gains_a_dash_in_the_v1_column_too(self):
+    def test_the_ratio_row_dashes_centre_and_width(self):
         _headers, rows, _fracs, bold_from = stats_table_content(
-            [_stat()], [("LA / E2g+A1g", (0.128, 0.011, 9))], show_fwhm_v1=True
+            [_stat()], [("LA / E2g+A1g", (0.128, 0.011, 9))]
         )
 
-        assert rows[bold_from] == ["LA / E2g+A1g", "—", "0.128 ± 0.011", "—", "—", "9"]
+        assert rows[bold_from] == ["LA / E2g+A1g", "—", "0.128 ± 0.011", "—", "9"]
 
 
 class TestUnmeasurableValues:
@@ -139,34 +139,20 @@ class TestUnmeasurableValues:
         assert rows[0][3] == "—"
         assert "0.0" not in rows[0][3]
 
-    def test_an_absent_v1_width_is_dashed_too(self):
-        _headers, rows, _fracs, _bold = stats_table_content(
-            [_stat()], show_fwhm_v1=True
-        )
-
-        assert rows[0][4] == "—"
-
 
 class TestColumns:
-    def test_the_default_table_has_no_legacy_width_column(self):
+    def test_the_table_has_no_legacy_width_column(self):
+        """The pre-v3.4.0 "FWHM (v1)" column was removed in v5.43.0."""
         headers, _rows, fracs, _bold = stats_table_content([_stat()])
 
         assert headers == ["Peak", "Center", "Intensity", "FWHM", "n"]
         assert len(fracs) == len(headers)
 
-    def test_the_legacy_column_is_inserted_after_the_real_one(self):
-        headers, _rows, fracs, _bold = stats_table_content([_stat()], show_fwhm_v1=True)
-
-        assert headers == ["Peak", "Center", "Intensity", "FWHM", "FWHM (v1)", "n"]
-        assert headers.index("FWHM (v1)") == headers.index("FWHM") + 1
-        assert len(fracs) == len(headers)
-
     def test_the_column_fractions_span_the_table(self):
         """They leave no gap and overrun no edge — the table is sized in
         fractions of its own rect."""
-        for show in (False, True):
-            _headers, _rows, fracs, _bold = stats_table_content([_stat()], show_fwhm_v1=show)
-            assert sum(fracs) == pytest.approx(1.0)
+        _headers, _rows, fracs, _bold = stats_table_content([_stat()])
+        assert sum(fracs) == pytest.approx(1.0)
 
 
 class TestCaptions:

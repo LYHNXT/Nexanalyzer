@@ -157,7 +157,6 @@ class QcReportInputs:
     domain_target: str = "above"
     split_size_populations: bool = False
     um_per_px: Optional[float] = None
-    show_fwhm_v1: bool = False
     report_date: Optional[str] = None
 
 
@@ -433,7 +432,6 @@ def build_qc_report(inputs: QcReportInputs, progress, warn: Callable[[str], None
         ),
         domain_stat=out["domain_stat"],
         domain_class_label=domain_class if inputs.measure_domain_size else None,
-        show_fwhm_v1=inputs.show_fwhm_v1,
     )
 
     # Built from the very stats the summary page was built from, and the very
@@ -465,7 +463,6 @@ def build_qc_report(inputs: QcReportInputs, progress, warn: Callable[[str], None
             optical_threshold_pair=threshold_pair,
             domain_stat=out["domain_stat"],
             domain_class_label=domain_class if out["domain_stat"] else None,
-            show_fwhm_v1=inputs.show_fwhm_v1,
         )
     progress.complete("compose")
     return out

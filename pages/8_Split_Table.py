@@ -29,6 +29,7 @@ import streamlit as st
 from core.io import tool_layout
 from core.io.export import prompt_save_path
 from core.io.tool_roots import load_last_tool, save_last_tool
+from core.ui.theme import card, page_header
 from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
 from modules.datalog.io.scanner import get_run_metadata
@@ -85,7 +86,7 @@ def _render_links(tool: tool_layout.ToolLayout, row: pd.Series) -> None:
     """Three buttons, one per page, each opening on this row's file."""
     found = links.resolve_row(tool, row)
     wafer = row.get("WaferID")
-    st.markdown(f"**Open `{wafer}`**")
+    st.markdown(f"#### Open `{wafer}`")
     col_dl, col_rc, col_qc = st.columns(3)
 
     with col_dl:
@@ -97,7 +98,7 @@ def _render_links(tool: tool_layout.ToolLayout, row: pd.Series) -> None:
             st.caption(f"Datalog `{datalog.name}` is outside {tool.name}'s DATALOG folder.")
         else:
             st.caption(f"Datalog: `{datalog.parent.name}/{datalog.name}`")
-            if st.button("Open in Datalog →", key="splittable_goto_datalog", width="stretch"):
+            if st.button("Open in Datalog", icon=":material/arrow_forward:", key="splittable_goto_datalog", width="stretch"):
                 meta = get_run_metadata(str(datalog))
                 if meta is None:
                     st.error(f"`{datalog.name}` does not read as a datalog.")
@@ -112,7 +113,7 @@ def _render_links(tool: tool_layout.ToolLayout, row: pd.Series) -> None:
             st.caption("Runcard: not linked.")
         else:
             st.caption(f"Runcard: `{runcard.name}`")
-            if st.button("Open in Runcard →", key="splittable_goto_runcard", width="stretch"):
+            if st.button("Open in Runcard", icon=":material/arrow_forward:", key="splittable_goto_runcard", width="stretch"):
                 # The declared subfolder when the card is in it, so the table
                 # lists the card's neighbours; VB's RUNCARD/JK cards are not.
                 declared = tool.subfolder(tool_layout.RUNCARD)
@@ -129,7 +130,7 @@ def _render_links(tool: tool_layout.ToolLayout, row: pd.Series) -> None:
             st.caption(f"`{optical.name}` is an archived project file.")
         else:
             st.caption(f"Optical: `{optical.parent.name}/{optical.name}`")
-            if st.button("Open in QC Report →", key="splittable_goto_qc", width="stretch"):
+            if st.button("Open in QC Report", icon=":material/arrow_forward:", key="splittable_goto_qc", width="stretch"):
                 qc_state = get_qc_report_state()
                 if qc_state.get("folder") != str(optical):
                     scan = scan_sample_folder(str(optical))
@@ -139,7 +140,7 @@ def _render_links(tool: tool_layout.ToolLayout, row: pd.Series) -> None:
 
 # -------------------------------------------------------------------- Export
 def _render_save(view: pd.DataFrame, tool: tool_layout.ToolLayout, workbook: Path) -> None:
-    if not st.button("💾 Save View As...", key="splittable_save"):
+    if not st.button("Save View As…", key="splittable_save", icon=":material/save:"):
         return
     try:
         target = prompt_save_path(
@@ -171,138 +172,148 @@ def _render_save(view: pd.DataFrame, tool: tool_layout.ToolLayout, workbook: Pat
 
 
 # ---------------------------------------------------------------------- Page
-st.title("🧾 Split Table")
-st.markdown(
+page_header(
+    "Process · Split Table",
+    "Split Table",
     "Every run on a tool, one row each: recipe, run time and QC results from the "
-    "tool's split-table workbook. Read-only; the SPLITTABLE scripts build it."
+    "tool's split-table workbook. Read-only; the SPLITTABLE scripts build it.",
 )
 
 state = st.session_state.setdefault(_STATE_KEY, {"tool_folder": None})
 
-st.subheader("1. Tool")
-tool, tool_changed = render_tool_select(
-    None, state.get("tool_folder"), key="splittable_tool", fallback=load_last_tool()
-)
-if tool is not None and (tool_changed or not state.get("tool_folder")):
-    if tool_changed:
-        try:
-            save_last_tool(tool.name)
-        except OSError:
-            pass
-    state["tool_folder"] = str(tool.root)
-    st.rerun()
-
-if tool is None:
-    st.info("Pick a tool to read its split table.")
-    st.stop()
-
-workbook = tool.splittable_file
-if workbook is None:
-    st.warning(
-        f"{tool.name} declares no split table. Add "
-        '`"splittable": {"file": "SPLITTABLE/<name>.xlsx"}` to its entry in '
-        f"`{tool_layout.get_layouts_path().name}`."
+with card("source"):
+    st.markdown("#### Workbook")
+    tool, tool_changed = render_tool_select(
+        None, state.get("tool_folder"), key="splittable_tool", fallback=load_last_tool()
     )
-    st.stop()
-if not workbook.is_file():
-    st.error(f"No split table at `{workbook}`.")
-    st.stop()
+    if tool is not None and (tool_changed or not state.get("tool_folder")):
+        if tool_changed:
+            try:
+                save_last_tool(tool.name)
+            except OSError:
+                pass
+        state["tool_folder"] = str(tool.root)
+        st.rerun()
 
-try:
-    mtime = workbook.stat().st_mtime
-    table = _load(str(workbook), mtime)
-except Exception as e:
-    # Excel holding the file open, OneDrive mid-sync: say which, don't crash.
-    st.error(f"Could not read `{workbook.name}`: {e}")
-    st.stop()
+    if tool is None:
+        st.info("Pick a tool to read its split table.", icon=":material/info:")
+        st.stop()
 
-data = table.data
-st.caption(
-    f"`{workbook}` · sheet `{table.sheet}` · {len(data)} rows × {len(data.columns)} columns · "
-    f"saved {datetime.fromtimestamp(mtime):%Y-%m-%d %H:%M}"
-)
+    workbook = tool.splittable_file
+    if workbook is None:
+        st.warning(
+            f"{tool.name} declares no split table. Add "
+            '`"splittable": {"file": "SPLITTABLE/<name>.xlsx"}` to its entry in '
+            f"`{tool_layout.get_layouts_path().name}`."
+        )
+        st.stop()
+    if not workbook.is_file():
+        st.error(f"No split table at `{workbook}`.")
+        st.stop()
+
+    try:
+        mtime = workbook.stat().st_mtime
+        table = _load(str(workbook), mtime)
+    except Exception as e:
+        # Excel holding the file open, OneDrive mid-sync: say which, don't crash.
+        st.error(f"Could not read `{workbook.name}`: {e}")
+        st.stop()
+
+    data = table.data
+    st.caption(
+        f"`{workbook}` · sheet `{table.sheet}` · {len(data)} rows × {len(data.columns)} columns · "
+        f"saved {datetime.fromtimestamp(mtime):%Y-%m-%d %H:%M} · read-only"
+    )
 
 # ------------------------------------------------------------------- Filters
-st.subheader("2. Rows")
-col_month, col_type, col_series, col_search = st.columns(4)
-key = f"splittable_{tool.name}"
-with col_month:
-    months = st.multiselect("Month", distinct(data["Month"]) if "Month" in data else [],
-                            key=f"{key}_month", placeholder="All months")
-with col_type:
-    run_types = st.multiselect("Run type", distinct(data["Run_Type"]) if "Run_Type" in data else [],
-                               key=f"{key}_run_type", placeholder="All run types")
-with col_series:
-    series = st.multiselect("Series", distinct(series_of(data)),
-                            key=f"{key}_series", placeholder="All series")
-with col_search:
-    query = st.text_input("Wafer", key=f"{key}_search",
-                          placeholder="e.g. HADI5, VBCA1")
+with card("filters"):
+    st.markdown("#### Find runs")
+    # Wafer search first, as in the design: it is the filter reached for most.
+    col_search, col_month, col_type, col_series = st.columns([2, 1, 1, 1])
+    key = f"splittable_{tool.name}"
+    with col_month:
+        months = st.multiselect("Month", distinct(data["Month"]) if "Month" in data else [],
+                                key=f"{key}_month", placeholder="All months")
+    with col_type:
+        run_types = st.multiselect("Run type", distinct(data["Run_Type"]) if "Run_Type" in data else [],
+                                   key=f"{key}_run_type", placeholder="All run types")
+    with col_series:
+        series = st.multiselect("Series", distinct(series_of(data)),
+                                key=f"{key}_series", placeholder="All series")
+    with col_search:
+        query = st.text_input("Wafer", key=f"{key}_search",
+                              placeholder="e.g. HADI5, VBCA1")
 
-rows = filter_rows(data, months, run_types, series, query)
+    rows = filter_rows(data, months, run_types, series, query)
 
-groups = list(table.groups)
-shown_groups = st.multiselect("Column groups", groups, default=groups, key=f"{key}_groups",
-                              help="From the workbook's Column_Design sheet.")
-columns = [c for g in shown_groups for c in table.groups[g]]
-view = rows[columns].copy()
-view.insert(0, RUN_COLUMN, rows.index + 1)
+with card("runs"):
+    st.markdown("#### Runs")
+    groups = list(table.groups)
+    shown_groups = st.multiselect("Column groups", groups, default=groups, key=f"{key}_groups",
+                                  help="From the workbook's Column_Design sheet.")
+    columns = [c for g in shown_groups for c in table.groups[g]]
+    view = rows[columns].copy()
+    view.insert(0, RUN_COLUMN, rows.index + 1)
 
-st.caption(f"{len(view)} of {len(data)} row(s). Select a row to open its run.")
-# Keyed by the row set as well as the tool: the selection is a row *position*,
-# and a position from one filter means a different run under another.
-event = st.dataframe(
-    view, hide_index=True, width="stretch", height=420,
-    on_select="rerun", selection_mode="single-row",
-    key=f"{key}_table_{hash(tuple(rows.index))}_{mtime}",
-    column_config={
-        c: st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm")
-        for c in view.columns if pd.api.types.is_datetime64_any_dtype(view[c])
-    },
-)
-picked = event.selection.rows if event and event.selection else []
+    st.caption(f"{len(view)} of {len(data)} row(s). Select a row to open its run.")
+    # Keyed by the row set as well as the tool: the selection is a row *position*,
+    # and a position from one filter means a different run under another.
+    event = st.dataframe(
+        view, hide_index=True, width="stretch", height=420,
+        on_select="rerun", selection_mode="single-row",
+        key=f"{key}_table_{hash(tuple(rows.index))}_{mtime}",
+        column_config={
+            c: st.column_config.DatetimeColumn(format="YYYY-MM-DD HH:mm")
+            for c in view.columns if pd.api.types.is_datetime64_any_dtype(view[c])
+        },
+    )
+    picked = event.selection.rows if event and event.selection else []
+    # Under the table, not in the page header the design puts it in: its
+    # saved/refused messages need the card's width.
+    _render_save(view, tool, workbook)
+
 if picked and picked[0] < len(rows):
-    _render_links(tool, rows.iloc[picked[0]])
-
-_render_save(view, tool, workbook)
+    with card("open-run"):
+        _render_links(tool, rows.iloc[picked[0]])
 
 # -------------------------------------------------------------------- Charts
-st.subheader("3. Charts")
-numeric = numeric_columns(rows)
-if not numeric:
-    st.info("No numeric column has a value in these rows.")
-    st.stop()
+with card("charts"):
+    st.markdown("#### Charts")
+    numeric = numeric_columns(rows)
+    if not numeric:
+        st.info("No numeric column has a value in these rows.", icon=":material/info:")
+        st.stop()
 
-tab_trend, tab_scatter = st.tabs(["Trend", "X vs Y"])
+    tab_trend, tab_scatter = st.tabs(["Trend", "X vs Y"])
 
-with tab_trend:
-    trend_cols = st.multiselect(
-        "Columns", numeric,
-        default=[c for c in _DEFAULT_TREND if c in numeric] or numeric[:1],
-        key=f"{key}_trend_cols",
-    )
-    col_x, col_mark = st.columns([2, 1])
-    with col_x:
-        x_mode = st.radio("X axis", [X_RUN_ORDER, X_PROCESS_START], horizontal=True,
-                          key=f"{key}_trend_x")
-    with col_mark:
-        mark = st.checkbox("Mark non-growth runs", value=True, key=f"{key}_trend_mark")
-    if trend_cols:
-        render_plot(build_trend_figure(rows, trend_cols, x_mode, mark), key=f"{key}_trend")
-        st.caption(
-            "Points are growth runs; lines are cleanings, anneals and other non-growth "
-            "runs (dotted if stopped). A hollow marker on an OM column is a run whose "
-            "cut sat in the frame noise. Error bars are the table's frame-to-frame std."
+    with tab_trend:
+        trend_cols = st.multiselect(
+            "Columns", numeric,
+            default=[c for c in _DEFAULT_TREND if c in numeric] or numeric[:1],
+            key=f"{key}_trend_cols",
         )
+        col_x, col_mark = st.columns([2, 1])
+        with col_x:
+            x_mode = st.radio("X axis", [X_RUN_ORDER, X_PROCESS_START], horizontal=True,
+                              key=f"{key}_trend_x")
+        with col_mark:
+            mark = st.checkbox("Mark non-growth runs", value=True, key=f"{key}_trend_mark")
+        if trend_cols:
+            render_plot(build_trend_figure(rows, trend_cols, x_mode, mark), key=f"{key}_trend")
+            st.caption(
+                "Points are growth runs; lines are cleanings, anneals and other non-growth "
+                "runs (dotted if stopped). A hollow marker on an OM column is a run whose "
+                "cut sat in the frame noise. Error bars are the table's frame-to-frame std."
+            )
 
-with tab_scatter:
-    x_default, y_default = (
-        c if c in numeric else numeric[min(i, len(numeric) - 1)]
-        for i, c in enumerate(_DEFAULT_SCATTER)
-    )
-    col_sx, col_sy = st.columns(2)
-    with col_sx:
-        x_col = st.selectbox("X", numeric, index=numeric.index(x_default), key=f"{key}_scatter_x")
-    with col_sy:
-        y_col = st.selectbox("Y", numeric, index=numeric.index(y_default), key=f"{key}_scatter_y")
-    render_plot(build_scatter_figure(rows, x_col, y_col), key=f"{key}_scatter")
+    with tab_scatter:
+        x_default, y_default = (
+            c if c in numeric else numeric[min(i, len(numeric) - 1)]
+            for i, c in enumerate(_DEFAULT_SCATTER)
+        )
+        col_sx, col_sy = st.columns(2)
+        with col_sx:
+            x_col = st.selectbox("X", numeric, index=numeric.index(x_default), key=f"{key}_scatter_x")
+        with col_sy:
+            y_col = st.selectbox("Y", numeric, index=numeric.index(y_default), key=f"{key}_scatter_y")
+        render_plot(build_scatter_figure(rows, x_col, y_col), key=f"{key}_scatter")

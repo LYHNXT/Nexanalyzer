@@ -37,7 +37,7 @@ technique and went stale the moment a page grew an OM image.
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: eight, in four groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: sidebar + full-width plot, the entire spectrum workflow), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry), **Split Table** (`pages/8_Split_Table.py`, v5.42.0: a tool's run-by-run split-table workbook, read-only — filters, column groups, trend and X-vs-Y charts, and a picked row opens its datalog, runcard or QC folder on those pages). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready for that wafer, and publishes it through Microsoft Graph — device-code sign-in, notebook from `data/onenote.json`, one section per tool, one page per wafer, appended to on each upload). Under **Setup** — **Tools** (`pages/7_Tools.py`: records where each tool folder is on this PC in the gitignored `data/tool_roots.json`, beside the committed `data/tool_layouts.json` that says which subfolder holds datalogs, runcards and optical data; Datalog, Runcard, QC Report and OneNote then offer a **Tool** dropdown). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
+- **Pages**: eight, in four groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: the fit workspace — file, preset and Run above the plot, exports top right; the sidebar held all of it until v5.43.0), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry), **Split Table** (`pages/8_Split_Table.py`, v5.42.0: a tool's run-by-run split-table workbook, read-only — filters, column groups, trend and X-vs-Y charts, and a picked row opens its datalog, runcard or QC folder on those pages). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready for that wafer, and publishes it through Microsoft Graph — device-code sign-in, notebook from `data/onenote.json`, one section per tool, one page per wafer, appended to on each upload). Under **Setup** — **Tools** (`pages/7_Tools.py`: records where each tool folder is on this PC in the gitignored `data/tool_roots.json`, beside the committed `data/tool_layouts.json` that says which subfolder holds datalogs, runcards and optical data; Datalog, Runcard, QC Report and OneNote then offer a **Tool** dropdown). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -58,7 +58,7 @@ technique and went stale the moment a page grew an OM image.
 nexanalyzer/
 ├── app.py                          # Composition root: page config, module state, routing
 ├── pages/
-│   ├── 1_Spectra.py                # Spectra page: sidebar + full-width plot
+│   ├── 1_Spectra.py                # Spectra page: the fit workspace
 │   ├── 2_QC_Report.py              # QC Report page: folder -> 7 figures + 1 workbook
 │   ├── 3_Material_Presets.py       # Material Presets page: create/edit/delete materials
 │   ├── 4_Datalog.py                # Datalog page: run browser, PV/SV charts, violations,
@@ -158,9 +158,10 @@ nexanalyzer/
 │       │   └── results_excel.py    # The QC Report's one workbook: Summary, per-technique
 │       │                           # sheets, and the two optical sheets
 │       ├── ui/
-│       │   ├── sidebar.py          # Material dropdown, the only processing entry point
-│       │   │                       # (Run Auto-Workflow / Run All Files), Quick/Batch
-│       │   │                       # Export, Reset to Raw, file list, View Options
+│       │   ├── workspace.py        # The Spectra page's fit workspace (v5.43.0): file
+│       │   │                       # switcher, material preset, Run Auto-Workflow / Run
+│       │   │                       # All Files, Reset to Raw, layer toggles, plot, Fit
+│       │   │                       # Results, Quick/Batch Export
 │       │   └── session_state.py    # Session state management
 │       ├── viz/
 │       │   ├── live_plot.py        # Interactive multi-layer plot + file navigation

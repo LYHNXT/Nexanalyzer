@@ -455,7 +455,6 @@ def _stats_caption(technique_label: str, stats: Optional[Sequence[PeakStat]],
 def stats_table_content(
     stats: Optional[Sequence[PeakStat]],
     ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
-    show_fwhm_v1: bool = False,
 ) -> Tuple[List[str], List[List[str]], List[float], int]:
     """One technique's table as (headers, rows, column fractions, bold_from).
 
@@ -470,22 +469,12 @@ def stats_table_content(
     are expected to mark themselves as medians, since the peak rows above are
     means. `bold_from` is where those rows begin, which is how the renderer
     sets them apart.
-
-    `show_fwhm_v1` inserts a "FWHM (v1)" column carrying the pre-v3.4.0
-    Gaussian-only width, for a caller who wants the deprecated value in the
-    report for comparison. Off by default, since every other reporting surface
-    shows only the correct (post-v3.4.0) width.
     """
     stats = list(stats or [])
     ratios = list(ratios or [])
 
     headers = ["Peak", "Center", "Intensity", "FWHM", "n"]
     col_fracs = [0.30, 0.23, 0.23, 0.16, 0.08]
-    if show_fwhm_v1:
-        # FWHM (v1) inserted right after FWHM; the rest of the row shrinks to
-        # make room rather than growing the table past its allotted width.
-        headers = ["Peak", "Center", "Intensity", "FWHM", "FWHM (v1)", "n"]
-        col_fracs = [0.24, 0.19, 0.19, 0.14, 0.14, 0.10]
 
     rows: List[List[str]] = []
     for stat in stats:
@@ -494,23 +483,14 @@ def stats_table_content(
             f"{stat.center_mean:.1f} ± {stat.center_std:.1f}",
             f"{stat.intensity_mean:.1f} ± {stat.intensity_std:.1f}",
             f"{stat.fwhm_mean:.1f} ± {stat.fwhm_std:.1f}" if stat.fwhm_mean is not None else _DASH,
+            str(stat.n),
         ]
-        if show_fwhm_v1:
-            row.append(
-                f"{stat.fwhm_v1_mean:.1f} ± {stat.fwhm_v1_std:.1f}"
-                if stat.fwhm_v1_mean is not None else _DASH
-            )
-        row.append(str(stat.n))
         rows.append(row)
 
     for ratio_label, (median, mad, n) in ratios:
         # Three decimals: these ratios run around 0.1, where two would round
         # away most of the point-to-point variation the rows exist to show.
-        row = [ratio_label, _DASH, f"{median:.3f} ± {mad:.3f}", _DASH]
-        if show_fwhm_v1:
-            row.append(_DASH)
-        row.append(str(n))
-        rows.append(row)
+        rows.append([ratio_label, _DASH, f"{median:.3f} ± {mad:.3f}", _DASH, str(n)])
 
     return headers, rows, col_fracs, len(stats)
 
@@ -518,7 +498,7 @@ def stats_table_content(
 def _add_stats_table(fig, technique_label: str, stats: Optional[Sequence[PeakStat]],
                      left: float, top: float, w: float, h: float,
                      ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
-                     show_fwhm_v1: bool = False, scaled: bool = False) -> None:
+                     scaled: bool = False) -> None:
     """One technique's fit-summary table, with its caption above it.
 
     A leading `RAW_STAT_LABEL` row is the empirical measurement rather than a
@@ -534,9 +514,7 @@ def _add_stats_table(fig, technique_label: str, stats: Optional[Sequence[PeakSta
         _add_placeholder(fig, left, top, w, h)
         return
 
-    headers, rows, col_fracs, bold_from = stats_table_content(
-        stats, ratios, show_fwhm_v1
-    )
+    headers, rows, col_fracs, bold_from = stats_table_content(stats, ratios)
     _draw_table(fig, left, top, w, h, headers, rows, col_fracs,
                 _table_font(len(rows)), bold_from=bold_from, scaled=scaled)
 
@@ -699,7 +677,6 @@ def build_summary_figure(
     raman_stats: Optional[Sequence[PeakStat]] = None,
     pl_stats: Optional[Sequence[PeakStat]] = None,
     raman_ratios: Optional[Sequence[Tuple[str, Tuple[float, float, int]]]] = None,
-    show_fwhm_v1: bool = False,
     domain_stat: Optional[DomainSizeStat] = None,
     domain_class_label: Optional[str] = None,
     dpi: int = REPORT_DPI,
@@ -741,12 +718,12 @@ def build_summary_figure(
             len(raman_stats or []) + len(raman_ratios or []), len(pl_stats or []), domain_rows)
         _add_stats_table(
             fig, "Raman", raman_stats, _TABLE_LEFT, _RAMAN_TABLE_TOP, _TABLE_W,
-            raman_height, ratios=raman_ratios, show_fwhm_v1=show_fwhm_v1, scaled=scaled,
+            raman_height, ratios=raman_ratios, scaled=scaled,
         )
         pl_top = _RAMAN_TABLE_TOP + raman_height + _TABLE_GAP
         _add_stats_table(
             fig, "PL", pl_stats, _TABLE_LEFT, pl_top, _TABLE_W,
-            pl_height, show_fwhm_v1=show_fwhm_v1, scaled=scaled,
+            pl_height, scaled=scaled,
         )
         _add_domain_table(
             fig, domain_stat, _TABLE_LEFT, pl_top + pl_height + _TABLE_GAP,

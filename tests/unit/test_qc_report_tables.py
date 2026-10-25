@@ -384,11 +384,10 @@ class TestTechniqueSheets:
 
 
 class TestSummarySheet:
-    def test_the_superseded_gaussian_width_stays_out_by_default(self):
-        """FWHM_v1 under-reports every width by 59-108%. It is an opt-in
-        comparison, not something a saved file carries unlabelled."""
-        stats = [PeakStat("E2g+A1g", 9, 250.0, 0.4, 1200.0, 30.0, 7.0, 0.2,
-                          fwhm_v1_mean=3.0, fwhm_v1_std=0.1)]
+    def test_the_superseded_gaussian_width_is_gone(self):
+        """FWHM_v1 under-reported every width by 59-108% and was removed in
+        v5.43.0; no column of the workbook may carry it."""
+        stats = [PeakStat("E2g+A1g", 9, 250.0, 0.4, 1200.0, 30.0, 7.0, 0.2)]
         wb = _workbook(techniques=[TechniqueResults(label="Raman", stats=stats)])
 
         block = _summary_block(wb, "Raman fit summary (mean ± std)")
