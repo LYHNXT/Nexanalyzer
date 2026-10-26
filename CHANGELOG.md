@@ -5,6 +5,30 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.45.0] - 2026-10-26
+
+### Changed
+
+- **Nexstrom's colours and logo.** No numbers move: styling only.
+  - The palette is nexstrom.com's own: the sidebar is Nexstrom navy
+    (#002E5D), headings heading navy (#073A6C), buttons, links and toggles
+    the accent blue (#2F72BF), secondary text the body slate (#486284).
+  - The Nexstrom logo sits at the top of the sidebar, in white on the navy;
+    the mark alone shows when the sidebar is collapsed and is the browser
+    tab icon. The PNGs are in `assets/` (`nexstrom_logo.png` is the
+    original navy one, for light backgrounds).
+  - **Easier to read**: body text 15 px (was 14), headings a step larger,
+    text near-black (#0B1220), and captions solid slate (#344B68, about
+    8:1 on white) instead of Streamlit's 60% fade. The Spectra page's
+    buttons got wider columns so their labels still fit. The sidebar's page
+    names and footer are 15 px, its section labels 14 px.
+- **Run Auto-Workflow reports in one line**: "Auto-workflow completed
+  successfully!", with the stages, fit quality and the preset's notes
+  (baseline and peak count per technique, its description) in a collapsed
+  **Workflow details** panel under it. The notes no longer sit under the
+  Run button, and the same R² and χ² are in the cards under the plot. A
+  failed run still shows everything, as before.
+
 ## [5.44.0] - 2026-10-25
 
 ### Changed

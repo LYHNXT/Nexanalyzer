@@ -1,26 +1,28 @@
-# NexAnalyzer's look (v5.44.0): grey page, white cards, a dark navigation
-# sidebar, IBM Plex type and one blue accent. The design these values come
-# from is the "NexAnalyzer UI" canvas; core/ui/theme.py carries the few rules
-# the theme options can't express (white cards on the grey page).
+# NexAnalyzer's look: Nexstrom's colours (v5.45.0), on the layout from the
+# "NexAnalyzer UI" design canvas (v5.44.0). The palette is nexstrom.com's
+# own: primary navy #002E5D, heading navy #073A6C, accent blue #2F72BF, body
+# slate #486284, secondary #9CB0C9, light tint #EAF2F8. core/ui/theme.py
+# carries what the theme options can't express (white cards, heading colour,
+# the logo).
 
 [theme]
 base = "light"
-primaryColor = "#1D5FB8"
-backgroundColor = "#F4F5F7"
+primaryColor = "#2F72BF"
+backgroundColor = "#F5F7FA"
 secondaryBackgroundColor = "#FFFFFF"
-textColor = "#15181C"
-linkColor = "#1D5FB8"
-borderColor = "#DDE1E6"
-dataframeBorderColor = "#ECEEF1"
-dataframeHeaderBackgroundColor = "#F6F7F9"
+textColor = "#0B1220"
+linkColor = "#2F72BF"
+borderColor = "#D3DFEC"
+dataframeBorderColor = "#E3EBF4"
+dataframeHeaderBackgroundColor = "#EEF3F8"
 showWidgetBorder = true
 baseRadius = "6px"
 buttonRadius = "6px"
-baseFontSize = 14
+baseFontSize = 15
 font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap, sans-serif"
 headingFont = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap, sans-serif"
 codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap, monospace"
-headingFontSizes = ["1.85rem", "1.3rem", "1.1rem", "1.05rem", "1rem", "0.9rem"]
+headingFontSizes = ["2rem", "1.4rem", "1.2rem", "1.1rem", "1rem", "0.95rem"]
 headingFontWeights = [600, 600, 600, 600, 600, 600]
 greenColor = "#1E6B3A"
 greenBackgroundColor = "#E5F2EA"
@@ -28,13 +30,13 @@ orangeColor = "#8A3F0A"
 orangeBackgroundColor = "#FBEEDF"
 redColor = "#A12B22"
 redBackgroundColor = "#FBE7E4"
-blueColor = "#1D5FB8"
-blueBackgroundColor = "#E8F0FB"
+blueColor = "#2F72BF"
+blueBackgroundColor = "#EAF2F8"
 
 [theme.sidebar]
-backgroundColor = "#15181C"
-secondaryBackgroundColor = "#26303D"
-textColor = "#E6E8EB"
-primaryColor = "#7FB0F0"
-linkColor = "#7FB0F0"
-borderColor = "#26303D"
+backgroundColor = "#002E5D"
+secondaryBackgroundColor = "#0D4277"
+textColor = "#FFFFFF"
+primaryColor = "#9CB0C9"
+linkColor = "#9CB0C9"
+borderColor = "#1A4A7A"
