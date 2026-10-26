@@ -161,6 +161,11 @@ The full reasoning is in the
   The criteria and rules are in [docs/QC_Report_Spec.md](docs/QC_Report_Spec.md). Multiple
   starts (`TechniquePreset.fit_starts`) are opt-in per preset so the golden fit,
   whose frozen preset uses one start, never moves with them.
+- **A PL energy gap ties a peak's centre to another's, in eV.** `energy_gaps`
+  (v5.46.0) makes the lower peak's centre an expression of the upper one's and
+  a fitted gap; its own centre window no longer applies, and a gap on its
+  limit flags it `on_limit`. WSe2_QC holds Exciton-Trion at 35 +- 10 meV,
+  MoS2_QC A0-A- at 20 +- 10 meV. PL only: a Raman axis is not a wavelength.
 - **The preset owns position and width; the data owns intensity.** `fit_voigt_peaks()`
   auto-estimates the initial intensity from the spectrum at fit time, because
   intensity depends on measurement conditions while center/FWHM are material

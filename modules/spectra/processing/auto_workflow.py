@@ -443,6 +443,7 @@ def _fit_whole(spectrum: SpectrumFile, block) -> FitResult:
             X, Y_corrected, peak_definitions,
             mode=spectrum.mode, max_iterations=block.max_iterations,
             starts=block.fit_starts, dominant=block.dominant_peak,
+            gaps=[g.as_fit_tuple() for g in block.energy_gaps],
         )
     except Exception as e:
         raise WorkflowExecutionError(
@@ -515,6 +516,8 @@ def _fit_in_windows(spectrum: SpectrumFile, block) -> FitResult:
                 xw, yw_corrected, definitions,
                 mode=spectrum.mode, max_iterations=block.max_iterations,
                 starts=block.fit_starts, dominant=block.dominant_peak,
+                # A gap is valid only within one window, so its peaks are both here or both not.
+                gaps=[g.as_fit_tuple() for g in block.energy_gaps],
             )
         except Exception as e:
             raise WorkflowExecutionError(f"Peak fitting failed in {name}: {e}")

@@ -18,7 +18,7 @@ from lmfit import Model, Parameters
 from lmfit.lineshapes import voigt as _voigt_lineshape
 from lmfit.models import VoigtModel
 import time
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from ..models.peak import MAX_PEAKS, PeakDefinition, FittedPeak, FitResult
 
 
@@ -101,6 +101,14 @@ _UNIT_HEIGHT_EXPR = "real(wofz((1j*{p}gamma)/(max(1e-12, {p}sigma)*sqrt(2)))) / 
 _HEIGHT_EXPR = "{p}amplitude * " + _UNIT_HEIGHT_EXPR
 _DOMINATED_AREA_EXPR = "{p}hratio * {d}hdom / (" + _UNIT_HEIGHT_EXPR + ")"
 
+#: h*c in eV*nm: a photon's energy in eV is HC_EV_NM / wavelength in nm.
+HC_EV_NM = 1239.84198
+
+# With `gaps` set (PL only), the lower-energy peak's centre follows the upper
+# one's at a photon-energy distance `g{k}_gap` (meV), itself a fit parameter
+# bounded to gap_meV +- tolerance_meV: E_lower = E_upper - gap.
+_GAP_CENTRE_EXPR = "{hc!r} / ({hc!r} / {u}center - g{k}_gap / 1000)"
+
 
 def _sigma_gamma(vfwhm, gmix, fgmin):
     """sigma and gamma from the fitted Voigt FWHM and Gaussian share --
@@ -137,6 +145,7 @@ def fit_voigt_peaks(
     max_iterations: int = 2000,
     starts: int = 1,
     dominant: Optional[str] = None,
+    gaps: Optional[List[Tuple[str, str, float, float]]] = None,
 ) -> FitResult:
     """
     Fit multiple Voigt profiles to spectrum data.
@@ -181,6 +190,18 @@ def fit_voigt_peaks(
         constraint and is flagged `on_limit`. None (or a label not in
         `peak_table`) fits every area freely, as before.
 
+    gaps : list of (upper, lower, gap_meV, tolerance_meV), optional
+        PL only (v5.46.0). Holds peak `lower` at a photon energy `gap_meV` +-
+        `tolerance_meV` below peak `upper` -- a trion below its exciton. The
+        lower peak's centre is no longer a free parameter: it is derived from
+        the upper peak's centre and a fitted gap, `g{k}_gap` in meV, bounded to
+        the window (fixed when the tolerance is 0). So the fit keeps its
+        number of free variables, trading the lower centre for the gap, and
+        the lower peak's own centre window no longer applies. A gap that ends
+        on its bound flags the lower peak `on_limit`: the constraint, not the
+        data, set its position. A pair naming a label not in `peak_table` is
+        ignored. None fits every centre freely, as before.
+
     Returns
     -------
     FitResult
@@ -191,7 +212,8 @@ def fit_voigt_peaks(
     Raises
     ------
     ValueError
-        If peak_table is empty or has more than MAX_PEAKS peaks.
+        If peak_table is empty or has more than MAX_PEAKS peaks, or `gaps` is
+        given for a Raman fit.
 
     Notes
     -----
@@ -253,6 +275,13 @@ def fit_voigt_peaks(
     dominant_index = next(
         (i for i, peak in enumerate(peak_table) if dominant and peak.label == dominant), None
     ) if len(peak_table) > 1 else None
+
+    # (upper index, lower index, gap meV, tolerance meV) of each gap whose two peaks are here.
+    if gaps and mode != "PL":
+        raise ValueError("energy gaps apply to PL fits only (a Raman axis is not a wavelength)")
+    labels = [peak.label for peak in peak_table]
+    gap_pairs = [(labels.index(u), labels.index(lo), float(g), float(t))
+                 for u, lo, g, t in (gaps or []) if u in labels and lo in labels and u != lo]
 
     def _build(rng):
         """The composite model and its parameters, started from the preset (rng
@@ -358,6 +387,15 @@ def fit_voigt_peaks(
                 params.add(f"{prefix}hratio", value=_start(min(intensity_guess / dominant_guess, 1.0), 0.0, 1.0),
                            min=0.0, max=1.0)
                 params.add(f"{prefix}amplitude", expr=_DOMINATED_AREA_EXPR.format(p=prefix, d=d))
+
+        # A gapped peak's centre follows its upper peak's; its own window no longer applies.
+        for k, (u, lo, gap, tol) in enumerate(gap_pairs):
+            if tol > 0:
+                params.add(f"g{k}_gap", value=_start(gap, gap - tol, gap + tol), min=gap - tol, max=gap + tol)
+            else:
+                params.add(f"g{k}_gap", value=gap, vary=False)
+            params[f"p{lo}_center"].set(expr=_GAP_CENTRE_EXPR.format(hc=HC_EV_NM, u=f"p{u}_", k=k),
+                                        min=-np.inf, max=np.inf)
 
         return composite_model, params
 
@@ -513,6 +551,11 @@ def fit_voigt_peaks(
         h_prm = result.params.get(f"{prefix}hratio")
         if h_prm is not None and _at(h_prm, "max"):
             on_limit = True
+        # Held at the edge of its energy-gap window: the constraint set this position.
+        for k, (_u, lo, _g, _t) in enumerate(gap_pairs):
+            g_prm = result.params[f"g{k}_gap"]
+            if lo == i and (_at(g_prm, "min") or _at(g_prm, "max")):
+                on_limit = True
 
         fitted_peaks.append(FittedPeak(
             label=peak.label,

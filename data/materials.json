@@ -150,7 +150,7 @@
           },
           {
             "peak_label": "A-",
-            "center": 700.0,
+            "center": 690.0,
             "center_tolerance": 12.0,
             "width_fwhm": 40.0,
             "shape": 0.3,
@@ -168,7 +168,15 @@
         "exclusion_ranges": "590-760",
         "max_iterations": 10000,
         "fit_starts": 3,
-        "dominant_peak": "A0"
+        "dominant_peak": "A0",
+        "energy_gaps": [
+          {
+            "upper": "A0",
+            "lower": "A-",
+            "gap_meV": 20.0,
+            "tolerance_meV": 10.0
+          }
+        ]
       },
       "optical": {
         "1L": {
@@ -978,7 +986,15 @@
         ],
         "exclusion_ranges": "650-880",
         "max_iterations": 10000,
-        "fit_starts": 3
+        "fit_starts": 3,
+        "energy_gaps": [
+          {
+            "upper": "Exciton",
+            "lower": "Trion",
+            "gap_meV": 35.0,
+            "tolerance_meV": 10.0
+          }
+        ]
       },
       "optical": {
         "1L": {

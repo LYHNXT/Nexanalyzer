@@ -31,6 +31,7 @@ from core.ui.theme import card, page_header
 from modules.optical.processing.contrast import layer_word
 from modules.spectra.models.preset import (
     OPTICAL_LAYERS,
+    EnergyGap,
     FitWindow,
     MaterialPreset,
     OpticalParams,
@@ -43,6 +44,7 @@ from modules.spectra.io.preset_store import load_store, save_presets
 PEAK_COLUMNS = ["peak_label", "center", "center_tolerance", "width_fwhm", "shape", "color"]
 WINDOW_COLUMNS = ["x_min", "x_max", "baseline_algorithm", "baseline_lambda", "baseline_p",
                   "baseline_degree", "exclusion_ranges"]
+GAP_COLUMNS = ["upper", "lower", "gap_meV", "tolerance_meV"]
 #: What an empty baseline cell in the fit-window table means.
 _INHERIT = "(block's)"
 BASELINE_ALGORITHMS = ["Polynomial", "ALS", "None (Skip)"]
@@ -205,6 +207,22 @@ def _df_to_windows(df: pd.DataFrame) -> list[FitWindow]:
     return sorted(windows, key=lambda w: w.x_min)
 
 
+def _gaps_to_df(gaps: list[EnergyGap]) -> pd.DataFrame:
+    return pd.DataFrame([g.to_dict() for g in gaps], columns=GAP_COLUMNS)
+
+
+def _df_to_gaps(df: pd.DataFrame) -> list[EnergyGap]:
+    gaps = []
+    for _, row in df.iterrows():
+        upper, lower = _cell(row, "upper", str), _cell(row, "lower", str)
+        gap = _cell(row, "gap_meV", float)
+        if upper is None or lower is None or gap is None:
+            continue
+        gaps.append(EnergyGap(upper=upper.strip(), lower=lower.strip(), gap_meV=gap,
+                              tolerance_meV=_cell(row, "tolerance_meV", float) or 0.0))
+    return gaps
+
+
 def _render_technique_block(key_prefix: str, mode: str,
                             block: TechniquePreset = None) -> TechniquePreset:
     """Editable fields for one technique block. Returns what the widgets hold.
@@ -344,6 +362,29 @@ def _render_technique_block(key_prefix: str, mode: str,
         key=f"{key_prefix}_dominant_peak",
     )
 
+    energy_gaps = []
+    if mode == "PL":
+        st.markdown("**Energy gaps** (optional)")
+        st.caption(
+            "Holds the *lower* peak a photon energy *gap* ± *tolerance* (meV) below the *upper* "
+            "peak, e.g. a trion below its exciton: the lower peak's centre follows the upper's, and "
+            "its own ± tolerance no longer applies. Tolerance 0 fixes the gap. A gap that ends on its "
+            "limit flags the lower peak on its limit."
+        )
+        gaps_df = st.data_editor(
+            _gaps_to_df(d.energy_gaps if d else []),
+            num_rows="dynamic",
+            width="stretch",
+            column_config={
+                "upper": st.column_config.SelectboxColumn("Upper (higher energy)", options=labels, required=True),
+                "lower": st.column_config.SelectboxColumn("Lower (lower energy)", options=labels, required=True),
+                "gap_meV": st.column_config.NumberColumn("Gap (meV)", min_value=0.0, required=True),
+                "tolerance_meV": st.column_config.NumberColumn("± Tolerance (meV)", min_value=0.0, default=0.0),
+            },
+            key=f"{key_prefix}_energy_gaps",
+        )
+        energy_gaps = _df_to_gaps(gaps_df)
+
     st.markdown("**Fit windows** (optional)")
     st.caption(
         "Leave empty to fit every peak at once. Otherwise each row is a stretch of "
@@ -382,6 +423,7 @@ def _render_technique_block(key_prefix: str, mode: str,
         max_iterations=int(max_iterations),
         fit_starts=int(fit_starts),
         dominant_peak=None if dominant_peak == "(none)" else dominant_peak,
+        energy_gaps=energy_gaps,
         zero_line_calibration=bool(zero_line_calibration),
         peak_templates=_df_to_peaks(peaks_df),
         fit_windows=_df_to_windows(windows_df),
