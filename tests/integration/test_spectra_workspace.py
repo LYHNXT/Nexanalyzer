@@ -128,3 +128,20 @@ class TestFitResultsTable:
         assert "Intensity" in columns and "Area" in columns
         assert "Status" in columns
         assert not any("mplitude" in c for c in columns)
+
+
+class TestRunReportsOneLine:
+    def test_success_is_the_headline_and_the_rest_is_collapsed(self, tmp_path):
+        """v5.45.0: a successful Run shows one line; the stages, fit quality and
+        the preset's notes sit in a collapsed "Workflow details" expander
+        instead of a tall box, and the notes no longer sit in the setup card."""
+        at = _app(tmp_path, count=1)
+        next(s for s in at.selectbox if s.label == "Material preset").set_value("Silicon").run()
+        assert not any("baseline," in c.value for c in at.caption)
+        _button(at, "Run Auto-Workflow").click().run()
+
+        assert [s.value for s in at.success] == ["**Auto-workflow completed successfully!**"]
+        details = next(e for e in at.expander if e.label == "Workflow details")
+        text = " ".join(m.value for m in details.markdown)
+        assert "**Stages:**" in text and "R²" in text
+        assert any(c.value.startswith("**Raman**:") for c in details.caption)

@@ -35,7 +35,7 @@ sync_pending_view_options()
 # reads the file list.
 process_pending_loads()
 
-title_col, export_col = st.columns([1, 1.6], vertical_alignment="bottom")
+title_col, export_col = st.columns([1, 2], vertical_alignment="bottom")
 with title_col:
     page_header("Analysis · Spectra", "Raman & PL Spectra", "Load a file, pick a material, run.")
 # Filled last (see render_exports()): the exports follow this run's toggles

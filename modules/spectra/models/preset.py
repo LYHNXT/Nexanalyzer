@@ -144,6 +144,33 @@ class PeakTemplate:
         return cls(**data)
 
 
+#: h*c in eV*nm, as fitting.HC_EV_NM (models must not import processing).
+_HC_EV_NM = 1239.84198
+
+
+@dataclass
+class EnergyGap:
+    """PL only (v5.46.0): peak `lower` sits `gap_meV` +- `tolerance_meV` below
+    peak `upper` in photon energy -- a trion below its exciton. See
+    `fitting.fit_voigt_peaks(gaps=)`. Tolerance 0 fixes the gap."""
+
+    upper: str
+    lower: str
+    gap_meV: float
+    tolerance_meV: float = 0.0
+
+    def as_fit_tuple(self) -> Tuple[str, str, float, float]:
+        return (self.upper, self.lower, float(self.gap_meV), float(self.tolerance_meV))
+
+    def to_dict(self) -> dict:
+        return {"upper": self.upper, "lower": self.lower,
+                "gap_meV": self.gap_meV, "tolerance_meV": self.tolerance_meV}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "EnergyGap":
+        return _construct(cls, dict(data), what="energy gap")
+
+
 BASELINE_ALGORITHMS = ("Polynomial", "ALS", "None (Skip)")
 
 
@@ -280,6 +307,11 @@ class TechniquePreset:
     #: `fitting.fit_voigt_peaks(dominant=)`. MoS2 PL: A0 over A- and B.
     dominant_peak: Optional[str] = None
 
+    #: PL only (v5.46.0): photon-energy distances held between pairs of peaks
+    #: (WSe2 Exciton-Trion, MoS2 A0-A-); see `EnergyGap`. Empty: every centre
+    #: fits freely within its own window, as before.
+    energy_gaps: List[EnergyGap] = field(default_factory=list)
+
     #: Raman only (v5.24.0): shift the axis so the laser line sits at 0 cm-1
     #: before anything else runs. See `processing/zero_line.py`. A spectrum with
     #: no clear line is left as recorded.
@@ -329,6 +361,8 @@ class TechniquePreset:
         if self.dominant_peak is not None and self.dominant_peak not in {
                 t.peak_label for t in self.peak_templates}:
             errors.append(f"dominant_peak {self.dominant_peak!r} is not one of this block's peak labels")
+
+        errors += self._energy_gap_errors()
 
         # Baseline
         errors += _baseline_errors(self.baseline_algorithm, self.baseline_degree,
@@ -402,6 +436,42 @@ class TechniquePreset:
 
         return errors
 
+    def _energy_gap_errors(self) -> List[str]:
+        """What is wrong with `energy_gaps` (the PL-only rule is MaterialPreset's: a
+        block does not know its technique)."""
+        errors = []
+        by_label = {t.peak_label: t for t in self.peak_templates}
+        window_of = {id(t): i for i, (_, peaks) in enumerate(self.window_peaks()) for t in peaks}
+        lowers = set()
+        for g in self.energy_gaps:
+            name = f"energy gap {g.upper} - {g.lower}"
+            before = len(errors)
+            missing = [lab for lab in (g.upper, g.lower) if lab not in by_label]
+            if missing:
+                errors.append(f"{name}: {', '.join(map(repr, missing))} is not one of this block's peak labels")
+                continue
+            if g.upper == g.lower:
+                errors.append(f"{name}: upper and lower must be two different peaks")
+                continue
+            if not g.gap_meV > 0:
+                errors.append(f"{name}: gap_meV must be > 0, got {g.gap_meV}")
+            if not 0 <= g.tolerance_meV < g.gap_meV:
+                errors.append(f"{name}: tolerance_meV must be in [0, gap_meV), got {g.tolerance_meV}")
+            if g.lower in lowers:
+                errors.append(f"{name}: {g.lower!r} is already the lower peak of another gap")
+            lowers.add(g.lower)
+            up, lo = by_label[g.upper], by_label[g.lower]
+            if self.fit_windows and window_of.get(id(up)) != window_of.get(id(lo)):
+                errors.append(f"{name}: the two peaks are in different fit windows")
+            # The templates are the fit's starting point, so they must already respect the gap.
+            if up.center > 0 and lo.center > 0 and len(errors) == before:
+                implied = 1000 * (_HC_EV_NM / up.center - _HC_EV_NM / lo.center)
+                if not g.gap_meV - g.tolerance_meV <= implied <= g.gap_meV + g.tolerance_meV:
+                    errors.append(
+                        f"{name}: the templates' centres ({up.center:g}, {lo.center:g} nm) are "
+                        f"{implied:.1f} meV apart, outside {g.gap_meV:g} +- {g.tolerance_meV:g} meV")
+        return errors
+
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
         return {
@@ -420,6 +490,7 @@ class TechniquePreset:
             # neither serialises exactly as before and older versions read it.
             **({"fit_starts": self.fit_starts} if self.fit_starts != 1 else {}),
             **({"dominant_peak": self.dominant_peak} if self.dominant_peak else {}),
+            **({"energy_gaps": [g.to_dict() for g in self.energy_gaps]} if self.energy_gaps else {}),
             **({"zero_line_calibration": True} if self.zero_line_calibration else {}),
             # Omitted when empty, so a block without windows serialises exactly
             # as it did before v5.22.0 and older app versions can still read it.
@@ -434,6 +505,7 @@ class TechniquePreset:
             PeakTemplate.from_dict(t) for t in data.get("peak_templates", [])
         ]
         data["fit_windows"] = [FitWindow.from_dict(w) for w in data.get("fit_windows") or []]
+        data["energy_gaps"] = [EnergyGap.from_dict(g) for g in data.get("energy_gaps") or []]
         return _construct(cls, data, what="technique block")
 
 
@@ -690,6 +762,8 @@ class MaterialPreset:
             block = getattr(self, attribute)
             if block is not None:
                 errors.extend(f"{mode}: {e}" for e in block.validate())
+                if mode != "PL" and block.energy_gaps:
+                    errors.append(f"{mode}: energy gaps apply to PL only (the axis must be a wavelength)")
 
         for layer, params in self.optical.items():
             if layer not in OPTICAL_LAYERS:

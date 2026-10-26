@@ -4,6 +4,8 @@ import pytest
 
 from modules.spectra.io.preset_store import load_presets, save_presets
 from modules.spectra.models.preset import (
+    EnergyGap,
+    FitWindow,
     MaterialPreset,
     PeakTemplate,
     TechniquePreset,
@@ -115,3 +117,57 @@ class TestDominantPeak:
 
     def test_committed_mos2_qc_holds_a0_dominant(self):
         assert load_presets()["MoS2_QC"].pl.dominant_peak == "A0"
+
+
+class TestEnergyGaps:
+    """v5.46.0: `energy_gaps` round-trips, is omitted when empty, and is validated."""
+
+    @staticmethod
+    def _pl_block(gaps, upper=765.0, lower=780.0):
+        return TechniquePreset(
+            baseline_algorithm="None (Skip)",
+            peak_templates=[
+                PeakTemplate(peak_label="Exciton", center=upper, center_tolerance=15.0,
+                             width_fwhm=30.0, shape=0.3, color="#d62728"),
+                PeakTemplate(peak_label="Trion", center=lower, center_tolerance=15.0,
+                             width_fwhm=40.0, shape=0.3, color="#9467bd"),
+            ],
+            energy_gaps=gaps,
+        )
+
+    def test_round_trips_and_is_omitted_when_empty(self):
+        assert "energy_gaps" not in self._pl_block([]).to_dict()
+        block = self._pl_block([EnergyGap("Exciton", "Trion", 35.0, 10.0)])
+        assert TechniquePreset.from_dict(block.to_dict()).energy_gaps == block.energy_gaps
+        assert block.validate() == []
+
+    @pytest.mark.parametrize("gap, needle", [
+        (EnergyGap("Exciton", "nope", 35.0, 10.0), "not one of this block's peak labels"),
+        (EnergyGap("Trion", "Trion", 35.0, 10.0), "two different peaks"),
+        (EnergyGap("Exciton", "Trion", 0.0, 0.0), "gap_meV must be > 0"),
+        (EnergyGap("Exciton", "Trion", 35.0, -1.0), "tolerance_meV must be in"),
+        (EnergyGap("Exciton", "Trion", 35.0, 35.0), "tolerance_meV must be in"),
+        (EnergyGap("Exciton", "Trion", 20.0, 5.0), "outside 20 +- 5 meV"),  # templates are 31 meV apart
+    ])
+    def test_rejects(self, gap, needle):
+        assert any(needle in e for e in self._pl_block([gap]).validate())
+
+    def test_a_peak_cannot_be_the_lower_of_two_gaps(self):
+        gaps = [EnergyGap("Exciton", "Trion", 35.0, 10.0), EnergyGap("Exciton", "Trion", 30.0, 10.0)]
+        assert any("already the lower peak" in e for e in self._pl_block(gaps).validate())
+
+    def test_a_gap_cannot_span_two_fit_windows(self):
+        block = self._pl_block([EnergyGap("Exciton", "Trion", 35.0, 10.0)])
+        block.fit_windows = [FitWindow(700.0, 772.0), FitWindow(772.0, 850.0)]
+        assert any("different fit windows" in e for e in block.validate())
+
+    def test_a_raman_block_cannot_hold_gaps(self):
+        preset = MaterialPreset(material_name="X", enabled=True, raman=self._pl_block(
+            [EnergyGap("Exciton", "Trion", 35.0, 10.0)]))
+        assert any("PL only" in e for e in preset.validate())
+
+    def test_committed_qc_presets_hold_the_agreed_gaps(self):
+        presets = load_presets()
+        assert presets["WSe2_QC"].pl.energy_gaps == [EnergyGap("Exciton", "Trion", 35.0, 10.0)]
+        assert presets["MoS2_QC"].pl.energy_gaps == [EnergyGap("A0", "A-", 20.0, 10.0)]
+        assert presets["WSe2_QC"].validate() == [] and presets["MoS2_QC"].validate() == []

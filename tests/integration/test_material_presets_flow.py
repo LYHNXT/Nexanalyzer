@@ -172,3 +172,20 @@ class TestFitWindowsSurviveTheEditor:
         assert not at.exception, [e.value for e in at.exception]
         assert _read(store) == before
         assert len(before["materials"][0]["raman"]["fit_windows"]) == 2
+
+    def test_energy_gaps_survive_a_save(self, store):
+        from modules.spectra.models.preset import EnergyGap
+
+        presets = preset_store.load_presets()
+        presets["WSe2"].pl.peak_templates = [_peak("Exciton", 765.0), _peak("Trion", 780.0, "#9467bd")]
+        presets["WSe2"].pl.energy_gaps = [EnergyGap("Exciton", "Trion", 35.0, 10.0)]
+        preset_store.save_presets(presets)
+        before = _read(store)
+
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        next(b for b in at.button if b.key == "edit_WSe2_save").click().run()
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert _read(store) == before
+        assert before["materials"][0]["pl"]["energy_gaps"] == [
+            {"upper": "Exciton", "lower": "Trion", "gap_meV": 35.0, "tolerance_meV": 10.0}]

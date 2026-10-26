@@ -534,3 +534,79 @@ class TestTheInlineVoigtWidthsMatchTheExpressions:
         result = fit_voigt_peaks(x, y, [PeakDefinition(center=250.0, intensity=1.0, width_fwhm=8.0)])
         assert result.success and result.converged
         assert result.fitted_peaks[0].center == pytest.approx(250.0, abs=0.05)
+
+
+class TestEnergyGaps:
+    """v5.46.0: `gaps` holds a PL peak a photon energy gap +- tolerance below another."""
+
+    HC = 1239.84198
+    X_EV = 1.626  # WSe2 exciton as our room-temperature fits place it
+
+    def _spectrum(self, gap_meV, noise=0.0):
+        x = np.linspace(650.0, 880.0, 1200)
+        xc, tc = self.HC / self.X_EV, self.HC / (self.X_EV - gap_meV / 1000)
+        # Gaussians: a shape the fitted Voigt reproduces exactly, so the free fit is unbiased
+        # (a pure Lorentzian is below its Gaussian floor and biases even the free fit).
+        y = 1000 * np.exp(-0.5 * ((x - xc) / 12.0) ** 2) + 450 * np.exp(-0.5 * ((x - tc) / 22.0) ** 2)
+        if noise:
+            y = y + np.random.default_rng(0).normal(0, noise, x.size)
+        return x, y
+
+    @staticmethod
+    def _peaks():
+        return [PeakDefinition(label="Exciton", center=765.0, intensity=1.0, width_fwhm=30.0, center_tolerance=15.0),
+                PeakDefinition(label="Trion", center=780.0, intensity=1.0, width_fwhm=40.0, center_tolerance=15.0)]
+
+    def _gap(self, result):
+        c = {p.label: p.center for p in result.fitted_peaks}
+        return 1000 * (self.HC / c["Exciton"] - self.HC / c["Trion"])
+
+    def test_a_gap_inside_the_window_is_recovered(self):
+        x, y = self._spectrum(32.0)
+        result = fit_voigt_peaks(x, y, self._peaks(), mode="PL", gaps=[("Exciton", "Trion", 35.0, 10.0)])
+
+        assert result.success and result.converged
+        assert self._gap(result) == pytest.approx(32.0, abs=0.5)
+        assert not any(p.on_limit for p in result.fitted_peaks)
+
+    def test_a_gap_beyond_the_window_stops_at_its_edge_and_flags_the_lower_peak(self):
+        x, y = self._spectrum(55.0)
+        result = fit_voigt_peaks(x, y, self._peaks(), mode="PL", gaps=[("Exciton", "Trion", 35.0, 10.0)])
+
+        assert self._gap(result) == pytest.approx(45.0, abs=1e-4)
+        assert {p.label: p.on_limit for p in result.fitted_peaks} == {"Exciton": False, "Trion": True}
+
+    def test_zero_tolerance_fixes_the_gap(self):
+        x, y = self._spectrum(32.0)
+        result = fit_voigt_peaks(x, y, self._peaks(), mode="PL", gaps=[("Exciton", "Trion", 35.0, 0.0)])
+
+        assert self._gap(result) == pytest.approx(35.0, abs=1e-9)
+        assert not any(p.on_limit for p in result.fitted_peaks)
+
+    def test_no_gaps_and_unknown_labels_fit_freely(self):
+        x, y = self._spectrum(32.0, noise=3.0)
+        free = fit_voigt_peaks(x, y, self._peaks(), mode="PL")
+        for gaps in ([], [("Exciton", "nope", 35.0, 10.0)]):
+            other = fit_voigt_peaks(x, y, self._peaks(), mode="PL", gaps=gaps)
+            assert other.chi_squared == free.chi_squared and other.nfev == free.nfev
+
+    def test_works_with_a_dominant_peak_and_several_starts(self):
+        x, y = self._spectrum(32.0, noise=3.0)
+        result = fit_voigt_peaks(x, y, self._peaks(), mode="PL", starts=3, dominant="Exciton",
+                                 gaps=[("Exciton", "Trion", 35.0, 10.0)])
+
+        assert result.success and result.converged
+        assert 25.0 <= self._gap(result) <= 45.0
+        assert self._gap(result) == pytest.approx(32.0, abs=1.0)
+
+    def test_the_lower_centre_has_a_propagated_stderr(self):
+        x, y = self._spectrum(32.0, noise=3.0)
+        result = fit_voigt_peaks(x, y, self._peaks(), mode="PL", gaps=[("Exciton", "Trion", 35.0, 10.0)])
+        trion = next(p for p in result.fitted_peaks if p.label == "Trion")
+
+        assert np.isfinite(trion.center_stderr) and trion.center_stderr > 0
+
+    def test_a_raman_fit_refuses_gaps(self):
+        x, y = self._spectrum(32.0)
+        with pytest.raises(ValueError, match="PL fits only"):
+            fit_voigt_peaks(x, y, self._peaks(), mode="Raman", gaps=[("Exciton", "Trion", 35.0, 10.0)])

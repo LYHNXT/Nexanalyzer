@@ -40,6 +40,7 @@ where each tool's folders are, for every page above to use.
 
 import streamlit as st
 
+from core.paths import PROJECT_ROOT
 from core.ui.theme import apply_theme
 from core.version import APP_NAME, APP_TAGLINE, __version__
 from modules.spectra.ui.session_state import initialize_session_state
@@ -47,7 +48,7 @@ from modules.spectra.ui.session_state import initialize_session_state
 # Configure page (must run once, before any other Streamlit command)
 st.set_page_config(
     page_title=APP_NAME,
-    page_icon=":material/show_chart:",
+    page_icon=str(PROJECT_ROOT / "assets" / "nexstrom_mark.png"),
     layout="wide",
     # Expanded by default — the sidebar is the page navigation. (Until
     # v5.43.0 it also held the Spectra page's whole workflow.)

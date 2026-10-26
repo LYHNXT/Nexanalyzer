@@ -5,6 +5,64 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.46.0] - 2026-10-26
+
+### Added
+
+- **PL exciton-trion energy gap.** A PL block can hold one peak a photon
+  energy below another: `energy_gaps`, each `upper`, `lower`, `gap_meV`,
+  `tolerance_meV` (Material Presets page: **Energy gaps**, PL blocks only).
+  The lower peak's centre is no longer free: it follows the upper peak's,
+  E_lower = E_upper - gap, with the gap itself fitted inside
+  gap_meV +- tolerance_meV (fixed at tolerance 0). The fit keeps its number of
+  free variables, the gap is explored by every start, and the lower peak's
+  own centre window no longer applies. A gap that ends on its limit flags the
+  lower peak **on its limit** -- the constraint, not the data, placed it.
+  `fitting.fit_voigt_peaks(gaps=)`; Raman blocks refuse it, and a block whose
+  template centres sit outside their own gap window does not validate.
+- **WSe2_QC: Exciton - Trion = 35 +- 10 meV; MoS2_QC: A0 - A- = 20 +- 10 meV.**
+  The literature trion binding energies are ~30 meV for WSe2's negative trion
+  (21-36 meV across trion species) and ~18-20 meV for MoS2 (Mak et al. 2013).
+  On our data, free fits put WSe2's gap at a median 38 meV (736 clean HA, VB
+  and TSMC spectra): 35 +- 10 fits them as well as the free fit (median chi^2
+  ratio 1.00, 7 % of spectra > 20 % worse) and leaves Trion/Exciton at 0.48
+  (free 0.47). MoS2's free gap is undetermined (bimodal, 5-12 and 40-46 meV,
+  on the Samsung-Oct maps) because its two peaks overlap; 20 +- 10 costs a
+  median 2 % in chi^2. MoS2_QC's A- start moves 700 -> 690 nm (21 meV below
+  A0's 682) so the template sits inside its window.
+
+### Changed
+
+- **Numbers move: PL on WSe2_QC and MoS2_QC** -- Exciton/Trion and A0/A-
+  centres, widths and intensities, and the PL quality figure's Exciton panels.
+  Raw FWHM (the PL customer spec) is not a fit and does not move. No other
+  preset changes. The golden fit and the validated golden set run their own
+  frozen presets and are unchanged.
+
+## [5.45.0] - 2026-10-26
+
+### Changed
+
+- **Nexstrom's colours and logo.** No numbers move: styling only.
+  - The palette is nexstrom.com's own: the sidebar is Nexstrom navy
+    (#002E5D), headings heading navy (#073A6C), buttons, links and toggles
+    the accent blue (#2F72BF), secondary text the body slate (#486284).
+  - The Nexstrom logo sits at the top of the sidebar, in white on the navy;
+    the mark alone shows when the sidebar is collapsed and is the browser
+    tab icon. The PNGs are in `assets/` (`nexstrom_logo.png` is the
+    original navy one, for light backgrounds).
+  - **Easier to read**: body text 15 px (was 14), headings a step larger,
+    text near-black (#0B1220), and captions solid slate (#344B68, about
+    8:1 on white) instead of Streamlit's 60% fade. The Spectra page's
+    buttons got wider columns so their labels still fit. The sidebar's page
+    names and footer are 15 px, its section labels 14 px.
+- **Run Auto-Workflow reports in one line**: "Auto-workflow completed
+  successfully!", with the stages, fit quality and the preset's notes
+  (baseline and peak count per technique, its description) in a collapsed
+  **Workflow details** panel under it. The notes no longer sit under the
+  Run button, and the same R² and χ² are in the cards under the plot. A
+  failed run still shows everything, as before.
+
 ## [5.44.0] - 2026-10-25
 
 ### Changed

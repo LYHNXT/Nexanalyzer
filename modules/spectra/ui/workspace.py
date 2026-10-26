@@ -364,7 +364,7 @@ def _render_file_switcher(files: dict, current_file) -> None:
     current_idx = file_list.index(current_file) if current_file in file_list else 0
     n = len(file_list)
 
-    cols = st.columns([0.55, 6, 0.55, 0.8, 1.5, 1.5, 1.4], vertical_alignment="bottom")
+    cols = st.columns([0.55, 4.6, 0.55, 0.8, 1.6, 1.8, 1.7], vertical_alignment="bottom")
     with cols[0]:
         if st.button(":material/chevron_left:", key="file_prev", help="Previous file", disabled=n < 2, width="stretch"):
             st.session_state['_pending_file_switch'] = file_list[(current_idx - 1) % n]
@@ -431,6 +431,21 @@ def _render_file_pills(files: dict, current_file) -> None:
         st.rerun()
 
 
+def _preset_notes(preset) -> str:
+    """What the preset does per technique, and its free-text notes."""
+    notes = []
+    for mode in ("Raman", "PL"):
+        block = preset.block_for(mode)
+        if block is not None:
+            notes.append(f"**{mode}**: {block.baseline_algorithm} baseline, "
+                         f"{len(block.peak_templates)} peaks")
+    if not notes:
+        notes.append("No Raman or PL settings on this material.")
+    if preset.description:
+        notes.append(f"**Notes**: {preset.description}")
+    return " · ".join(notes)
+
+
 def _run_single(spectrum, preset) -> None:
     """Run Auto-Workflow on the current file and report the outcome."""
     from ..processing.auto_workflow import (
@@ -441,7 +456,19 @@ def _run_single(spectrum, preset) -> None:
         result = execute_auto_workflow(spectrum, preset)
 
     if result["success"]:
-        st.success(format_workflow_summary(result, preset, spectrum.mode))
+        # The headline only; the stages and fit quality go in a collapsed
+        # panel (v5.45.0) -- the same numbers are in the summary cards under
+        # the plot. A default expander opens without a rerun, so the panel
+        # survives being opened even though the Run click that drew it doesn't.
+        headline, _, details = format_workflow_summary(
+            result, preset, spectrum.mode).partition("\n\n")
+        st.success(headline, icon=":material/check_circle:")
+        if details:
+            with st.expander("Workflow details"):
+                # One line each: the formatter puts "Stages:" on the line
+                # after Material, which markdown otherwise joins up.
+                st.markdown(details.replace("\n**Stages:**", "\n\n**Stages:**"))
+                st.caption(_preset_notes(preset))
         _remember_fit_preset(spectrum, preset)
         # Show the fit, unless the operator pinned these toggles by hand. Safe
         # to write here: the toggles render further down the page.
@@ -551,7 +578,7 @@ def _technique_badge(spectrum) -> None:
     if spectrum is None:
         text, bg, fg = "—", "#F1F3F5", "#5A616B"
     elif getattr(spectrum, "auto_detected", False):
-        text, bg, fg = f"{spectrum.mode}", "#E8F0FB", "#134383"
+        text, bg, fg = f"{spectrum.mode}", "#EAF2F8", "#073A6C"
     else:
         text, bg, fg = f"{spectrum.mode} (assumed)", "#FBEEDF", "#8A3F0A"
     st.markdown(
@@ -579,7 +606,7 @@ def render_run_setup() -> None:
         pills_slot = st.container()
 
         preset = None
-        cols = st.columns([2.2, 1.6, 2.1, 2.1, 1.5, 2.5], vertical_alignment="bottom")
+        cols = st.columns([2.2, 1.4, 2.5, 2.3, 1.9, 1.2], vertical_alignment="bottom")
         with cols[0]:
             # As of v4.0.0 a preset is keyed by material alone and each file's
             # own mode picks the technique block, so nothing here rewrites a
@@ -619,17 +646,8 @@ def render_run_setup() -> None:
             st.caption("No materials configured yet. Add one on the **Material Presets** page.")
         elif preset is not None:
             _describe_detected_modes(files)
-            notes = []
-            for _mode in ("Raman", "PL"):
-                _block = preset.block_for(_mode)
-                if _block is not None:
-                    notes.append(f"**{_mode}**: {_block.baseline_algorithm} baseline, "
-                                 f"{len(_block.peak_templates)} peaks")
-            if not notes:
-                notes.append("No Raman or PL settings on this material.")
-            if preset.description:
-                notes.append(f"**Notes**: {preset.description}")
-            st.caption(" · ".join(notes))
+            # The preset's own notes moved into the Run's Workflow details
+            # (v5.45.0): a paragraph here pushed the plot down on every visit.
             # Next to the Run button, which is the thing to press about it.
             _warn_if_preset_moved(current_spectrum, preset)
         elif files:
