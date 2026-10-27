@@ -5,6 +5,20 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Golden-fit record regenerated for DDAA10 RM_2: the golden laptop moved
+  from Windows 10 (19045) to Windows 11 (26300).** No code, preset or package
+  changed (numpy 2.5.3, scipy 1.18.1, lmfit 1.3.4 as locked); the OS runtime
+  moved the last digits of this ill-conditioned fit past the strict 1e-5:
+  R² 4e-8, chi² 6e-6, centres <= 1.1e-6, FWHM <= 6e-6, intensity and area
+  <= 4e-5 relative (B2g's Gaussian share, ~0, from 2e-8 to 3e-7). RM_1, RM_3
+  and the two PL records are unchanged to the bit, and portable mode passed
+  before the regeneration. The customer edition's record is regenerated
+  identically.
+
 ## [5.46.0] - 2026-10-26
 
 ### Added
