@@ -171,7 +171,7 @@ entry. Read [CLAUDE.md](CLAUDE.md) and
 
 ## License
 
-Proprietary. Copyright © 2026 Nexstrom. All rights reserved. For use by Nexstrom
+Proprietary. Copyright © 2026 NEXSTROM PTE. LTD. All rights reserved. For use by Nexstrom
 employees and authorised contractors only; see [LICENSE](LICENSE).
 
 Third-party open-source packages the app depends on (listed in
