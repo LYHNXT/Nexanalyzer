@@ -1,18 +1,30 @@
-Copyright (c) 2026 Nexstrom. All rights reserved.
+NexAnalyzer
+Copyright (c) 2026 NEXSTROM PTE. LTD. ("Nexstrom"). All rights reserved.
 
 PROPRIETARY AND CONFIDENTIAL
 
-This software and its source code are the confidential and proprietary
-property of Nexstrom. They are provided for internal use by Nexstrom
-employees and authorized contractors only.
+This software, its source code, documentation, material presets and test data
+(together, "the Software") are the confidential and proprietary property of
+Nexstrom. The Software is hosted in a private repository of the Nexstrom
+organisation; being given access to that repository does not by itself grant
+any licence.
 
-No part of this software may be copied, modified, distributed, published,
-sublicensed, or disclosed to any third party without prior written
-permission from Nexstrom.
+Nexstrom permits its employees, and contractors it has authorised in writing,
+to use, run and modify the Software solely for Nexstrom's internal business.
 
-Measurement data, material presets, and reports produced with this software
-may contain customer-confidential information and are subject to the same
-restrictions.
+No part of the Software may be copied, distributed, published, sublicensed,
+sold, or disclosed to any third party, and no derivative work may be provided
+to a third party, without prior written permission from Nexstrom. A licence
+for a separate customer edition of the Software is granted only by a separate
+written agreement.
+
+Measurement data, material presets, and reports produced with the Software may
+contain Nexstrom or customer confidential information and are subject to the
+same restrictions.
+
+Third-party components. The Software depends on open-source packages (listed
+in requirements.txt) that are not covered by this licence. Each remains under
+its own licence terms, which govern its use.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

@@ -36,7 +36,7 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 
 **On Windows, this replaces Steps 1 to 3 entirely.**
 
-1. Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/angyulu/NexAnalyzer/main/Install-NexAnalyzer.bat)** — right-click that link and choose
+1. Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/Nexstrom/NexAnalyzer/main/Install-NexAnalyzer.bat)** — right-click that link and choose
    **Save link as...**
 2. Your browser will probably warn about keeping a `.bat` file. Choose **Keep**.
 3. **Double-click the file you just downloaded.**
@@ -133,7 +133,7 @@ Open **Command Prompt** and run:
 
 ```
 cd %USERPROFILE%
-git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
+git clone https://github.com/Nexstrom/NexAnalyzer.git nexanalyzer
 ```
 
 > **Don't clone into OneDrive, Dropbox, or any synced folder.** The app builds a `venv` folder
@@ -160,7 +160,7 @@ nexanalyzer/
 
 ```bash
 cd ~
-git clone https://github.com/angyulu/NexAnalyzer.git nexanalyzer
+git clone https://github.com/Nexstrom/NexAnalyzer.git nexanalyzer
 ```
 
 That's it — no login step.
@@ -525,7 +525,7 @@ The repository is public, so you should never be asked to log in. A sign-in prom
 "not found" rather than admitting the repo doesn't exist. Check it character for character:
 
 ```
-https://github.com/angyulu/NexAnalyzer.git
+https://github.com/Nexstrom/NexAnalyzer.git
 ```
 
 If the URL is right and it still fails, the repository may have been switched to private —
@@ -534,7 +534,7 @@ ask Angyu for access.
 ### "[WARN] Could not update - offline, or no access to the repo"
 
 Harmless if you are off the network — the app starts on your current version. If you *are*
-online, check that https://github.com/angyulu/NexAnalyzer opens in your browser. A corporate
+online, check that https://github.com/Nexstrom/NexAnalyzer opens in your browser. A corporate
 proxy or firewall blocking GitHub is the other usual cause; ask IT for the proxy settings.
 
 ### Forcing an update by hand

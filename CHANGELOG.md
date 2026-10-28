@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The repository moved to the Nexstrom organisation:
+  `https://github.com/Nexstrom/NexAnalyzer`** (was `angyulu/NexAnalyzer`,
+  transferred 2026-10-28). The sidebar's User Guide / Report Issues links, the
+  installer's default `NEXA_REPO`, and the clone and download links in README
+  and USER_GUIDE point there. Existing clones keep working through GitHub's
+  redirect; `git remote set-url origin https://github.com/Nexstrom/NexAnalyzer.git`
+  makes it explicit. No numbers move.
 - **Golden-fit record regenerated for DDAA10 RM_2: the golden laptop moved
   from Windows 10 (19045) to Windows 11 (26300).** No code, preset or package
   changed (numpy 2.5.3, scipy 1.18.1, lmfit 1.3.4 as locked); the OS runtime

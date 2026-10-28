@@ -16,7 +16,7 @@ title NexAnalyzer Installer
 ::   NEXA_SETUP_ONLY  set to 1 to install without launching the app afterwards
 :: ============================================================================
 
-if not defined NEXA_REPO set "NEXA_REPO=https://github.com/angyulu/NexAnalyzer.git"
+if not defined NEXA_REPO set "NEXA_REPO=https://github.com/Nexstrom/NexAnalyzer.git"
 if not defined NEXA_DIR set "NEXA_DIR=%USERPROFILE%\nexanalyzer"
 
 echo ============================================
