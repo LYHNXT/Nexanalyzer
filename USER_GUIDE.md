@@ -278,6 +278,13 @@ Material presets are created and edited directly in the app (as of v2.11.0 — n
 
 To change a material later, expand it in the list on the same page, edit its fields, and click **"💾 Save"** (or **"🗑️ Delete"** to remove it).
 
+**Magnification calibration from a scale bar.** At the bottom of the same page, under
+**Objective calibration**, open **"Measure from a scale-bar image"** and upload an OM image
+exported with a scale bar. The bar is outlined in red and its label (e.g. "20 µm") is read
+automatically — check both, and type the length if the label wasn't read. If the image is
+smaller than the camera's full frame (2240 px wide), the result is scaled to full-frame
+pixels. Pick the magnification and click **"Save measured µm/px"**.
+
 ### 2. Load Your Spectrum Files
 
 1. On the **Spectra** page, click **"Add files…"** beside the **Spectrum file** dropdown

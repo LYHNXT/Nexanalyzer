@@ -131,6 +131,8 @@ nexanalyzer/
 │   │   │                           # plus class_summary/contrast_summary across frames
 │   │   ├── processing/layer_suggest.py # Suggests 1L/2L from the frames' colour (WSe2
 │   │   │                           # calibration); pre-fills the QC Report's layer
+│   │   ├── processing/scale_bar.py # µm/px from a burned-in scale bar (local): bar
+│   │   │                           # detection, label reading, rescale to native pixels
 │   │   ├── io/frame_tables.py      # The segmentation's numbers as rows: per-class stats and
 │   │   │                           # the per-frame rows behind them
 │   │   ├── ui/qc_report_state.py   # Isolated session-state namespace for the QC Report

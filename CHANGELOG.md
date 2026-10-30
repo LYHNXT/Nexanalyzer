@@ -5,6 +5,83 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Local additions (on top of 5.47.0; app version 5.47.0+local.1)
+
+Installation-specific changes carried on top of upstream. `core/version.py`
+reports them as `<upstream>+local.N`: the upstream release they sit on, plus a
+build tag that can never collide with a future upstream number.
+
+Rebuilt on 2026-10-30 from upstream 5.46.0 rather than merged: the previous
+local line (`5.13.0+local.8`, kept on branch `backup/local-v5.13.0-local.8`)
+conflicted with upstream in 20 files. Three of its changes are carried over;
+the rest are dropped in favour of upstream's own versions:
+
+- the Raman axis correction to the laser line (Local 5.7.2) -- upstream's
+  zero-line calibration (5.24.0) does the same job, per preset;
+- the linked-peak engine (Local 5.7.0) -- upstream's energy gaps (5.46.0) and
+  dominant peak (5.26.0) express the X-T linked preset, below;
+- the QC Report figure changes (Local 5.7.1, 5.7.3-5.7.5) -- upstream rebuilt
+  those figures;
+- the in-app edits to WSe2_truncate (Raman 110-320 cm-1, a 1L optical block,
+  2L -9.0/+4.5) -- upstream's WSe2_truncate is used as is.
+
+### 5.47.0+local.1 - 2026-11-03
+
+#### Changed
+
+- **Moved onto upstream 5.47.0** (the local commit replayed on top of it; the
+  5.46.0 line is kept on branch `backup/local-v5.46.0-local.1`). Only
+  `core/version.py` conflicted.
+- **`WSe2 X-T linked` is switched off (`enabled: false`)**, like the eight
+  presets upstream 5.47.0 switched off, so the dropdowns offer only `MoS2_QC`
+  and `WSe2_QC` and upstream's `test_only_the_two_qc_presets_are_offered`
+  holds. Turn it back on from the Material Presets page when needed. No
+  number in the preset moves.
+
+### 5.46.0+local.1 - 2026-10-30
+
+#### Added
+
+- **µm/px from a scale-bar image** (was Local 5.7.6). The Material Presets
+  page's *Objective calibration* card has a **Measure from a scale-bar image**
+  expander. Upload an OM image exported with a burned-in scale bar and the bar
+  is found and measured (sub-pixel, light-on-dark or dark-on-light), and its
+  label ("20 µm", "500 nm", ...) is read by template matching against DejaVu
+  Sans / Arial glyphs -- no Tesseract install needed. If the label can't be
+  read, the operator types the length; both lengths stay editable. A
+  downsized export is scaled to the native camera width (default 2240 px),
+  because the calibration is per native pixel: VBCA13's 1024-px
+  `Scale bar.png` (193 px = 20 µm) gives 0.10363 µm/px on the export and
+  **0.04737 µm per native px**. The stored value for the chosen magnification
+  is shown with the % difference before **Save** writes that one entry.
+  Module `modules/optical/processing/scale_bar.py`, unchanged from Local 5.7.6.
+- **`WSe2 X-T linked` preset** (was Local 5.7.0), rebuilt on upstream's own
+  constraints. Raman and PL blocks are copies of upstream 5.46.0's WSe2 (so
+  the Raman block now carries 2ZA(M)'s 1.64 width and the PL despike
+  threshold is 10, not 8). On PL: `energy_gaps` Exciton → Trion **30 meV,
+  tolerance 0** (a fixed gap: the trion's centre is computed from the
+  exciton's), `dominant_peak` Exciton (trion intensity ≤ exciton intensity),
+  and `fit_starts` 5. The Trion template starts at 769.0493 nm, which is
+  30 meV below the Exciton's 755 nm, as the gap check requires. The fixed gap
+  lives on this preset only; WSe2 and WSe2_QC are untouched. On the two PL
+  golden spectra the fitted gap is 30.0000 meV and I(Trion)/I(Exciton) is
+  0.63 / 0.66, against 36.3 / 46.7 meV and 0.53 / 0.42 with WSe2.
+
+#### Changed — numbers move
+
+- **100x recalibrated from that scale bar: 0.04669 → 0.047372 µm/px
+  (+1.46 %)** (was Local 5.7.6). Every 100x domain size grows by 1.46 % (area
+  by 2.9 %) and 100x nucleation density falls by 2.9 %. 50x is unchanged.
+
+#### Fixed
+
+- **A fixed energy gap (`tolerance_meV` 0) could never validate.** The check
+  that the templates already respect the gap compared floats for exact
+  equality, and no float centre meets it: 755 nm and the centre computed 30 meV
+  below it sit 30.00000000000003 meV apart. The check now allows 1e-6 meV
+  (`preset._GAP_CHECK_SLACK_MEV`). A gap with a tolerance validates exactly as
+  before. No number moves.
+
 ## [Unreleased]
 
 ### Changed

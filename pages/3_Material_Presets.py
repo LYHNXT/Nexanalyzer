@@ -23,12 +23,21 @@ Every widget key below is namespaced by material *and* block. Two
 reports -- it silently serves one block's peak rows into the other.
 """
 
+import re
+
 import pandas as pd
 import streamlit as st
+from PIL import Image, ImageDraw
 
 from core.io.om_calibration import load_om_calibration, save_om_calibration
 from core.ui.theme import card, page_header
 from modules.optical.processing.contrast import layer_word
+from modules.optical.processing.scale_bar import (
+    DEFAULT_NATIVE_WIDTH,
+    detect_scale_bar,
+    read_scale_label,
+    um_per_native_px,
+)
 from modules.spectra.models.preset import (
     OPTICAL_LAYERS,
     EnergyGap,
@@ -623,6 +632,113 @@ def _render_preset_form(presets: dict, key_prefix: str,
         st.rerun()
 
 
+def _render_scale_bar_measurement(calibration: dict) -> None:
+    """Measure µm/px from an image with a burned-in scale bar, and save it."""
+    with st.expander("Measure from a scale-bar image", icon=":material/straighten:"):
+        st.caption(
+            "Upload an OM image exported with a scale bar. The bar is found and "
+            "measured automatically and its label is read; check both against "
+            "the highlighted image before saving. A downsized export is scaled "
+            "to the native camera width, since the calibration is per native pixel."
+        )
+        uploaded = st.file_uploader(
+            "Scale-bar image", type=["png", "jpg", "jpeg", "tif", "tiff", "bmp"],
+            key="scale_bar_upload",
+        )
+        if uploaded is None:
+            return
+
+        try:
+            image = Image.open(uploaded)
+            image.load()
+        except Exception as exc:  # unreadable or not an image
+            st.error(f"Could not open the image: {exc}")
+            return
+        file_key = f"{uploaded.name}_{uploaded.size}"
+        bar = detect_scale_bar(image)
+        label = read_scale_label(image, bar) if bar is not None else None
+
+        preview = image.convert("RGB")
+        if bar is not None:
+            pad = max(2, bar.thickness // 3)
+            ImageDraw.Draw(preview).rectangle(
+                [bar.x0 - pad, bar.y0 - pad, bar.x1 + pad, bar.y1 + pad],
+                outline=(255, 0, 0), width=max(2, pad),
+            )
+        st.image(preview, width="stretch")
+
+        col_px, col_um, col_native = st.columns(3)
+        with col_px:
+            if bar is None:
+                st.warning("No scale bar found. Enter its length in pixels.")
+            else:
+                st.caption(f"Detected bar: x {bar.x0}–{bar.x1}, y {bar.y0}–{bar.y1} (red box)")
+            length_px = st.number_input(
+                "Bar length (px)", min_value=0.0, step=1.0, format="%.2f",
+                value=float(round(bar.length_px, 2)) if bar is not None else 0.0,
+                key=f"scale_bar_px_{file_key}",
+            )
+        with col_um:
+            if label is not None:
+                st.caption(f"Read from label: **{label.text}**")
+            else:
+                st.caption("Label not read — enter the bar's length.")
+            length_um = st.number_input(
+                "Bar length (µm)", min_value=0.0, step=1.0, format="%.3f",
+                value=label.length_um if label is not None else 0.0,
+                key=f"scale_bar_um_{file_key}",
+            )
+        with col_native:
+            st.caption(f"Uploaded image: {image.width} × {image.height} px")
+            native_width = st.number_input(
+                "Native camera width (px)", min_value=1, step=1,
+                value=DEFAULT_NATIVE_WIDTH, key="scale_bar_native_width",
+                help="Width of the full-size frame the microscope saves. "
+                     "The calibration is per pixel of that frame.",
+            )
+
+        if length_px <= 0 or length_um <= 0:
+            st.info("Enter both bar lengths to compute µm/px.")
+            return
+
+        um_per_image_px = length_um / length_px
+        native = um_per_native_px(length_um, length_px, image.width, int(native_width))
+        lines = [f"**{um_per_image_px:.5f} µm/px** on this image"]
+        if image.width != native_width:
+            lines.append(
+                f"× {image.width} / {int(native_width)} → **{native:.5f} µm per native px**"
+            )
+        st.markdown(" &nbsp;·&nbsp; ".join(lines))
+
+        existing = sorted(calibration)
+        guess = re.search(r"(\d+)\s*[xX]", uploaded.name)
+        guessed = f"{guess.group(1)}x" if guess else None
+        options = existing + ["New…"]
+        default = existing.index(guessed) if guessed in existing else len(options) - 1
+        col_mag, col_new = st.columns(2)
+        with col_mag:
+            choice = st.selectbox("Save to magnification", options, index=default,
+                                  key=f"scale_bar_mag_{file_key}")
+        with col_new:
+            new_mag = st.text_input(
+                "New magnification", value=guessed or "", placeholder='e.g. "100x"',
+                disabled=choice != "New…", key=f"scale_bar_new_mag_{file_key}",
+            )
+        magnification = (new_mag if choice == "New…" else choice).strip()
+
+        if magnification in calibration:
+            stored = calibration[magnification]
+            st.caption(
+                f"Stored {magnification}: {stored:.5f} µm/px — "
+                f"this measurement differs by {(native - stored) / stored:+.2%}."
+            )
+        if st.button("Save measured µm/px", icon=":material/save:", disabled=not magnification,
+                     key="scale_bar_save"):
+            save_om_calibration({**calibration, magnification: round(native, 6)})
+            st.success(f"Saved {magnification}: {native:.5f} µm/px.")
+            st.rerun()
+
+
 page_header(
     "Analysis · Material Presets",
     "Material Presets",
@@ -677,6 +793,8 @@ with card("calibration"):
     )
 
     calibration = load_om_calibration()
+    _render_scale_bar_measurement(calibration)
+
     calibration_df = pd.DataFrame(
         [{"Magnification": mag, "um_per_px": value} for mag, value in sorted(calibration.items())],
         columns=["Magnification", "um_per_px"],

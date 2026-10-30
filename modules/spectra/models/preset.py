@@ -146,6 +146,11 @@ class PeakTemplate:
 
 #: h*c in eV*nm, as fitting.HC_EV_NM (models must not import processing).
 _HC_EV_NM = 1239.84198
+#: Slack (meV) on the templates-respect-the-gap check. A fixed gap
+#: (tolerance_meV = 0) asks for an exact equality that no float centre can
+#: meet: 755 nm and the 30 meV centre computed from it sit 30.00000000000003
+#: meV apart. One micro-meV is far below anything a spectrum resolves.
+_GAP_CHECK_SLACK_MEV = 1e-6
 
 
 @dataclass
@@ -466,7 +471,7 @@ class TechniquePreset:
             # The templates are the fit's starting point, so they must already respect the gap.
             if up.center > 0 and lo.center > 0 and len(errors) == before:
                 implied = 1000 * (_HC_EV_NM / up.center - _HC_EV_NM / lo.center)
-                if not g.gap_meV - g.tolerance_meV <= implied <= g.gap_meV + g.tolerance_meV:
+                if not abs(implied - g.gap_meV) <= g.tolerance_meV + _GAP_CHECK_SLACK_MEV:
                     errors.append(
                         f"{name}: the templates' centres ({up.center:g}, {lo.center:g} nm) are "
                         f"{implied:.1f} meV apart, outside {g.gap_meV:g} +- {g.tolerance_meV:g} meV")

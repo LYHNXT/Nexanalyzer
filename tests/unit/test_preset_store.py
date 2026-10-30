@@ -156,6 +156,15 @@ class TestEnergyGaps:
     def test_rejects(self, gap, needle):
         assert any(needle in e for e in self._pl_block([gap]).validate())
 
+    def test_a_fixed_gap_accepts_templates_computed_from_it(self):
+        # tolerance 0: the centres can only be equal to float precision.
+        lower = 1239.84198 / (1239.84198 / 755.0 - 0.030)
+        assert self._pl_block([EnergyGap("Exciton", "Trion", 30.0, 0.0)], 755.0, lower).validate() == []
+
+    def test_a_fixed_gap_still_rejects_templates_off_it(self):
+        gap = EnergyGap("Exciton", "Trion", 30.0, 0.0)
+        assert any("outside 30 +- 0 meV" in e for e in self._pl_block([gap], 755.0, 769.0).validate())
+
     def test_a_peak_cannot_be_the_lower_of_two_gaps(self):
         gaps = [EnergyGap("Exciton", "Trion", 35.0, 10.0), EnergyGap("Exciton", "Trion", 30.0, 10.0)]
         assert any("already the lower peak" in e for e in self._pl_block(gaps).validate())
