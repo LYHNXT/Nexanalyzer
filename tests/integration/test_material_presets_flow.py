@@ -127,9 +127,14 @@ class TestBlocksDoNotBleedIntoEachOther:
         assert "edit_WSe2_optical_2L_nsigma" in at.session_state
 
 
+@pytest.mark.shipped_preset_flags
 class TestEnabledIsAControlNow:
     """Until v4.0.0 the page hardcoded enabled=True on save, so nothing could
-    write False and editing a hand-disabled preset silently re-enabled it."""
+    write False and editing a hand-disabled preset silently re-enabled it.
+
+    The one place that must see the stored flag rather than the all-offered
+    view `tests/conftest.py` gives every other page test.
+    """
 
     def test_a_disabled_material_stays_disabled_across_a_save(self, store):
         presets = preset_store.load_presets()

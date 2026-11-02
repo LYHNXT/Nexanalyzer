@@ -1,6 +1,9 @@
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+    "shipped_preset_flags: read data/materials.json's own enabled flags, not the all-offered test view",
+]
 
 [tool.ruff]
 line-length = 120

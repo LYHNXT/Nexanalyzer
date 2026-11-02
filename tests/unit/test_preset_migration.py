@@ -301,6 +301,9 @@ class TestTheShippedStoreIsAlreadyV2:
 
         - `optical`: v1 held no optical settings to carry, so WSe2's bilayer
           block was seeded afterwards.
+        - `enabled`: which materials the dropdowns offer is a deployment
+          choice, not migrated content. At v5.47.0 everything but MoS2_QC and
+          WSe2_QC was switched off.
         - `description`: at v5.0.0 the separate `WSe2-HA` entry was folded into
           `WSe2` and the old `WSe2` dropped, so the committed entry is the HA
           one renamed. Its peaks are identical -- that is exactly why the fold
@@ -317,7 +320,7 @@ class TestTheShippedStoreIsAlreadyV2:
         """
         migrated, _ = migrate_legacy(V1_STORE)
         by_name = {e["material_name"]: e for e in migrated}
-        post_migration_edits = ("optical", "description")
+        post_migration_edits = ("optical", "description", "enabled")
         retuned = {"MoS2": ("raman", "pl"), "WSe2": ("raman", "pl")}
 
         with open(DATA_DIR / "materials.json", encoding="utf-8") as f:

@@ -116,3 +116,45 @@ def _isolate_tool_roots(tmp_path_factory, monkeypatch):
 
     scratch = tmp_path_factory.mktemp("sidecars")
     monkeypatch.setattr(tool_roots, "get_tool_roots_path", lambda: scratch / "tool_roots.json")
+
+
+@pytest.fixture(autouse=True)
+def _every_shipped_preset_offered(request, monkeypatch):
+    """Show every committed material in the dropdowns, whatever ships enabled.
+
+    Which of the committed presets are offered is a deployment choice -- at
+    v5.47.0 only MoS2_QC and WSe2_QC are, the rest carry ``enabled: false`` --
+    and it moves whenever the lab's work does. The page tests drive real
+    dropdowns and pick real materials (Silicon for the Raman-only path, WSe2
+    for the one with an optical pair), so without this they would fail on a
+    choice that says nothing about the code they cover.
+
+    The shipped set itself is asserted in
+    `tests/unit/test_preset_store.py::TestTheCommittedFile`, which reads the
+    JSON rather than this loader and so is unaffected.
+
+    A test about the Enabled control itself asks for the file's own flags with
+    ``@pytest.mark.shipped_preset_flags``.
+
+    `load_store` is what is replaced, not `load_presets`: half the callers
+    imported that name at import time (`modules/spectra/ui/workspace.py`), and
+    a page re-executed by AppTest would see the patch while a module imported
+    once would not. `load_presets` resolves `load_store` in this module's
+    globals on every call, so patching it reaches both.
+    """
+    from dataclasses import replace
+
+    import modules.spectra.io.preset_store as preset_store
+
+    if request.node.get_closest_marker("shipped_preset_flags"):
+        return
+
+    real = preset_store.load_store
+
+    def _all_offered(*args, **kwargs):
+        store = real(*args, **kwargs)
+        store.presets = {name: (p if p.enabled else replace(p, enabled=True))
+                         for name, p in store.presets.items()}
+        return store
+
+    monkeypatch.setattr(preset_store, "load_store", _all_offered)

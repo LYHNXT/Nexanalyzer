@@ -3,7 +3,7 @@
   "materials": [
     {
       "material_name": "MoS2",
-      "enabled": true,
+      "enabled": false,
       "description": "MoS2 Raman / MoS2 PL peaks, tuned on monolayer MoS2 on sapphire (488 nm). Raman fits 2LA(M) because its band sits on A1g's high side; PL fits the A0 exciton, A- trion and B exciton.",
       "raman": {
         "x_range_enabled": true,
@@ -189,7 +189,7 @@
     },
     {
       "material_name": "Silicon",
-      "enabled": true,
+      "enabled": false,
       "description": "Silicon reference peak at 520 cm⁻¹",
       "raman": {
         "x_range_enabled": false,
@@ -216,7 +216,7 @@
     },
     {
       "material_name": "WSe2",
-      "enabled": true,
+      "enabled": false,
       "description": "WSe2 Raman / WSe2 PL peaks. The optical block carries the 2L contrast pair -7.8/+4.5 (1L: -6.0/+4.2), and every wafer is segmented on it -- one ruler, so two wafers' coverage numbers can be compared.",
       "raman": {
         "x_range_enabled": true,
@@ -346,7 +346,7 @@
     },
     {
       "material_name": "WSe2 extended",
-      "enabled": true,
+      "enabled": false,
       "description": "WSe2 with the monolayer multi-phonon peaks of De Luca et al., arXiv:1910.12503, Table 1 (experimental frequencies, column 1): the 208-270 cm-1 bands, plus the broad LA band split into LA (130.5, the *LA(M) zone-edge mode) and LO2(K)-ZA(K) (137.4). E2g+A1g and 2LA are WSe2's own. LA/E2g+A1g here uses the narrow 130.5 peak, so it is not comparable to WSe2's ratio. Optical block as WSe2.",
       "raman": {
         "x_range_enabled": true,
@@ -563,7 +563,7 @@
     },
     {
       "material_name": "WSe2 extended V2",
-      "enabled": true,
+      "enabled": false,
       "description": "WSe2 with the monolayer multi-phonon peaks of De Luca et al., arXiv:1910.12503, Table 1, at the measured frequencies (column 1), and the first-order mode split into E2g (249.65) and A1g (250.15): the calculated 0.5 cm-1 E'/A'1 splitting, centred on the measured 249.9. For checking the split fit, not for QC reports: there is no E2g+A1g peak, so LA/E2g+A1g and the E2g+A1g panels are blank. LA is the broad ~125 cm-1 band (FWHM 20, +/-10); C starts at FWHM 8. Tuned on TSMC_May TSM260500.",
       "raman": {
         "x_range_enabled": true,
@@ -780,7 +780,7 @@
     },
     {
       "material_name": "WSe2_Aggressive",
-      "enabled": true,
+      "enabled": false,
       "description": "",
       "raman": {
         "x_range_enabled": true,
@@ -1020,7 +1020,7 @@
     },
     {
       "material_name": "WSe2_QC_broad",
-      "enabled": true,
+      "enabled": false,
       "description": "WSe2 for QC: Raman fitted in three windows (-5..40, 40..210, 210..330 cm-1), each with its own baseline; LA on a straight-line baseline; 2ZA(M)/E2g+A1g/2LA centre ranges do not overlap. PL and optical as WSe2.",
       "raman": {
         "x_range_enabled": true,
@@ -1186,7 +1186,7 @@
     },
     {
       "material_name": "WSe2_truncate",
-      "enabled": true,
+      "enabled": false,
       "description": "Copy of WSe2 with the Raman window truncated to 200-300 cm⁻¹ (E2g+A1g / 2LA / 2ZA(M) region only).",
       "raman": {
         "x_range_enabled": true,

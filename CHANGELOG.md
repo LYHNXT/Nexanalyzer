@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Only `MoS2_QC` and `WSe2_QC` are offered in the material dropdowns.** The
+  other eight shipped presets (`MoS2`, `Silicon`, `WSe2`, `WSe2 extended`,
+  `WSe2 extended V2`, `WSe2_Aggressive`, `WSe2_QC_broad`, `WSe2_truncate`) are
+  switched off: `enabled: false` in `data/materials.json`, which hides them from
+  Spectra, QC Report and OneNote while leaving every number they hold in the
+  file. The Material Presets page still lists them, marked disabled, and the
+  toggle there brings one back. Nothing that names a material directly changes
+  -- a saved workspace, a QC runner or a test that asks for `Silicon` by name
+  still gets it.
+
 - **Runcard detection now assigns a series' cards in run order, as one
   sequence rather than run by run.** The matching still costs every run
   against every candidate on its own; what follows it changed. Where it used

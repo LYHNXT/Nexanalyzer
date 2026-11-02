@@ -1,6 +1,10 @@
 """Unit tests for modules.spectra.io.preset_store (JSON-backed material preset storage)."""
 
+import json
+
 import pytest
+
+from core.paths import DATA_DIR
 
 from modules.spectra.io.preset_store import load_presets, save_presets
 from modules.spectra.models.preset import (
@@ -171,3 +175,28 @@ class TestEnergyGaps:
         assert presets["WSe2_QC"].pl.energy_gaps == [EnergyGap("Exciton", "Trion", 35.0, 10.0)]
         assert presets["MoS2_QC"].pl.energy_gaps == [EnergyGap("A0", "A-", 20.0, 10.0)]
         assert presets["WSe2_QC"].validate() == [] and presets["MoS2_QC"].validate() == []
+
+
+class TestTheCommittedFile:
+    """What ships in data/materials.json, read from the file itself.
+
+    `tests/conftest.py` shows every committed material to the page tests
+    whatever the file says, so this asserts the shipped set the one way that
+    fixture cannot reach: by reading the JSON.
+    """
+
+    def _committed(self):
+        with open(DATA_DIR / "materials.json", encoding="utf-8") as f:
+            return json.load(f)["materials"]
+
+    def test_only_the_two_qc_presets_are_offered(self):
+        # v5.47.0: the lab fits QC recipes only, so the other eight entries
+        # stay in the file with enabled=false rather than being deleted.
+        offered = {m["material_name"] for m in self._committed() if m.get("enabled", True)}
+
+        assert offered == {"MoS2_QC", "WSe2_QC"}
+
+    def test_the_switched_off_entries_are_still_there(self):
+        names = {m["material_name"] for m in self._committed()}
+
+        assert {"MoS2", "Silicon", "WSe2", "WSe2 extended"} <= names
