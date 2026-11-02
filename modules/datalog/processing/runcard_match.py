@@ -628,7 +628,7 @@ WINDOW_AFTER = pd.Timedelta(days=7)
 DUP_COST = 0.4          # an aborted attempt may share its card with the rerun
 RERUN_WINDOW = pd.Timedelta(hours=12)   # a failed attempt's card is free this long after it
 ORDER_PENALTY = 1.0     # a card number outside the tagged runs around it
-SWAP_TOL = 0.3          # content slack allowed when restoring run order
+SWAP_TOL = 0.3          # content slack: an aborted attempt retargeted, and "also fits"
 REFERENCE_MAX = 0.3     # a cleaning log this close to a tagged one is that recipe
 _NONE_COST = 50.0
 
@@ -794,7 +794,7 @@ def suggest_runcards(runs: Sequence[Tuple[str, RunSteps]],
             progress(idx + 1, len(runs))
 
     assigned = _solve(scored)
-    _repair_order(scored, assigned)
+    _resequence(scored, assigned, anchors)
     _retarget_aborted(scored, assigned)
     return _build(scored, assigned, references, taken)
 
@@ -827,34 +827,76 @@ def _solve(scored):
     return {int(i): choice[(int(i), int(j))] for i, j in zip(r_ind, c_ind)}
 
 
-def _repair_order(scored, assigned):
-    """Swap interchangeable cards so numbers rise with run time inside each series."""
+def _resequence(scored, assigned, anchors):
+    """Make each series' card numbers rise with run time, at the lowest cost that does.
+
+    The matching costs each run on its own; nothing in it knows that HADH75
+    cannot come after HADH76. This re-solves each series' runs together under
+    the one constraint the data has never broken -- card numbers never go
+    backwards -- by a dynamic program over (run in time order, card number in
+    order). Every card the runs could take is in play, not only the ones the
+    matching picked, so a whole chain shifted by one can move back; a pairwise swap
+    (what this was until v5.47.0) could only ever exchange two runs' cards,
+    and only when content alone paid for it.
+
+    A series whose runs cannot all be placed in order is left as the matching
+    had it -- that is a renumbering or a card nobody kept, not an ordering to
+    repair.
+    """
     by_series = {}
     for i, pick in assigned.items():
         if pick and not pick[1].common:
             s, _k = series_of(pick[1].name)
             if s:
                 by_series.setdefault(s, []).append(i)
-    for members in by_series.values():
+    for series, members in by_series.items():
         members.sort(key=lambda i: scored[i][1].start)
-        changed = True
-        while changed:
-            changed = False
-            for p in range(len(members)):
-                for q in range(p + 1, len(members)):
-                    x, y = members[p], members[q]
-                    kx = series_of(assigned[x][1].name)[1]
-                    ky = series_of(assigned[y][1].name)[1]
-                    if kx <= ky:
+        numbers, entries = set(), []
+        for i in members:
+            by_number = {}
+            for key, entry in scored[i][2].items():
+                s, k = series_of(key)
+                if s == series:
+                    by_number[k] = entry
+                    numbers.add(k)
+            entries.append(by_number)
+        order = sorted(numbers)
+        if not order:
+            continue
+        # Cost of each run on each number; inf where the card is no candidate.
+        cost = [[by_number.get(k, (math.inf,))[0] for k in order] for by_number in entries]
+        # The last tagged run before the first member bounds the chain below,
+        # on the same terms as `_order_penalty`: a card tagged on a failed
+        # attempt is still free for the rerun that follows it.
+        prev, start = None, scored[members[0]][1].start
+        for t, num, failed in anchors.get(series, ()):
+            if t < start:
+                prev = num - 1 if failed and start - t <= RERUN_WINDOW else num
+        best = [[math.inf] * len(order) for _ in members]
+        back = [[-1] * len(order) for _ in members]
+        for j, k in enumerate(order):
+            if prev is None or k > prev:
+                best[0][j] = cost[0][j]
+        for n in range(1, len(members)):
+            # An aborted attempt hands its own card to the rerun that follows.
+            same = not scored[members[n - 1]][1].ended
+            for j, k in enumerate(order):
+                if not math.isfinite(cost[n][j]):
+                    continue
+                for jp in range(0, j + 1 if same else j):
+                    if not math.isfinite(best[n - 1][jp]):
                         continue
-                    alt_x = scored[x][2].get(assigned[y][1].name.upper())
-                    alt_y = scored[y][2].get(assigned[x][1].name.upper())
-                    if not alt_x or not alt_y:
-                        continue
-                    if alt_x[1] + alt_y[1] <= assigned[x][0] + assigned[y][0] + SWAP_TOL:
-                        assigned[x] = (alt_x[1], alt_x[2])
-                        assigned[y] = (alt_y[1], alt_y[2])
-                        changed = True
+                    total = best[n - 1][jp] + cost[n][j]
+                    if total < best[n][j]:
+                        best[n][j] = total
+                        back[n][j] = jp
+        end = min(range(len(order)), key=lambda j: best[-1][j])
+        if not math.isfinite(best[-1][end]):
+            continue
+        for n in range(len(members) - 1, -1, -1):
+            _total, content, card = entries[n][order[end]]
+            assigned[members[n]] = (content, card)
+            end = back[n][end]
 
 
 def _retarget_aborted(scored, assigned):

@@ -26,6 +26,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.47.0] - 2026-11-02
+
+### Changed
+
+- **Runcard detection now assigns a series' cards in run order, as one
+  sequence rather than run by run.** The matching still costs every run
+  against every candidate on its own; what follows it changed. Where it used
+  to swap two runs' cards when they came out of order -- and only when the
+  recipes' contents alone paid for the swap -- it now re-solves each wafer
+  series together, by a dynamic program over (run in time order, card number
+  in order), so the chosen cards can never go backwards in time and every
+  card the runs could take is in play, not only the two being swapped. A
+  series that cannot be placed in order at all is left as the matching had
+  it: that is a renumbering, not an ordering to repair. The rerun exception is
+  unchanged -- a card tagged on a failed attempt is still free for the rerun
+  that follows it, and an aborted attempt still shares its rerun's card.
+
+  Measured on HA1P01, runs 2026-06-01 to 2026-11-02, duplicates counted once:
+  all runs untagged at once, growth runs 302 / 308 (was 300 / 308);
+  leave-one-out, 305 / 308 (was 304 / 308). The two it adds are the pair the
+  tool ran on 2026-10-31 and 2026-11-01, where the later run's card had been
+  re-saved just before the earlier run and content alone read the pair
+  backwards. Cleanings and the other common recipes are untouched: they belong
+  to no series and no number.
+
+- **The save-time prior is unchanged, and deliberately so.** A card is usually
+  written in the minutes before its run, which is already worth -1.5 to that
+  run; sharpening the hours after that (3x the slope, or a 30-minute instead
+  of a 6-minute window) was measured on the same set and either changed
+  nothing or cost 6 to 17 growth runs, because the card for the *next* run is
+  often saved just as the current one starts. Order, not a closer save time,
+  is what tells those two apart.
+
 ## [5.46.0] - 2026-10-26
 
 ### Added

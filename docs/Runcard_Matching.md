@@ -148,13 +148,36 @@ step — so content alone cannot choose. `suggest_runcards` adds:
   are taken — except a card tagged only on a failed attempt (`_FAIL`), which
   stays free for 12 hours for its rerun.
 - **Order**: within a wafer series (HADH, HADG, …; serial names by year-month)
-  card numbers never went backwards in time across the 200 tagged runs, so
-  interchangeable cards are swapped back into run order, and a card whose
-  number falls outside the tagged runs just before and after the run costs
-  +1.0.
+  card numbers never went backwards in time across the 200 tagged runs. A card
+  whose number falls outside the tagged runs just before and after the run
+  costs +1.0, and the assignment itself is then made to obey the rule: see
+  **Run order is solved, not patched** below.
 - **Aborted attempts** take the card of the run that follows within 3 hours.
 
-### 4. Cleaning recipes are edited in place
+### 4. Run order is solved, not patched
+
+The matching costs each run on its own, so nothing in it knows that HADH75
+cannot come after HADH76. Afterwards, each wafer series' runs are therefore
+re-solved **together**: a dynamic program over (run in time order, card number
+in order) picks the cheapest set of cards whose numbers rise with run time,
+with every card those runs could take in play -- not only the ones the
+matching happened to choose. The last tagged run before the first of them
+bounds the chain from below.
+
+The rerun exception survives in both places: an attempt that was stopped
+shares its number with the rerun that follows, so a run after an aborted one
+may repeat its card, and a card tagged on a failed attempt leaves that lower
+bound at its own number rather than above it. A series whose runs cannot all
+be placed in order is left exactly as the matching had it -- that is a
+renumbering, or a card nobody kept, and not an ordering to repair.
+
+Until v5.47.0 this was a pairwise swap: two runs out of order exchanged cards
+when the recipes' contents alone paid for it (within 0.3). It could not move a
+chain, and it could not act at all where content disagreed -- which is how the
+pair of 2026-10-31 and 2026-11-01 came out backwards, the later run's card
+having been re-saved minutes before the earlier run started.
+
+### 5. Cleaning recipes are edited in place
 
 CLEANING-2 was edited on 2026-08-14 and CLEANING-5 on 2026-09-24, so a July
 cleaning matches today's CLEANING-2 with one step off and a September 22
@@ -164,7 +187,7 @@ the same ±30 days whose tag names a number (`Cleaning-2`, `cleanin-4`, …). A 
 within 0.3 of one of them is that recipe, and gets its normalised name
 (`CLEANING-3`).
 
-### 5. What the log cannot show
+### 6. What the log cannot show
 
 - A card's 0.01 sccm is below some MFCs' resolution and logs as 0. Which MFCs
   is read off each log (`RunSteps.coarse`): a channel never logged strictly
@@ -186,18 +209,28 @@ within 0.3 of one of them is that recipe, and gets its normalised name
 
 ## Validation
 
-Measured on HA1P01, runs from 2026-06 to 2026-09-26, with duplicate files
-(same start time) counted once:
+Re-measured 2026-11-02 on HA1P01, the 308 tagged growth runs from 2026-06-01
+to that day, with duplicate files (same start time) counted once, before and
+after the order solve of v5.47.0:
 
-| Test | Growth runs | Other (cleanings, O2-annealing) |
+| Test | v5.46.0 | v5.47.0 |
 | --- | --- | --- |
-| Leave-one-out: each tagged run's tag hidden, every other tag kept (the situation in the page) | 241 / 243 | 107 / 108 |
-| All runs at once, no tags used | 233 / 243 | 108 / 108 |
+| Leave-one-out: each tagged run's tag hidden, every other tag kept (the situation in the page) | 304 / 308 | 305 / 308 |
+| All runs at once, no tags used | 300 / 308 | 302 / 308 |
 
-Both leave-one-out growth "misses" come from a re-synced typo copy
-(`2026-09-08_173336~HADF28.csv`, whose run is HADH28 — the matcher says HADH28).
-The one miss among the others is the 2026-09-01 cleaning tagged `cleanin-4`: it
-matches today's CLEANING-3 better, because CLEANING-4 was edited the next day.
+Cleanings and the other common recipes belong to no series and no number, so
+the order solve cannot move them: both versions answer them identically. The
+earlier measurement, on the runs to 2026-09-26, was 241 / 243 and 233 / 243.
+
+What v5.47.0 still misses, all runs at once: `HADD01_FAIL` reads as
+`HADD02_FAIL`; the development cards of 2026-08 (`HADF22`, `HADF27`) read as
+the dated recipes they were written from; `HADH71_FAIL` and `HADH79` are
+stopped runs with little to compare. The one that matters is 2026-10-02
+16:01, tagged `HADI09`, which the matcher calls `HADI10` with high confidence
+— the HADI10 card was saved at that run's start, and the sidecar there is
+itself inconsistent (`02152039.csv`, a different run, is also tagged HADI09,
+and the HADI10 entry points at a file that is gone). Leave-one-out misses that
+run, its 15:20 twin, and `HADF27`.
 
 The run that drove the design, 2026-09-28: 108 untagged July–September files
 were identified — 102 matched, 6 stopped during the initial pumping and have

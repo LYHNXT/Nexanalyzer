@@ -183,6 +183,22 @@ class TestSuggestRuncards:
         assert out["early.csv"].tag == "HAXA01"
         assert out["late.csv"].tag == "HAXA02"
 
+    def test_a_later_run_never_takes_an_earlier_number_however_well_it_fits(self):
+        # HADJ, 2026-10-31: the card of the later run had been re-saved just
+        # before the earlier one, and content alone read the pair backwards.
+        # Card numbers have never gone backwards in time on this tool, so the
+        # order the runs went in decides, not the fit.
+        edited = _edit("MFC/PC,MFC-8 H2Se,4", "MFC/PC,MFC-8 H2Se,5")
+        early = ("early.csv", _steps(recipe_datalog(_replace_step(5, ("MFC/PC", 1, {"MFC-6": 50, "MFC-8": 5})))))
+        late = ("late.csv", _steps(recipe_datalog(start="2026-08-07 09:00:00")))
+        cards = [_card(name="HAXA01", saved=pd.Timedelta(hours=2)),
+                 _card(edited, name="HAXA02", saved=pd.Timedelta(hours=30))]
+
+        out = rm.suggest_runcards([early, late], cards)
+
+        assert out["early.csv"].tag == "HAXA01"
+        assert out["late.csv"].tag == "HAXA02"
+
     def test_a_card_already_tagged_on_another_run_is_taken(self):
         run = ("x.csv", _steps(recipe_datalog()))
         cards = [_card(name="HAXA01"), _card(name="HAXA02")]
