@@ -26,6 +26,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.50.0] - 2026-11-03
+
+### Changed
+
+- **The Datalog page's runcard folder now comes from the Tools page.** It was
+  guessed from the datalog folder's neighbours (`RUNCARD/lcy`, then `RUNCARD`),
+  which ignored the tool's own `runcard` subfolder and could disagree with what
+  the Tools page showed -- VB1P01 reads `RUNCARD/LYH` there and the Datalog
+  page was matching against `RUNCARD`.
+- **The Tools setting is widened where a tool keeps its shared recipes a level
+  up** (`runcard_index.recipe_folder`). The two settings answer different
+  questions: Tools records where *one wafer's* card is, matching needs that
+  plus the recipes a run can also be (CLEANING-1, O2-annealing). Which folder
+  is the pool is decided by what is loose in it, the same thing `read_runcards`
+  reads to call a card shared:
+  - **HA1P01** `RUNCARD/lcy/NSHA1P01` holds CLEANING-1..5 and O2-annealing
+    loose, so it is the pool. That **drops 284 cards** the guess was including
+    from `NSHA1N01` -- a different tool -- plus `HBr test`, `Test` and
+    `Testing`: 1128 candidates to 844. Leave-one-out and all-at-once scores are
+    **identical** on both folders over the 312 tagged runs, so no answer moves;
+    the pool is simply no longer full of another tool's recipes.
+  - **VB1P01** `RUNCARD/LYH` holds 1192 wafer cards loose and no shared ones,
+    so the pool is its parent `RUNCARD` -- what the page already used, now for
+    a stated reason. Taking `LYH` itself would mark 1189 of those wafer cards
+    reusable and card exclusivity would stop meaning anything.
+- **The page says where the folder came from**, under the path: the Tools
+  page's setting, that setting widened, or browsed to by hand. The two could
+  disagree silently before, which is how this was found.
+
 ## [5.49.0] - 2026-11-03
 
 ### Changed

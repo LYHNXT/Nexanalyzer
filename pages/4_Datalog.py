@@ -55,7 +55,7 @@ import streamlit as st
 
 from core.io.export import create_filename, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
-from core.io.tool_layout import DATALOG
+from core.io.tool_layout import DATALOG, RUNCARD, configured_tools, tool_owning
 from core.ui.theme import card, page_header
 from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
@@ -72,7 +72,7 @@ from modules.datalog.io.scanner import (
     scan_folder,
 )
 from modules.datalog.io.runcard_index import (
-    default_runcard_folder,
+    recipe_folder,
     read_run_steps,
     read_runcards,
     runcard_signature,
@@ -387,9 +387,22 @@ def _steps_for(path: str):
 
 
 def _runcard_folder(root_folder: str, state: dict) -> str:
-    """The recipe folder to match against: the operator's pick, else the guess."""
+    """The recipe folder to match against: the operator's pick, else the Tools setting.
+
+    Derived from the tool's own ``runcard`` subfolder as the Tools page records
+    it, widened where the shared recipes live a level above it -- see
+    `runcard_index.recipe_folder`, which carries the rule and both tools'
+    folder shapes. A tool with no layout, or a folder browsed to by hand, falls
+    back to the guess from the datalog folder as before.
+
+    Cleared by `reset_results` whenever the datalog folder changes, so
+    switching tools re-derives rather than carrying the previous tool's
+    recipes.
+    """
     if state.get("runcard_folder") is None:
-        state["runcard_folder"] = default_runcard_folder(root_folder) or ""
+        tool = tool_owning(root_folder, DATALOG, configured_tools())
+        layout_folder = tool.subfolder(RUNCARD) if tool else None
+        state["runcard_folder"] = recipe_folder(root_folder, layout_folder) or ""
     return state["runcard_folder"]
 
 
@@ -571,6 +584,22 @@ def _render_runcard_detection(root_folder: str, state: dict) -> None:
         col_folder, col_change = st.columns([3, 1])
         with col_folder:
             st.caption(f"Runcard folder: {runcard_folder or 'none found next to this datalog folder'}")
+            # Where it came from, so the Tools page and this one cannot
+            # disagree silently -- the pool is the Tools setting unless
+            # somebody browsed away from it, and only this line says which.
+            tool = tool_owning(root_folder, DATALOG, configured_tools())
+            layout_folder = tool.subfolder(RUNCARD) if tool else None
+            if layout_folder is None:
+                st.caption("From this folder's neighbours — "
+                           "set this tool up on the **Tools** page to drive it from there.")
+            elif runcard_folder == recipe_folder(root_folder, layout_folder):
+                suffix = ("" if str(layout_folder) == runcard_folder
+                          else f" ({tool.name} keeps its shared recipes here, "
+                               f"one level above `{Path(layout_folder).name}`)")
+                st.caption(f"From the **Tools** page's {tool.name} runcard folder{suffix}.")
+            else:
+                st.caption(f"Browsed to by hand. The **Tools** page has {tool.name} at "
+                           f"`{layout_folder}` — switch tools to go back to it.")
         with col_change:
             if st.button("Change...", key="datalog_runcard_folder_pick", width="stretch",
                          icon=":material/folder_open:"):
@@ -1420,10 +1449,9 @@ with card("source"):
                 save_last_folder(state["folder"])
             except OSError as e:
                 st.warning(f"Could not remember this folder: {e}")
-            # The runcard folder is left to the guess from the new datalog folder,
-            # not the layout's runcard subfolder: matching needs the operator's
-            # whole recipe folder (HA1P01's CLEANING cards sit at RUNCARD/lcy, one
-            # level above the layout's RUNCARD/lcy/NSHA1P01).
+            # reset_results clears state["runcard_folder"] with the rest of the
+            # detector's artifacts, so the recipe pool is re-derived from the
+            # new tool's layout rather than staying on the previous tool's.
             reset_results(state)
             st.rerun()
 

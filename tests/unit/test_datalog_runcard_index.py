@@ -9,6 +9,7 @@ from modules.datalog.io.runcard_index import (
     default_runcard_folder,
     read_run_steps,
     read_runcards,
+    recipe_folder,
     runcard_signature,
 )
 from tests.datalog_fixtures import DATALOG_SHORT, MATCH_RUNCARD, recipe_datalog
@@ -130,3 +131,82 @@ class TestAMalformedCardIsSkipped:
 
         assert "CLEANING-4" in names
         assert "BROKEN" not in names
+
+
+class TestTheRecipePoolComesFromTheToolsPage:
+    """`recipe_folder` turns the Tools page's runcard subfolder -- which answers
+    "where is one wafer's card" -- into the pool matching needs, which is that
+    plus the shared recipes. The two tools set up today need opposite answers."""
+
+    def _card(self, folder: Path, name: str) -> None:
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{name}.csv").write_text(MATCH_RUNCARD, encoding="utf-8")
+
+    def test_the_layout_folder_is_the_pool_when_it_holds_the_shared_recipes(self, tmp_path):
+        # HA1P01: CLEANING-1..5 loose in RUNCARD/lcy/NSHA1P01, wafer cards in
+        # month folders under it. Widening would add another tool's cards.
+        layout = tmp_path / "RUNCARD" / "lcy" / "NSHA1P01"
+        for name in ("CLEANING-1", "CLEANING-2", "O2-annealing"):
+            self._card(layout, name)
+        self._card(layout / "202610", "HADI40")
+        self._card(tmp_path / "RUNCARD" / "lcy" / "NSHA1N01", "HBDA01")
+
+        assert recipe_folder(tmp_path / "DATALOG", layout) == str(layout)
+
+    def test_the_parent_is_the_pool_when_the_layout_folder_is_all_wafer_cards(self, tmp_path):
+        # VB1P01: 1192 wafer cards loose in RUNCARD/LYH and the shared recipes
+        # a level up. Taking LYH as the pool marks every wafer card reusable.
+        layout = tmp_path / "RUNCARD" / "LYH"
+        for name in ("VBCA24", "VBCA25", "VBCA26"):
+            self._card(layout, name)
+        self._card(tmp_path / "RUNCARD", "Cleaning-1")
+
+        assert recipe_folder(tmp_path / "DATALOG", layout) == str(tmp_path / "RUNCARD")
+
+    def test_the_widening_is_what_decides_which_cards_count_as_shared(self, tmp_path):
+        # The point of the rule, not a restatement of it: `read_runcards` calls
+        # a file loose at the pool's root reusable, so the wrong pool makes
+        # every wafer card reusable and card exclusivity stops meaning anything.
+        layout = tmp_path / "RUNCARD" / "LYH"
+        for name in ("VBCA24", "VBCA25", "VBCA26"):
+            self._card(layout, name)
+        self._card(tmp_path / "RUNCARD", "Cleaning-1")
+
+        wrong = [c.name for c in read_runcards(layout) if c.common]
+        right = [c.name for c in read_runcards(recipe_folder(tmp_path / "DATALOG", layout))
+                 if c.common]
+
+        assert sorted(wrong) == ["VBCA24", "VBCA25", "VBCA26"]
+        assert right == ["Cleaning-1"]
+
+    def test_a_layout_folder_of_only_subfolders_is_kept_rather_than_widened(self, tmp_path):
+        # Nothing loose says the shared recipes are above, and the parent may
+        # be the site's folder rather than this tool's.
+        layout = tmp_path / "RUNCARD" / "LYH"
+        self._card(layout / "202610", "VBCA26")
+        self._card(tmp_path / "RUNCARD", "Cleaning-1")
+
+        assert recipe_folder(tmp_path / "DATALOG", layout) == str(layout)
+
+    def test_a_tool_with_no_layout_still_gets_the_guess(self, tmp_path):
+        (tmp_path / "DATALOG").mkdir()
+        (tmp_path / "RUNCARD").mkdir()
+
+        assert recipe_folder(tmp_path / "DATALOG", None) == str(tmp_path / "RUNCARD")
+
+    def test_a_layout_folder_that_is_not_on_this_pc_falls_back_to_the_guess(self, tmp_path):
+        (tmp_path / "DATALOG").mkdir()
+        (tmp_path / "RUNCARD").mkdir()
+
+        assert (recipe_folder(tmp_path / "DATALOG", tmp_path / "nowhere")
+                == str(tmp_path / "RUNCARD"))
+
+    def test_an_explorer_copy_is_not_counted_when_deciding(self, tmp_path):
+        # `HADH84 - 複製.csv` is never a card anyone ran, and read_runcards
+        # drops it -- so it must not tip the loose-file count either.
+        layout = tmp_path / "RUNCARD" / "lcy" / "NSHA1P01"
+        self._card(layout, "CLEANING-1")
+        self._card(layout, "HADI40 - 複製")
+        self._card(layout / "202610", "HADI41")
+
+        assert recipe_folder(tmp_path / "DATALOG", layout) == str(layout)

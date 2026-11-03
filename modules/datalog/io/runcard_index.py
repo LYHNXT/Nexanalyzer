@@ -44,13 +44,66 @@ _RECIPE_COMMANDS = ("Wait", "MFC/PC", "Heater Ramp")
 
 
 def default_runcard_folder(datalog_root: Union[str, Path]) -> Optional[str]:
-    """The tool's recipe folder, guessed from its datalog folder; None if none exists."""
+    """The tool's recipe folder, guessed from its datalog folder; None if none exists.
+
+    The fallback for a tool with no layout. `recipe_folder` is what the page
+    calls, and it prefers the Tools page's own answer to this guess.
+    """
     tool = Path(datalog_root).parent
     for parts in _RUNCARD_FOLDER_GUESSES:
         candidate = tool.joinpath(*parts)
         if candidate.is_dir():
             return str(candidate)
     return None
+
+
+def recipe_folder(datalog_root: Union[str, Path],
+                  layout_folder: Optional[Union[str, Path]] = None) -> Optional[str]:
+    """The pool of recipes to match runs against, from the Tools page's setting.
+
+    `layout_folder` is the tool's ``runcard`` subfolder as the Tools page
+    records it. That setting answers a *different* question -- where one
+    wafer's card is, for `core.io.tool_layout.find_wafer` -- and matching needs
+    the wafer cards **and** the shared recipes a run can also be: CLEANING-1,
+    O2-annealing, the furnace-clean cards. Where those two folders differ, this
+    widens the first to reach the second, so one setting still drives both.
+
+    The widening is decided by what is **loose in the folder**, because that is
+    the same thing `read_runcards` reads to call a card shared (`common`): a
+    file directly in the pool's root is reusable, a file in a subfolder is one
+    wafer's. So the layout folder is the pool exactly when its own loose files
+    are the shared recipes, and otherwise its parent is.
+
+    The two tools set up today need opposite answers, which is why this is a
+    rule and not a constant:
+
+    - **HA1P01** (``RUNCARD/lcy/NSHA1P01``) holds CLEANING-1..5, CLEANING and
+      O2-annealing loose, with the wafer cards in month folders. It **is** the
+      pool. Widening to ``RUNCARD/lcy`` -- what the guess above returns -- adds
+      284 cards from ``NSHA1N01``, a different tool, plus ``HBr test``,
+      ``Test`` and ``Testing``.
+    - **VB1P01** (``RUNCARD/LYH``) holds 1192 wafer cards loose and no shared
+      ones. Taken as the pool it marks 1189 of them reusable and card
+      exclusivity stops meaning anything; its parent ``RUNCARD`` holds the
+      Cleaning and furnace-clean recipes and marks 23 shared, which is right.
+
+    Falls back to `default_runcard_folder` when the tool has no layout, when
+    the layout names no runcard folder, or when that folder is not on this PC.
+    """
+    if layout_folder:
+        folder = Path(layout_folder)
+        if folder.is_dir():
+            loose = [p.stem for p in folder.glob("*.csv") if not is_copy_name(p.stem)]
+            # No loose files at all: every card here is already one wafer's, and
+            # nothing says the parent is this tool's rather than the site's.
+            # Staying keeps another tool's folder out of the pool.
+            if not loose or sum(is_common_name(n) for n in loose) * 2 >= len(loose):
+                return str(folder)
+            parent = folder.parent
+            if parent != folder and parent.is_dir():
+                return str(parent)
+            return str(folder)
+    return default_runcard_folder(datalog_root)
 
 
 def runcard_signature(folder: Union[str, Path]) -> Tuple[Tuple[str, float, int], ...]:
