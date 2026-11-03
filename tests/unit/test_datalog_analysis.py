@@ -6,16 +6,23 @@ import pytest
 
 from modules.datalog.io.scanner import detect_pv_sv_pairs, load_run
 from modules.datalog.processing.analysis import (
+    SV_FLOOR,
     compute_all_violations,
     compute_deviation_pct,
-    SV_FLOOR,
     compute_summary_stats,
+    cooldown_tail_mask,
     evaluable_rows,
     find_final_plateau_start,
     find_violation_mask,
     find_violation_segments,
     get_tolerance_pct,
+    runcard_heater_off,
     stale_lead_in_mask,
+)
+from modules.runcard.processing.growth_window import (
+    HeaterHold,
+    build_profile,
+    heater_hold,
 )
 from tests.datalog_fixtures import write_datalog
 
@@ -501,3 +508,141 @@ class TestSubResolutionFloor:
     def test_pressure_controllers_have_a_floor_and_heaters_do_not(self):
         assert SV_FLOOR["P1"] == SV_FLOOR["P2"] == SV_FLOOR["P3"] == 1.0
         assert not {"Heater", "P1_H", "P2_H", "P3_H"} & set(SV_FLOOR)
+
+
+class TestTheRuncardSaysWhenTheHeaterWentOff:
+    """The card carries the `Heater Soak,0` the controller never logs. Its
+    clock does not survive contact with the tool, so only its level and
+    duration are used, anchored on the log's own arrival at that level."""
+
+    def _heater(self, pv, sv):
+        timestamps = pd.date_range("2026-11-02 17:22:23", periods=len(pv), freq="1min")
+        return pd.DataFrame({"Time": timestamps, "Heater PV": pv, "Heater SV": sv})
+
+    def _violations(self, df, heater_off=None):
+        return compute_all_violations(
+            df, [("Heater", "Heater PV", "Heater SV")], {"global_default_pct": 5.0},
+            heater_off=heater_off,
+        )[0]
+
+    def test_the_off_is_the_logs_arrival_at_the_cards_level_plus_its_hold(self):
+        # Arrives at 910 on row 2 (17:24:23); a 3-minute hold puts the off at
+        # 17:27:23 -- from the card's duration, never from the card's clock.
+        df = self._heater([71.0, 500.0, 910.0, 910.0, 910.0, 600.0],
+                          [71.0, 500.0, 910.0, 910.0, 910.0, 910.0])
+
+        off = runcard_heater_off(df, "Heater SV", HeaterHold(level_c=910.0, seconds=180.0))
+
+        assert off == pd.Timestamp("2026-11-02 17:27:23")
+
+    def test_a_setpoint_inherited_from_the_previous_run_is_not_the_anchor(self):
+        # Row 0 already reads 910 -- the previous growth's leftover, with the
+        # chamber at 71. Anchoring there would put the off before the ramp.
+        df = self._heater([71.0, 71.0, 500.0, 910.0, 910.0, 910.0],
+                          [910.0, 71.0, 500.0, 910.0, 910.0, 910.0])
+
+        off = runcard_heater_off(df, "Heater SV", HeaterHold(level_c=910.0, seconds=120.0))
+
+        assert off == pd.Timestamp("2026-11-02 17:27:23")
+
+    def test_a_setpoint_left_and_returned_to_is_held_from_the_return(self):
+        df = self._heater([71.0, 910.0, 600.0, 910.0, 910.0, 910.0],
+                          [71.0, 910.0, 600.0, 910.0, 910.0, 910.0])
+
+        off = runcard_heater_off(df, "Heater SV", HeaterHold(level_c=910.0, seconds=60.0))
+
+        assert off == pd.Timestamp("2026-11-02 17:26:23")
+
+    def test_a_level_the_run_never_reached_gives_no_answer(self):
+        # An aborted ramp, or a card matched to the wrong log: better to fall
+        # back to reading the log than to build an off from a level unseen.
+        df = self._heater([71.0, 300.0, 500.0], [71.0, 300.0, 500.0])
+
+        assert runcard_heater_off(df, "Heater SV", HeaterHold(910.0, 60.0)) is None
+
+    def test_everything_from_the_off_is_cooldown_however_slowly_it_falls(self):
+        # The log-only rule needs the chamber to end genuinely cold. The card
+        # does not care: nothing was driving it, so there is nothing to judge.
+        df = self._heater([71.0, 910.0, 910.0, 900.0, 880.0, 870.0],
+                          [71.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        assert self._violations(df, pd.Timestamp("2026-11-02 17:25:23")).empty
+
+    def test_a_heater_that_fails_before_the_off_is_reported_again(self):
+        # HADI51: commanded 900 for 720 s, left 900 after ~440 s and was at
+        # 555 by the card's off. The log-only rule cannot tell this from a
+        # switch-off; the card can, and those rows are judged.
+        df = self._heater([71.0, 900.0, 900.0, 700.0, 555.0, 300.0, 150.0],
+                          [71.0, 900.0, 900.0, 900.0, 900.0, 900.0, 900.0])
+
+        violations = self._violations(df, pd.Timestamp("2026-11-02 17:27:23"))
+
+        assert not violations.empty
+        assert violations["Channel"].tolist() == ["Heater"]
+
+    def test_without_a_card_the_log_only_reading_still_applies(self):
+        df = self._heater([71.0, 500.0, 910.0, 910.0, 600.0, 300.0, 94.0],
+                          [71.0, 500.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        assert self._violations(df, heater_off=None).empty
+
+    def test_only_the_main_heater_follows_the_card(self):
+        # `heater_off_t` is the main heater's; P1_H has its own `P1_Heater
+        # Soak,0` that the card's profile does not model, so it keeps the
+        # log-only reading rather than borrowing a time meant for the Heater.
+        timestamps = pd.date_range("2026-11-02 17:22:23", periods=5, freq="1min")
+        df = pd.DataFrame({
+            "Time": timestamps,
+            "P1_H PV": [33.0, 40.0, 40.0, 38.0, 37.0],
+            "P1_H SV": [33.0, 40.0, 40.0, 40.0, 40.0],
+        })
+
+        mask = cooldown_tail_mask(
+            df, "P1_H", "P1_H PV", "P1_H SV",
+            compute_deviation_pct(df, "P1_H PV", "P1_H SV"), 5.0,
+            heater_off=pd.Timestamp("2026-11-02 17:24:23"),
+        )
+
+        assert not mask.any()
+
+
+class TestWhatTheCardSaysAboutItsHeater:
+    """`heater_hold` reads the card, and only the card."""
+
+    def _profile(self, text):
+        import csv
+        import io
+
+        from modules.runcard.io.parser import RuncardCommand
+        rows = list(csv.reader(io.StringIO(text)))
+        commands = [RuncardCommand(index=i, name=r[0], params=tuple(r[1:]))
+                    for i, r in enumerate(rows)]
+        return build_profile(commands)
+
+    def test_the_hold_is_the_last_level_and_how_long_it_is_held(self):
+        profile = self._profile(
+            "Heater Ramp,910,20\nWait,Sec,1200\nHeater Soak,0,--\nWait,Sec,600\nEnd,--,--\n"
+        )
+
+        hold = heater_hold(profile)
+
+        assert hold.level_c == 910.0
+        assert hold.seconds == 1180.0  # the 20 s ramp is not the hold: it runs from arrival
+
+    def test_a_ramp_down_before_the_off_is_the_level_that_counts(self):
+        # Not the growth peak: the heater is held at 700 when it is switched
+        # off, and that is the plateau the log has to be anchored on.
+        profile = self._profile(
+            "Heater Ramp,910,20\nWait,Sec,600\nHeater Ramp,700,5\nWait,Sec,900\n"
+            "Heater Soak,0,--\nWait,Sec,600\nEnd,--,--\n"
+        )
+
+        hold = heater_hold(profile)
+
+        assert hold.level_c == 700.0
+        assert hold.seconds == 895.0  # arrives at 700 at t=605, off at t=1500
+
+    def test_a_card_that_never_switches_the_heater_off_gives_nothing(self):
+        profile = self._profile("Heater Ramp,910,20\nWait,Sec,1200\nEnd,--,--\n")
+
+        assert heater_hold(profile) is None

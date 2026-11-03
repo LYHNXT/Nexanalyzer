@@ -26,6 +26,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.49.0] - 2026-11-03
+
+### Changed
+
+- **The heater's cool-down is now located from the runcard, not guessed from
+  the log.** v5.48.0 inferred it from the PV's own fall because the log is all
+  the Datalog page had; the card says it outright, in the `Heater Soak,0` the
+  controller never logs. The card's clock is not usable for this -- over 98
+  tagged runs on HA1P01 and VB1P01 the offset between a card's clock and its
+  log's ran from -2123 s to +497 s -- so only the card's **level and
+  duration** are taken, anchored on the moment the *log* shows the setpoint
+  arriving at that level (`growth_window.heater_hold`,
+  `analysis.runcard_heater_off`). That locates the heater-off to a median of
+  64 s across those runs, 93 of them inside two minutes, and the 64 s is the
+  chamber taking a minute to fall out of a 2 % band.
+- **The Heater panel's dashed setpoint now stops at the heater-off.** Drawing
+  it on at 910 C beside a PV at 94 C was the complaint: it reads as a
+  half-hour failure. The PV is still drawn to the last row, so the cool-down
+  stays visible.
+- **A heater that fails during the final soak is reported again.** It cools
+  exactly like one switched off, which is why the log-only rule had to let it
+  go; the card tells them apart. HADI51 is the case in this dataset: the card
+  commands a 720 s hold at 900 C, the chamber left 900 after ~440 s and was at
+  555 C by the card's heater-off, and those 281 s are now a finding (23 s ->
+  229 s reported).
+- **Runs without a card are unchanged.** No tag, no card of that name, a card
+  with no `Heater Soak,0` (2 of 99 runs), or a run that never reached the
+  card's level (1 of 99) falls back to v5.48.0's log-only reading. Over the 99
+  runs measured, heater findings moved from 263 segments / 11,623 s to 262 /
+  6,395 s, and only 3 runs changed at all.
+
 ## [5.48.0] - 2026-11-03
 
 ### Fixed
