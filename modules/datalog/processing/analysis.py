@@ -65,6 +65,27 @@ SV_FLOOR: Dict[str, float] = {
     **{f"P{i}": 1.0 for i in range(1, 4)},
 }
 
+#: Pairs whose process value falls on its own once the channel stops being
+#: driven -- the heaters, in °C. Nothing pulls a chamber down to ambient; it
+#: cools, and the controller logs no command for it (see `cooldown_tail_mask`).
+#: Every other channel is driven in both directions: an MFC at 0 sccm is a
+#: valve held shut, and a flow that stops while the setpoint still asks for it
+#: is a finding.
+PASSIVE_PAIRS = frozenset({"Heater", "P1_H", "P2_H", "P3_H"})
+
+#: How far a passive channel must fall before its tail reads as a cool-down
+#: rather than a droop, as a fraction of the distance from its setpoint to the
+#: coldest the run itself ever saw -- the chamber's own ambient, which is the
+#: only floor in the log and the one a cool-down is heading for.
+#:
+#: Measured against a fixed fraction of the setpoint instead, this rule worked
+#: on the 910 °C main heater (ending at 94 °C) and failed on P1_H, whose 40 °C
+#: zone cools to 35 against an ambient of 33 and so can never reach half its
+#: own setpoint. Against ambient both are past 90 % of the way down, while a
+#: heater sagging to 880 °C of a commanded 910 has travelled 3 % and stays a
+#: finding.
+COOLDOWN_FALL_FRACTION = 0.5
+
 
 def get_tolerance_pct(thresholds: dict, pair_name: str) -> float:
     """
@@ -209,6 +230,64 @@ def evaluable_rows(df: pd.DataFrame, pair_name: str, sv_col: str) -> pd.Series:
     floor = SV_FLOOR.get(pair_name, SV_ZERO_EPSILON)
     # NaN >= floor is False, so a missing setpoint is not evaluated either.
     return (sv.abs() >= floor) & ~stale_lead_in_mask(sv)
+
+
+def cooldown_tail_mask(df: pd.DataFrame, pair_name: str, pv_col: str, sv_col: str,
+                       deviation_pct: pd.Series, tolerance_pct: float) -> pd.Series:
+    """True on the trailing rows where a heater is cooling with nobody driving it.
+
+    The twin of `stale_lead_in_mask`, at the other end of the run and for the
+    same reason: the setpoint no longer says what the tool was told to do. A
+    recipe ends the heater with ``Heater Soak,0`` -- switch it off and let the
+    chamber fall -- and **the controller logs nothing for that**: `Heater SV`
+    stays at the growth value to the last row while `Heater PV` decays to
+    ambient. On VBCA26 (2026-11-02) that is 910 °C held against a PV falling
+    to 94 °C over 33 minutes, and it is not particular to that run: of 60 runs
+    sampled across HA1P01 and VB1P01, every one ends this way, with 60-84 % of
+    the final setpoint block outside tolerance. Judged literally, the table
+    reports a half-hour heater violation on every run the tool has ever made.
+
+    The cool-down is anchored on the **PV**, because that is the only side
+    that moves: it is the stretch after the last row where the heater was at
+    its setpoint, and it counts only when
+
+    - the pair cools passively at all (`PASSIVE_PAIRS`) -- a driven channel
+      that walks away from a live setpoint is a fault, not physics;
+    - the heater did reach that setpoint. A ramp that never arrives has no
+      cool-down in it, and stays judged to the last row;
+    - it never comes back. The last in-tolerance row is the anchor, so a dip
+      and a recovery mid-soak is left where it is, in the table;
+    - and it ends genuinely cold -- `COOLDOWN_FALL_FRACTION` of the way from
+      the setpoint to the coldest reading of the whole run. A heater that sags
+      and stays sagging has barely moved by that measure, and stays a finding.
+
+    **What this knowingly gives up**: a heater that fails during the final
+    soak and never recovers cools exactly like one that was switched off, and
+    the log holds nothing to tell them apart -- only the runcard does, through
+    `modules.runcard.processing.growth_window`'s ``heater_off_t``. Such a run
+    is no longer reported here. The chart still draws it: the PV trace falls
+    away from the dashed setpoint in both cases, which is what a process
+    engineer reads anyway.
+    """
+    tail = pd.Series(False, index=df.index)
+    if pair_name not in PASSIVE_PAIRS or df.empty:
+        return tail
+    sv, pv = df[sv_col], df[pv_col]
+    in_band = deviation_pct.abs() <= tolerance_pct
+    if not in_band.any():
+        return tail
+    last_at_setpoint = in_band.index[in_band.to_numpy()][-1]
+    after = df.index.get_loc(last_at_setpoint) + 1
+    if after >= len(df.index):
+        return tail
+    final_sv = sv.iloc[-1]
+    ambient = pv.min()
+    if pd.isna(final_sv) or pd.isna(ambient) or ambient >= final_sv:
+        return tail
+    if pv.iloc[-1] > ambient + (1.0 - COOLDOWN_FALL_FRACTION) * (final_sv - ambient):
+        return tail
+    tail.iloc[after:] = True
+    return tail
 
 
 def find_violation_mask(deviation_pct: pd.Series, tolerance_pct: float) -> pd.Series:
@@ -382,7 +461,9 @@ def compute_all_violations(
 
     A pair is judged only on `evaluable_rows`: the stale lead-in a run
     inherits and a setpoint below the channel's `SV_FLOOR` are blanked to NaN
-    in the deviation series, exactly as an idle channel's are.
+    in the deviation series, exactly as an idle channel's are. So is the
+    cool-down a heater is left in at the end (`cooldown_tail_mask`), which the
+    controller logs as a setpoint it is no longer driving.
 
     Returns
     -------
@@ -407,6 +488,10 @@ def compute_all_violations(
         # or below the channel's resolution -- are NaN, like an idle channel's:
         # not flagged, and not drawn as deviating on the chart either.
         deviation_pct[~evaluable_rows(df, pair_name, sv_col)] = float("nan")
+        # After the lead-in, so the anchor cannot land on an inherited setpoint
+        # the heater was never driven to.
+        deviation_pct[cooldown_tail_mask(df, pair_name, pv_col, sv_col,
+                                         deviation_pct, tolerance_pct)] = float("nan")
         mask = find_violation_mask(deviation_pct, tolerance_pct)
         masks[pair_name] = (mask, deviation_pct)
         all_segments.extend(find_violation_segments(df, pair_name, mask, deviation_pct))

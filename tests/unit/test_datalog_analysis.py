@@ -392,6 +392,76 @@ class TestStaleLeadIn:
         assert find_final_plateau_start(df, "Heater SV") == pd.Timestamp("2026-08-06 17:33:40")
 
 
+class TestTheCooldownAtTheEndOfARun:
+    """`Heater Soak,0` switches the heater off and the controller logs nothing
+    for it: the setpoint stays at the growth value while the chamber falls."""
+
+    def _heater(self, pv, sv=None, pair="Heater"):
+        sv = [910.0] * len(pv) if sv is None else sv
+        timestamps = pd.date_range("2026-11-02 17:22:23", periods=len(pv), freq="1min")
+        return pd.DataFrame({"Time": timestamps, f"{pair} PV": pv, f"{pair} SV": sv})
+
+    def _violations(self, df, pair="Heater"):
+        return compute_all_violations(
+            df, [(pair, f"{pair} PV", f"{pair} SV")], {"global_default_pct": 5.0}
+        )[0]
+
+    def test_a_heater_left_to_cool_is_not_judged(self):
+        # VBCA26, 2026-11-02: 910 held against a PV falling to 94 over 33 min.
+        df = self._heater([71.0, 500.0, 910.0, 909.0, 910.0, 600.0, 300.0, 150.0, 94.0],
+                          sv=[71.0, 500.0, 910.0, 910.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        assert self._violations(df).empty
+
+    def test_a_heater_that_sags_and_stays_sagging_is_still_judged(self):
+        # 850 of a commanded 910 is 7 % of the way to ambient, not a cool-down
+        # -- and 6.6 % off the setpoint, so the tolerance test does catch it.
+        df = self._heater([71.0, 500.0, 910.0, 905.0, 850.0, 849.0, 851.0, 848.0],
+                          sv=[71.0, 500.0, 910.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        assert not self._violations(df).empty
+
+    def test_a_ramp_that_never_arrives_is_judged_to_the_last_row(self):
+        # Nothing to cool down from: the heater never reached its setpoint.
+        df = self._heater([71.0, 200.0, 300.0, 280.0, 150.0, 80.0],
+                          sv=[71.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        violations = self._violations(df)
+        assert violations["End"].max() == df["Time"].iloc[-1]
+
+    def test_a_dip_during_the_soak_is_still_reported(self):
+        # The anchor is the *last* row at setpoint, so an excursion the heater
+        # recovered from stays in the table with the cool-down gone.
+        df = self._heater([71.0, 910.0, 700.0, 910.0, 910.0, 400.0, 120.0, 94.0],
+                          sv=[71.0, 910.0, 910.0, 910.0, 910.0, 910.0, 910.0, 910.0])
+
+        violations = self._violations(df)
+        assert len(violations) == 1
+        assert violations["Max Deviation (%)"].iloc[0] == pytest.approx(100 * 210 / 910)
+
+    def test_a_cold_zone_cools_to_its_own_ambient(self):
+        # P1_H: a 40 degree zone against an ambient of 33 can never reach half
+        # its setpoint, which is what a fraction-of-setpoint rule demanded.
+        df = self._heater([33.0, 40.0, 40.0, 39.0, 36.0, 35.0],
+                          sv=[33.0, 40.0, 40.0, 40.0, 40.0, 40.0], pair="P1_H")
+
+        assert self._violations(df, pair="P1_H").empty
+
+    def test_a_driven_channel_gets_no_such_exemption(self):
+        # An MFC at 0 against a setpoint still asking for 170 is a shut valve,
+        # not physics -- nothing stops cooling a flow back up.
+        timestamps = pd.date_range("2026-11-02 17:22:23", periods=5, freq="1min")
+        df = pd.DataFrame({"Time": timestamps,
+                           "MFC-4 PV": [170.0, 170.0, 170.0, 80.0, 0.0],
+                           "MFC-4 SV": [170.0] * 5})
+
+        violations = compute_all_violations(
+            df, [("MFC-4", "MFC-4 PV", "MFC-4 SV")], {"global_default_pct": 5.0}
+        )[0]
+
+        assert violations["End"].max() == df["Time"].iloc[-1]
+
+
 class TestSubResolutionFloor:
     def _mfc(self, sv, pv):
         timestamps = pd.date_range("2026-08-06 17:33:12", periods=len(sv), freq="1s")

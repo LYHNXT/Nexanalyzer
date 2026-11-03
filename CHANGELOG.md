@@ -26,6 +26,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.48.0] - 2026-11-03
+
+### Fixed
+
+- **The heater's cool-down at the end of a run is no longer reported as an
+  out-of-tolerance violation.** A recipe ends the heater with
+  `Heater Soak,0` -- switch it off, let the chamber fall -- and the controller
+  logs nothing for it: `Heater SV` stays at the growth setpoint to the last
+  row while `Heater PV` decays to ambient. Every sample of every cool-down was
+  measured against a setpoint nothing was driving. On VBCA26 (2026-11-02) that
+  is 910 °C held against a PV falling to 94 °C over 33 minutes, and it was not
+  particular to that run: of 60 runs sampled across HA1P01 and VB1P01, every
+  one ends this way, 60-84 % of the final setpoint block outside tolerance.
+
+  `analysis.cooldown_tail_mask` blanks it, the twin of the inherited lead-in
+  already excluded at the other end of the run and for the same reason -- the
+  setpoint has stopped saying what the tool was told to do. The cool-down is
+  anchored on the PV, as the only side that moves: the stretch after the last
+  row where the heater was at its setpoint, counted only for a channel that
+  cools passively (`Heater`, `P1_H`..`P3_H`; an MFC at 0 against a live
+  setpoint is a shut valve and stays a finding), only when the heater reached
+  that setpoint at all, and only when it ends `COOLDOWN_FALL_FRACTION` of the
+  way from the setpoint to the coldest reading of the run. A heater that sags
+  to 850 °C of a commanded 910 has travelled 7 % of that distance and is still
+  reported; a dip the heater recovered from keeps its place in the table.
+
+  Over the 25 November runs on both tools, heater findings fall from 74,396 s
+  across 88 segments to 3,712 s across 66 -- the remainder being the first
+  minute of each ramp, where the PV lags. The chart's red markers go with
+  them; the dashed setpoint still shows what the controller logged.
+
+  **Knowingly given up**: a heater that failed during the final soak and never
+  recovered cools exactly like one switched off, and the log holds nothing to
+  separate them -- only the runcard does, through
+  `modules.runcard.processing.growth_window`'s `heater_off_t`. Such a run is
+  no longer in the table, though the chart still draws the PV falling away
+  from its setpoint. Unchanged, and still a limitation of its own: a run whose
+  heater setpoint never changes at all (the stale 910 of a bare pumping or
+  stage-position session) is judged from the first row, because nothing in the
+  log says where the inherited value stops.
+
 ## [5.47.0] - 2026-11-02
 
 ### Changed
