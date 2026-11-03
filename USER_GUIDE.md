@@ -126,8 +126,9 @@ If it's missing, macOS will offer to install it — accept. Or with Homebrew: `b
 > **Clone it with Git — don't download the ZIP.** A ZIP copy has no Git history, so it can
 > never auto-update: you would be frozen on whatever version you downloaded.
 
-You don't need a GitHub account, and there is nothing to sign up for — the repository is
-public, so the command below just works.
+The repository is private to the Nexstrom organisation, so you need a GitHub account with
+access to it. The first clone opens a GitHub sign-in window (Git Credential Manager, which
+comes with Git); sign in once and it remembers you. If you have no access yet, ask Angyu.
 
 ### Windows
 
@@ -522,16 +523,17 @@ files you care about, delete the folder, and redo [Step 3](#step-3-download-nexa
 
 ### "Repository not found", or GitHub asks you to sign in
 
-The repository is public, so you should never be asked to log in. A sign-in prompt or a
-"not found" error almost always means the URL is wrong — GitHub reports a mistyped URL as
-"not found" rather than admitting the repo doesn't exist. Check it character for character:
+A sign-in prompt is expected on the first clone — the repository is private. Sign in with
+the GitHub account that has access and it will go through.
+
+"Repository not found" after signing in means that account is not a member of the Nexstrom
+organisation, or has not been given access to this repository: ask Angyu. GitHub reports a
+private repository you cannot see exactly the same way as one that doesn't exist, so also
+check the URL character for character:
 
 ```
 https://github.com/Nexstrom/NexAnalyzer.git
 ```
-
-If the URL is right and it still fails, the repository may have been switched to private —
-ask Angyu for access.
 
 ### "[WARN] Could not update - offline, or no access to the repo"
 

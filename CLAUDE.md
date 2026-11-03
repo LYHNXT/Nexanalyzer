@@ -10,7 +10,7 @@ Architecture, data model and the reasoning behind them live in
 ## Commands
 
 ```bash
-pytest                  # ~1,560 tests; pythonpath and testpaths come from pyproject.toml
+pytest                  # ~1,790 tests; pythonpath and testpaths come from pyproject.toml
 python -m ruff check .   # F + E9 only — deliberately narrow, so a hit is real breakage
 python -m tests.golden.run   # validated golden set -> dist/golden/golden_report.md
 powershell -File scripts\ship.ps1   # strict golden + gates, push, open the PR, wait for CI

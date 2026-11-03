@@ -154,7 +154,7 @@ technique means adding a package under `modules/` and registering its pages in `
 ```bash
 pip install -r requirements-dev.txt
 git config core.hooksPath .githooks       # once per clone: golden-fit check on commit and push
-python -m pytest                          # ~1,560 tests
+python -m pytest                          # ~1,790 tests
 python -m ruff check .
 python -m tests.golden.run                # validated golden set -> dist/golden/golden_report.md
 powershell -File scripts\ship.ps1         # gates, push, open the PR, wait for CI
