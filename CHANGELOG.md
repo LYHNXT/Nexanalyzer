@@ -26,6 +26,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.52.0] - 2026-11-03
+
+### Added
+
+- **A "Trend + bars" chart on the Split Table page**, the interactive form of
+  the SPLITTABLE scripts' PNGs (`plot_om_coverage_trend_range.py`,
+  `plot_vb_om_coverage_trend.py`). Two things the plain Trend chart leaves out,
+  both about reading a point against what the chamber was doing:
+  - **the setting bars** -- one band per chosen column above the plot, a block
+    per run of wafers that shared a value, shaded light to dark by value and
+    labelled once. `H2O_PC1_torr`, `P_torr`, `H2Se_on_sccm`, `Ar_in_sccm` and
+    `Ar_MFC6_sccm` are offered first where the table has them; any numeric
+    column can be added. The bands are layout shapes, not traces, so a VB
+    table does not gain a few hundred legend entries;
+  - **the dated axis** -- under the wafer IDs, one date per day, horizontal and
+    centred on the wafers that ran that day, with a rule between days. The x
+    axis is run order, not time, so the gap between two neighbours can be an
+    hour or three weeks and only the date says which.
+- Run order only, and the tab says so: a bar and a date row both describe
+  consecutive runs, which a wall-clock axis does not have. Plotly cannot
+  measure text and the chart is responsive, so a date whose day spans too few
+  wafers is rotated and a band value too wide for its block is left off, both
+  judged against the plotting width the app's layout gives at a usual window
+  size -- the PNGs measure their text instead.
+
+### Changed
+
+- The Trend chart is unchanged; its point-drawing moved into
+  `_add_trend_traces`, which both charts now call, so the markers, the hollow
+  `OM_Discriminable` flag and the error bars come from one place.
+- The same date row and day rules were added to the PNG scripts themselves
+  (`HA1P01/SPLITTABLE/plot_om_coverage_trend_range.py`,
+  `VB1P01/SPLITTABLE/plot_vb_om_coverage_trend.py`), which live outside this
+  repository.
+
 ## [5.51.0] - 2026-11-03
 
 ### Added
