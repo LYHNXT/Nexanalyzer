@@ -26,6 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   before the regeneration. The customer edition's record is regenerated
   identically.
 
+## [5.51.0] - 2026-11-03
+
+### Added
+
+- **A Refresh button beside the QC Report's wafer dropdown.** The tool's wafer
+  list is cached for five minutes, because the optical tree is on OneDrive, so
+  a wafer folder created or filled while the page was open did not appear --
+  the only way to pick it up was a full rerun. The button clears that cache and
+  re-scans the folder already selected, so frames or spectra exported into it
+  after it was picked are read too.
+- A re-scan that comes back different goes through `select_folder`, which drops
+  the figures built from the old contents; an unchanged scan leaves the current
+  run standing, so pressing Refresh out of habit does not cost a 30-second
+  segmentation. A folder that has been moved or deleted since it was picked
+  gives a warning rather than a traceback.
+
 ## [5.50.0] - 2026-11-03
 
 ### Changed
