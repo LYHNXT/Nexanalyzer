@@ -5,6 +5,24 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.57.0] - 2026-11-04
+
+### Changed
+
+- **The PL quality figure's Raw column keeps every spectrum; the widest-5 %
+  cut applies to fitted peaks only.** `PL_CLEANING` drops the widest 5 % of
+  each fitted peak's widths because a fit that ran wide is a broken fit. The
+  Raw band's values went through the same rule, but a raw width is read off
+  the spectrum, so a wide one is a wide band; dropping it made the title's
+  "Raw FWHM x (spec ≤ 40)" the median of the narrowest 95 % — about
+  0.1–0.3 nm under the true median, always in the passing direction, and
+  nothing on the figure said so. **Numbers move: the PL figure's Raw FWHM
+  title value, panel median and uniformity rise slightly wherever the cut
+  had removed spectra**; the Raw column now holds the same spectra as the
+  summary table's Raw row (above the 5 nm floor). Fitted peaks, the table,
+  the workbook and the golden tripwire are unchanged. Decided 2026-11-04
+  (REVIEW.md #5, option A); `docs/QC_Report_Spec.md` updated.
+
 ## [5.56.0] - 2026-11-04
 
 ### Changed

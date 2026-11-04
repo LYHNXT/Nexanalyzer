@@ -222,6 +222,22 @@ class TestPlPanelDefinitions:
         build_peak_quality_figure(fits, sample_name="s", spec=PL_QUALITY)
         assert "Raw FWHM" not in dict(seen)
 
+    def test_the_raw_column_keeps_its_widest_spectra(self, monkeypatch):
+        """v5.57.0: the widest-5 % cut is for fitted peaks that ran wide; a
+        raw width is a measurement, so the Raw column -- and the title's
+        "Raw FWHM" median -- keep every spectrum above the 5 nm floor."""
+        import modules.spectra.viz.peak_quality as pq
+        seen = []
+        real = pq._draw_panel
+        monkeypatch.setattr(pq, "_draw_panel", lambda ax, by_point, *a, **k: (seen.append((a[1].caption, by_point)), real(ax, by_point, *a, **k)))
+        fits = [(1, _fit([_peak("Exciton", 760.0, 100.0, 30.0), _peak("Trion", 780.0, 40.0, 40.0)]))]
+        widths = [38.0 + 0.2 * i for i in range(20)]            # 38.0 .. 41.8; widest 5 % = one spectrum
+        raw_by_point = [(1, 765.0, w) for w in widths] + [(1, 765.0, 3.0)]   # plus one under the floor
+        build_peak_quality_figure(fits, sample_name="s", spec=PL_QUALITY, raw_by_point=raw_by_point)
+        drawn = sorted(dict(seen)["Raw FWHM"][1].tolist())
+        assert drawn == pytest.approx(widths)                   # 41.8 kept, 3.0 floored
+        assert float(np.median(drawn)) == pytest.approx(39.9)   # was 39.8 with the widest dropped
+
     def test_the_units_are_nanometres_not_wavenumbers(self):
         labels = {
             panel.ylabel for _title, panels in PL_PANEL_COLUMNS
