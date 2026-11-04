@@ -24,6 +24,7 @@ above the data would be read as its first point.
 """
 
 import io
+import re
 from itertools import islice
 
 import numpy as np
@@ -31,6 +32,13 @@ import pandas as pd
 from pathlib import Path
 from typing import Tuple, Optional, Literal, List, NamedTuple
 from ..models.spectrum import SpectrumData
+
+#: A number as an instrument writes one: optional sign, digits with an
+#: optional decimal point, optional exponent. Not Python's `float()`, which
+#: also accepts "nan", "inf" and "1_000" (v5.58.0) -- a "NaN NaN" line in a
+#: header read as the first data row, and a "nan" inside the data block
+#: became a missing value that silently dropped its whole column.
+_NUMBER_RE = re.compile(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$")
 
 
 class SpectrumFileError(ValueError):
@@ -94,9 +102,7 @@ def _is_numeric_row(line: str, sep: Optional[str]) -> bool:
     for i, field in enumerate(fields):
         if not field and i > 0:
             continue
-        try:
-            float(field)
-        except ValueError:
+        if not _NUMBER_RE.match(field):
             return False
         numbers += 1
     return numbers >= 2
@@ -182,17 +188,34 @@ def count_spectra(filepath: str) -> int:
         return 0
 
 
-def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
+def _non_finite_report(values: np.ndarray, what: str) -> Optional[str]:
+    """`what` has N missing or non-numeric value(s), first at data row R -- or None."""
+    bad = np.flatnonzero(~np.isfinite(values))
+    if bad.size == 0:
+        return None
+    return (f"{what}: {bad.size} missing or non-numeric value{'s' if bad.size > 1 else ''}, "
+            f"first at data row {bad[0] + 1}")
+
+
+def parse_spectrum_multi(filepath: str, skipped: Optional[List[str]] = None) -> List[SpectrumData]:
     """
     Parse a .txt spectrum file with one X column and 1+ Y columns.
 
     Returns one SpectrumData per Y column (all sharing the same X).
     Two-column files yield a list of length 1.
 
+    A Y column with a missing or non-numeric value cannot become a spectrum.
+    With `skipped` given (a list), that column is left out, the usable ones
+    are returned, and a message naming the column, how many values and the
+    first data row is appended to `skipped` for the caller to show. Without
+    it the file is refused with the same message: until v5.58.0 the column
+    was dropped without a word, and a 36-spectrum map quietly became 35.
+
     Raises
     ------
-    ValueError
-        If the file cannot be parsed or every Y column fails validation.
+    SpectrumFileError (a ValueError)
+        If the file cannot be parsed, its X column has a bad value, every Y
+        column has one, or any has and `skipped` was not given.
     FileNotFoundError
         If the file does not exist.
     """
@@ -209,27 +232,27 @@ def parse_spectrum_multi(filepath: str) -> List[SpectrumData]:
             f"columns separated by tab, comma, semicolon or spaces ({e})"
         ) from e
 
-    try:
-        X = df.iloc[:, 0].values.astype(np.float64)
-    except ValueError as e:
-        raise ValueError(
-            f"Failed to convert X column to numeric values: {e}. "
-            f"A non-numeric line inside the data block is not skipped as a header."
-        )
+    X = pd.to_numeric(df.iloc[:, 0], errors="coerce").to_numpy(dtype=np.float64)
+    problem = _non_finite_report(X, "X column")
+    if problem:
+        raise SpectrumFileError(f"{name}: {problem}. Every row of the data block must be numeric.")
 
     spectra: List[SpectrumData] = []
-    errors: List[str] = []
+    problems: List[str] = []
     for col_idx in range(1, df.shape[1]):
-        try:
-            Y = df.iloc[:, col_idx].values.astype(np.float64)
-            spectra.append(SpectrumData(X=X, Y=Y))
-        except Exception as e:
-            errors.append(f"column {col_idx + 1}: {e}")
+        Y = pd.to_numeric(df.iloc[:, col_idx], errors="coerce").to_numpy(dtype=np.float64)
+        problem = _non_finite_report(Y, f"column {col_idx + 1} skipped")
+        if problem:
+            problems.append(problem)
+            continue
+        spectra.append(SpectrumData(X=X, Y=Y))
 
     if not spectra:
-        raise ValueError(
-            f"No usable Y columns in '{filepath}'. Errors: {'; '.join(errors)}"
-        )
+        raise UnsupportedFormat(f"{name}: no usable Y column. " + "; ".join(problems))
+    if problems:
+        if skipped is None:
+            raise SpectrumFileError(f"{name}: " + "; ".join(problems))
+        skipped.extend(problems)
 
     return spectra
 
