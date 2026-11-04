@@ -36,23 +36,33 @@ def peak_intensity_and_stderr(peak) -> Tuple[float, float]:
     A fitted peak's intensity and the standard error on that intensity.
 
     Intensity is the maximum of the fitted component curve, not
-    `FittedPeak.area` (the area lmfit solves for). The reported stderr is
+    `FittedPeak.area` (the area lmfit solves for). Since v5.55.0 the fitter
+    records that maximum analytically (`FittedPeak.intensity`, from
+    `fitting.voigt_height`); the tallest *sample* of the curve, read until
+    then, under-read a peak whose centre fell between grid points by up to
+    2.4 % at FWHM 5 on a 0.9 cm-1 grid, differently from spectrum to spectrum.
+    A peak without that field (built by hand, or loaded from an older
+    project) still reads its curve's tallest sample. The reported stderr is
     `area_stderr` rescaled by the same intensity/area ratio — a linear
     approximation, but the only sensible one without re-propagating the
     covariance matrix.
 
-    Without a component curve (a reloaded project whose curve list is empty)
-    there is no maximum to read, so both are NaN -- never the area, which is a
-    different quantity (until v5.34.0 it was returned here, under "Intensity").
-    A peak fitted to zero area has no ratio to rescale by, so its stderr is
-    NaN as well: an unestimable stderr is NaN, never 0.0 (it printed "0 +- 0"
-    on the MoS2 A0 points that fit to nothing).
+    Without either (a reloaded project whose curve list is empty) there is no
+    maximum to read, so both are NaN -- never the area, which is a different
+    quantity (until v5.34.0 it was returned here, under "Intensity"). A peak
+    fitted to zero area has no ratio to rescale by, so its stderr is NaN as
+    well: an unestimable stderr is NaN, never 0.0 (it printed "0 +- 0" on the
+    MoS2 A0 points that fit to nothing).
     """
-    curve = getattr(peak, "component_curve", None)
-    if curve is None or len(curve) == 0:
-        return float("nan"), float("nan")
+    recorded = getattr(peak, "intensity", None)
+    if recorded is not None and np.isfinite(recorded):
+        intensity = float(recorded)
+    else:
+        curve = getattr(peak, "component_curve", None)
+        if curve is None or len(curve) == 0:
+            return float("nan"), float("nan")
+        intensity = float(np.max(curve))
 
-    intensity = float(np.max(curve))
     if peak.area > 0:
         return intensity, float(peak.area_stderr) * (intensity / peak.area)
     return intensity, float("nan")

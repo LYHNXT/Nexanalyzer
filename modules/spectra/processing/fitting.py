@@ -17,6 +17,7 @@ import numpy as np
 from lmfit import Model, Parameters
 from lmfit.lineshapes import voigt as _voigt_lineshape
 from lmfit.models import VoigtModel
+from scipy.special import wofz
 import time
 from typing import List, Optional, Tuple
 from ..models.peak import MAX_PEAKS, PeakDefinition, FittedPeak, FitResult
@@ -46,6 +47,26 @@ def voigt_fwhm(sigma: float, gamma: float) -> float:
     f_g = _GAUSSIAN_FWHM_PER_SIGMA * float(sigma)
     f_l = 2.0 * float(gamma)
     return 0.5346 * f_l + np.sqrt(0.2166 * f_l * f_l + f_g * f_g)
+
+
+def voigt_height(area: float, sigma: float, gamma: float) -> float:
+    """
+    The maximum of a Voigt profile of integrated `area` (v5.55.0).
+
+    area * Re[w(i*gamma / (sigma*sqrt 2))] / (sigma*sqrt(2 pi)), with w the
+    Faddeeva function -- the expression lmfit's VoigtModel uses for `height`
+    and `_UNIT_HEIGHT_EXPR` writes for the dominant-peak constraint. This is
+    the intensity every surface reports (`peak_metrics.peak_intensity`): the
+    curve's true maximum, where the sampled maximum of `component_curve`
+    under-read a peak whose centre fell between grid points by up to 2.4 % at
+    FWHM 5 on a 0.9 cm-1 grid, and moved with the grid phase from spectrum to
+    spectrum. A pure Lorentzian (sigma 0) is 2*area / (pi*f_L).
+    """
+    sigma, gamma = float(sigma), float(gamma)
+    if sigma <= 0.0:
+        return float(area) / (np.pi * gamma) if gamma > 0.0 else float("nan")
+    z = 1j * gamma / (sigma * np.sqrt(2.0))
+    return float(area * np.real(wofz(z)) / (sigma * np.sqrt(2.0 * np.pi)))
 
 
 START_MARGIN = 0.01
@@ -569,6 +590,8 @@ def fit_voigt_peaks(
             component_curve=component_curve,
             color=peak.color,  # Copy color from PeakDefinition
             on_limit=on_limit,
+            # The curve's true maximum, not its tallest sample (v5.55.0).
+            intensity=voigt_height(area_fit, sigma_fit, gamma_fit),
         ))
 
     # Calculate quality metrics

@@ -5,6 +5,33 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.55.0] - 2026-11-04
+
+### Changed
+
+- **Intensity is the fitted curve's true maximum, not its tallest sample.**
+  `peak_intensity` read `max(component_curve)`, the curve evaluated on the
+  spectrum's own grid, so a peak whose centre fell between two grid points was
+  under-read by an amount that depended on where the grid happened to fall:
+  up to 2.4 % (mean 0.8 %) for a Voigt of FWHM 5 cm⁻¹ on a 0.9 cm⁻¹ grid
+  (E₂g+A₁g), up to 3.7 % at FWHM 4, under 0.1 % for a broad peak (LA). The
+  error differed from spectrum to spectrum, so I(LA)/I(E₂g+A₁g) carried up to
+  2.4 % of grid-phase scatter on top of the measurement. The fitter now
+  records the analytic Voigt maximum (`fitting.voigt_height`, the Faddeeva
+  expression lmfit itself uses for `height`) on `FittedPeak.intensity`, and
+  `peak_intensity` reads it; a peak without the field (built by hand, or a
+  project saved before this version) still reads its curve's tallest sample.
+  **Numbers move: every intensity, intensity stderr and intensity ratio, up
+  by 0 to ~2.4 % per peak; centres, widths, areas, R² and χ² do not.**
+  Golden-fit record regenerated on the golden laptop; the shifts are
+  intensity only: DDAA10 RM_1 E₂g+A₁g +0.29 %, 2LA +0.77 %, 2ZA(M) +0.27 %,
+  B₂g +0.38 %, LA +0.01 %; RM_2 +0.18 / +0.37 / +0.69 / +1.21 / 0.00 %;
+  RM_3 +0.06 / +0.40 / +0.75 / 0.00 / 0.00 %; HADI51 and VA1P012504023 PL_5
+  Exciton and Trion ≤ +0.002 % (broad peaks on a 0.5 nm grid). Found by the
+  2026-11-04 review (REVIEW.md #3); the known-answer tests in
+  `tests/unit/test_known_answer_fit.py` and `test_review_regressions.py` pin
+  it.
+
 ## [5.54.0] - 2026-11-04
 
 ### Fixed

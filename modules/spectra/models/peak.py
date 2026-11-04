@@ -240,6 +240,12 @@ class FittedPeak:
     #: on its ceiling (v5.23.0): its numbers are where the bound stopped them,
     #: not a measurement, and ratios leave it out (peak_metrics.peak_is_measured).
     on_limit: bool = False
+    #: The fitted curve's maximum, computed analytically by the fitter
+    #: (`fitting.voigt_height`, v5.55.0). Read only through
+    #: `peak_metrics.peak_intensity`, which falls back to the tallest sample of
+    #: `component_curve` when this is None: a peak built by hand or loaded
+    #: from a project saved before v5.55.0.
+    intensity: Optional[float] = None
 
     def to_dict(self) -> dict:
         """Serialize to dictionary for JSON export."""
@@ -255,6 +261,7 @@ class FittedPeak:
             "component_curve": self.component_curve.tolist() if self.component_curve is not None else None,
             "color": self.color,
             "on_limit": self.on_limit,
+            "intensity": self.intensity,
         }
 
     @classmethod
@@ -273,6 +280,9 @@ class FittedPeak:
             component_curve=component_curve,
             color=data.get("color", "#1f77b4"),  # Default color if not present
             on_limit=bool(data.get("on_limit", False)),
+            # Saved before v5.55.0: no analytic maximum; the curve's tallest
+            # sample is read instead, as it was then.
+            intensity=data.get("intensity"),
         )
 
 
