@@ -53,9 +53,10 @@ class TestFinding1RamanDespikerRemovesAWholeRay:
         assert mask[200:200 + width].all()
         np.testing.assert_allclose(cleaned[200:200 + width], 100.0, atol=10.0)
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #1: a 3-px ray keeps +1000 of its +2000, a 4-px ray all of it")
-    @pytest.mark.parametrize("width", [3, 4])
-    def test_a_ray_three_or_more_pixels_wide_is_removed_to_the_noise(self, width):
+    @pytest.mark.parametrize("width", [3, 4, 5])
+    def test_a_ray_three_to_five_pixels_wide_is_removed_to_the_noise(self, width):
+        """Fixed in v5.54.0; until then a 3-px ray kept +1000 of its +2000. A
+        flagged run wider than the window (5) is treated as a real peak."""
         cleaned, mask = remove_spikes(self._ray(width), threshold=100.0)
         assert mask[200:200 + width].all()
         np.testing.assert_allclose(cleaned[200:200 + width], 100.0, atol=10.0)
