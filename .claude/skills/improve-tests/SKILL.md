@@ -17,13 +17,14 @@ These keep test changes and bug fixes in separate, reviewable PRs.
 
 - Work on branch `test/improve-<module or date>` created from `main`.
 - Only add or edit files under `tests/`. Do not change source code.
+- Never edit the locked records: `tests/unit/test_golden_fit.py`, `tests/unit/test_om_contrast.py` and anything under `tests/fixtures/golden_fit/`. `scripts/check_algo_change.py` fails CI when they change without a CHANGELOG entry, and a change there means the numbers moved, which is not a test improvement. Add new tests in new files instead.
 - If a test reveals a real bug, mark it `@pytest.mark.xfail(reason="...")` and list it; do not fix it.
-- Use pytest. Shared sample data goes in `tests/data/`, each file under 100 KB, synthetic only. No real measurement data.
+- Use pytest. Prefer generating synthetic spectra inside the test (write them to `tmp_path`). If a shared file is needed, put it in `tests/fixtures/`, under 100 KB, synthetic only, and never as `.txt`: `.gitignore` drops every `*.txt` outside its short allowlist, so the file would exist locally and be missing in CI. No real measurement data.
 - No network, no hardware, no absolute paths. Fix random seeds.
 
 ## Measure first
 
-Run `pytest --cov --cov-report=term-missing` and record coverage before changes.
+Run `venv/Scripts/python -m pytest --cov=core --cov=modules --cov-report=term-missing` and record coverage before changes.
 
 ## What to add, in this order
 

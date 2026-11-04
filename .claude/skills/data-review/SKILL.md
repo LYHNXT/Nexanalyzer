@@ -19,9 +19,9 @@ Scope: if an argument is given, review only `$ARGUMENTS` (but read whatever it d
 
 ## Step 1: Explore first
 
-- Map entry points, data loading, processing, fitting, plotting and export. Skip `.venv`, data folders and generated outputs.
+- Map entry points, data loading, processing, fitting, plotting and export. Skip `venv/`, data folders and generated outputs.
 - Summarize the data flow in 5 to 10 lines.
-- Run `pytest --cov --cov-report=term-missing`. Note pass/fail, overall coverage and the least-covered modules.
+- Run `venv/Scripts/python -m pytest --cov=core --cov=modules --cov-report=term-missing` (the project venv is `venv/`, and `core`/`modules` is the scope CI's 87 % floor measures). Note pass/fail, overall coverage and the least-covered modules.
 
 ## Step 2: Review in this priority order
 
