@@ -115,9 +115,11 @@ class TestFinding3IntensityIsTheHeightNotTheTallestSample:
     def test_on_the_grid_the_sampled_maximum_is_the_height(self):
         assert peak_intensity(self._fit_at(0.0)) == pytest.approx(self.HEIGHT, rel=0.002)
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #3: sampled maximum under-reads an off-grid centre by ~2 %")
     def test_between_grid_points_the_intensity_is_still_the_height(self):
-        assert peak_intensity(self._fit_at(0.45)) == pytest.approx(self.HEIGHT, rel=0.005)
+        """Fixed in v5.55.0 (analytic maximum); the tallest sample was ~2 % under."""
+        fitted = self._fit_at(0.45)
+        assert peak_intensity(fitted) == pytest.approx(self.HEIGHT, rel=0.005)
+        assert peak_intensity(fitted) > float(np.max(fitted.component_curve))
 
 
 class TestFinding4RawFwhm:

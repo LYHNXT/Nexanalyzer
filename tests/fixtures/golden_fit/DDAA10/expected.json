@@ -8,7 +8,7 @@
       "E2g+A1g": {
         "center": 249.93559279295354,
         "center_stderr": NaN,
-        "intensity": 1119.5789401715951,
+        "intensity": 1122.8112158689776,
         "intensity_stderr": NaN,
         "area": 8661.583474584464,
         "area_stderr": NaN,
@@ -20,7 +20,7 @@
       "2LA": {
         "center": 260.99309834344865,
         "center_stderr": NaN,
-        "intensity": 323.0416486879571,
+        "intensity": 325.5157217641445,
         "intensity_stderr": NaN,
         "area": 2645.792940217794,
         "area_stderr": NaN,
@@ -32,7 +32,7 @@
       "2ZA(M)": {
         "center": 239.86424870760158,
         "center_stderr": NaN,
-        "intensity": 112.19093326616006,
+        "intensity": 112.49436550963964,
         "intensity_stderr": NaN,
         "area": 1581.9989226202176,
         "area_stderr": NaN,
@@ -44,7 +44,7 @@
       "B2g": {
         "center": 311.7853976576949,
         "center_stderr": NaN,
-        "intensity": 15.17406709696996,
+        "intensity": 15.23206094413672,
         "intensity_stderr": NaN,
         "area": 97.28419951140758,
         "area_stderr": NaN,
@@ -56,7 +56,7 @@
       "LA": {
         "center": 130.9625782405482,
         "center_stderr": NaN,
-        "intensity": 81.56607426318233,
+        "intensity": 81.57442237136269,
         "intensity_stderr": NaN,
         "area": 3140.4938775854876,
         "area_stderr": NaN,
@@ -76,7 +76,7 @@
       "E2g+A1g": {
         "center": 249.911190672167,
         "center_stderr": NaN,
-        "intensity": 2243.3264600516823,
+        "intensity": 2247.4499903569263,
         "intensity_stderr": NaN,
         "area": 18275.564418138278,
         "area_stderr": NaN,
@@ -88,7 +88,7 @@
       "2LA": {
         "center": 260.72308642240284,
         "center_stderr": NaN,
-        "intensity": 590.3422486959641,
+        "intensity": 592.4980309027146,
         "intensity_stderr": NaN,
         "area": 4788.650099812551,
         "area_stderr": NaN,
@@ -100,7 +100,7 @@
       "2ZA(M)": {
         "center": 240.07543632493093,
         "center_stderr": NaN,
-        "intensity": 230.2494726061036,
+        "intensity": 231.82972526229068,
         "intensity_stderr": NaN,
         "area": 3260.20218034362,
         "area_stderr": NaN,
@@ -112,7 +112,7 @@
       "B2g": {
         "center": 310.2585258022808,
         "center_stderr": NaN,
-        "intensity": 43.27272000861215,
+        "intensity": 43.79709462797617,
         "intensity_stderr": NaN,
         "area": 279.7233588525119,
         "area_stderr": NaN,
@@ -124,7 +124,7 @@
       "LA": {
         "center": 130.65200699323645,
         "center_stderr": NaN,
-        "intensity": 170.83229157085532,
+        "intensity": 170.83294780046455,
         "intensity_stderr": NaN,
         "area": 6795.825365855943,
         "area_stderr": NaN,
@@ -144,8 +144,8 @@
       "E2g+A1g": {
         "center": 250.0049411146207,
         "center_stderr": 0.026322988358821645,
-        "intensity": 244.91193246318474,
-        "intensity_stderr": 9.559274432910906,
+        "intensity": 245.0631833424272,
+        "intensity_stderr": 9.5651779781092,
         "area": 1797.7217441891462,
         "area_stderr": 70.16773471949371,
         "fwhm": 4.760549143982379,
@@ -156,8 +156,8 @@
       "2LA": {
         "center": 261.09807214851975,
         "center_stderr": 0.10831718072836255,
-        "intensity": 69.74772234084558,
-        "intensity_stderr": 5.277599410293808,
+        "intensity": 70.02761895145393,
+        "intensity_stderr": 5.298778341124998,
         "area": 615.9227770872266,
         "area_stderr": 46.60501556247181,
         "fwhm": 7.234000841922295,
@@ -168,8 +168,8 @@
       "2ZA(M)": {
         "center": 240.9673451619231,
         "center_stderr": 0.42266773854070716,
-        "intensity": 26.672035453102055,
-        "intensity_stderr": 4.526313362830741,
+        "intensity": 26.87312917879054,
+        "intensity_stderr": 4.560439487901535,
         "area": 377.91456969443516,
         "area_stderr": 64.13307937536528,
         "fwhm": 8.999999999886938,
@@ -180,8 +180,8 @@
       "B2g": {
         "center": 309.8139010339321,
         "center_stderr": 1.2516886578477378,
-        "intensity": 5.170759259887601,
-        "intensity_stderr": 2.446016870208173,
+        "intensity": 5.170902195012231,
+        "intensity_stderr": 2.4460844853703994,
         "area": 48.154894566920944,
         "area_stderr": 22.779572316879616,
         "fwhm": 5.999999999470841,
@@ -192,8 +192,8 @@
       "LA": {
         "center": 130.85308990770105,
         "center_stderr": 0.8780243997336483,
-        "intensity": 17.334820854274163,
-        "intensity_stderr": 1.7351684913925811,
+        "intensity": 17.33534004513692,
+        "intensity_stderr": 1.7352204609879782,
         "area": 843.2870851990094,
         "area_stderr": 84.4107471162488,
         "fwhm": 37.526308034518095,
