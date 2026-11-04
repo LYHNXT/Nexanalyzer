@@ -6,6 +6,7 @@ Spectra page, just headless and grouped by point index).
 """
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from ..models.preset import MaterialPreset
@@ -55,10 +56,15 @@ def _run_one_technique(
     # fixed in v3.8.1, one level down.
     parsed: List[Tuple[int, list]] = []
     for point in sorted(files_by_point.keys()):
+        # A column with a bad cell is left out and reported beside the fit
+        # errors, so a map that lost one of its spectra says so (v5.58.0).
+        skipped: List[str] = []
         try:
-            parsed.append((point, parse_spectrum_multi(files_by_point[point])))
+            parsed.append((point, parse_spectrum_multi(files_by_point[point], skipped=skipped)))
         except Exception as e:
             out_errors.append((point, str(e)))
+        name = Path(files_by_point[point]).name
+        out_errors.extend((point, f"{name}: {message}") for message in skipped)
 
     total = sum(len(spectra) for _, spectra in parsed)
     if total == 0:

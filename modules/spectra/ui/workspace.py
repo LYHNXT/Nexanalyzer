@@ -255,8 +255,12 @@ def process_pending_loads() -> None:
             source_dir = os.path.dirname(file_path)  # v2.7: remember source folder for exports
 
             try:
-                # Parse spectrum (returns list; len > 1 for multi-Y files)
-                spectra = parse_spectrum_multi(file_path)
+                # Parse spectrum (returns list; len > 1 for multi-Y files). A
+                # column with a bad cell is left out and said so (v5.58.0).
+                skipped = []
+                spectra = parse_spectrum_multi(file_path, skipped=skipped)
+                for message in skipped:
+                    st.warning(f"{filename}: {message}")
 
                 # v2.1+ (FR-12): Auto-detect mode from filename
                 detected_mode = detect_mode_from_filename(filename)

@@ -63,28 +63,52 @@ class TestFinding1RamanDespikerRemovesAWholeRay:
 
 
 class TestFinding2OneBadCellMustNotLoseASpectrum:
-    """REVIEW.md #2: parser.py:222-233 swallows a column's error; only "no
-    usable columns" is ever raised."""
+    """REVIEW.md #2, fixed in v5.58.0: parser.py swallowed a column's error;
+    only "no usable columns" was ever raised."""
 
     def test_a_complete_three_column_file_gives_two_spectra(self, tmp_path):
         path = _three_column_file(tmp_path, "100.0\t10.0\t20.0")
         assert len(parser.parse_spectrum_multi(path)) == 2
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #2: the column with the gap is dropped without a word")
-    @pytest.mark.parametrize("first_row", ["100.0\t10.0\t", "100.0\t\t20.0"], ids=["trailing gap", "middle gap"])
-    def test_a_gap_in_one_column_is_reported_not_swallowed(self, tmp_path, first_row):
+    @pytest.mark.parametrize("first_row, column", [("100.0\t10.0\t", 3), ("100.0\t\t20.0", 2)],
+                             ids=["trailing gap", "middle gap"])
+    def test_a_gap_in_one_column_is_reported_and_the_other_kept(self, tmp_path, first_row, column):
         path = _three_column_file(tmp_path, first_row)
-        try:
-            spectra = parser.parse_spectrum_multi(path)
-        except parser.SpectrumFileError as exc:
-            assert "column" in str(exc).lower()
-        else:
-            assert len(spectra) == 2, "fewer spectra than Y columns, and no error"
+        skipped = []
+        spectra = parser.parse_spectrum_multi(path, skipped=skipped)
+        assert len(spectra) == 1
+        assert skipped == [f"column {column} skipped: 1 missing or non-numeric value, first at data row 1"]
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #2: float() accepts nan, inf and 1_000")
-    @pytest.mark.parametrize("line", ["nan\tnan", "inf\t1.0", "1_000\t2_000"])
+    def test_without_a_skipped_list_the_file_is_refused_with_the_same_message(self, tmp_path):
+        path = _three_column_file(tmp_path, "100.0\t10.0\t")
+        with pytest.raises(parser.SpectrumFileError, match="column 3 skipped: 1 missing"):
+            parser.parse_spectrum_multi(path)
+
+    def test_a_bad_value_in_the_x_column_refuses_the_file(self, tmp_path):
+        # Deep inside the block: a bad row within the first few lines would be
+        # taken for header by the start-of-data heuristic.
+        path = _three_column_file(tmp_path, "100.0\t10.0\t20.0")
+        rows = (tmp_path / "RM_1.txt").read_text(encoding="utf-8").splitlines()
+        rows[59] = "n/a\t69.0\t79.0"
+        (tmp_path / "RM_1.txt").write_text("\n".join(rows), encoding="utf-8")
+        with pytest.raises(parser.SpectrumFileError, match="X column: 1 missing or non-numeric value, first at data row 60"):
+            parser.parse_spectrum_multi(path)
+
+    def test_a_file_whose_every_y_column_is_bad_is_unsupported(self, tmp_path):
+        path = _three_column_file(tmp_path, "100.0\t10.0\t20.0")
+        rows = (tmp_path / "RM_1.txt").read_text(encoding="utf-8").splitlines()
+        rows[59] = "159.0\t\t"
+        (tmp_path / "RM_1.txt").write_text("\n".join(rows), encoding="utf-8")
+        with pytest.raises(parser.UnsupportedFormat, match="no usable Y column"):
+            parser.parse_spectrum_multi(path, skipped=[])
+
+    @pytest.mark.parametrize("line", ["nan\tnan", "inf\t1.0", "1_000\t2_000", "NaN\t5"])
     def test_non_data_float_literals_are_not_a_numeric_row(self, line):
         assert not parser._is_numeric_row(line, "\t")
+
+    @pytest.mark.parametrize("line", ["1\t2", "-1.5e3\t+2.0E-2", ".5\t7.", "100.0\t10.0\t"])
+    def test_instrument_numbers_still_are(self, line):
+        assert parser._is_numeric_row(line, "\t")
 
     def test_a_decimal_comma_file_is_refused_not_misread(self, tmp_path):
         """'1,5;2,3' must not parse as X=1, Y=5 or similar."""

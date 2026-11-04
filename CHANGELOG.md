@@ -5,6 +5,27 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.58.0] - 2026-11-04
+
+### Fixed
+
+- **A spectrum file with one bad cell no longer loses that spectrum in
+  silence.** `parse_spectrum_multi` turned a Y column with a blank or
+  non-numeric value into NaN, `SpectrumData` refused it, and the loop
+  swallowed the error: only "no usable Y columns" was ever raised, so a
+  36-spectrum map with one blank cell quietly became 35 and the report's `n`
+  changed with no message. Now the column is left out and *named* — "column
+  3 skipped: 1 missing or non-numeric value, first at data row 1" — beside
+  the QC Report's fit errors (`sample_batch`) and as a warning on the
+  Spectra page; a caller that does not collect the message (the scripts)
+  gets the file refused with it instead. A bad value in the X column refuses
+  the file, naming the row. `_is_numeric_row` also stops taking Python's
+  `float()` word for what a number is: `nan`, `inf` and `1_000` are not
+  instrument numbers, so a "NaN NaN" header line is header and a `nan` in
+  the block is a reported bad cell. **No numbers move** — files that parsed
+  cleanly parse identically. Found by the 2026-11-04 review (REVIEW.md #2);
+  pinned by `tests/unit/test_review_regressions.py`.
+
 ## [5.57.0] - 2026-11-04
 
 ### Changed
