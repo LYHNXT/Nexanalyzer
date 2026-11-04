@@ -5,10 +5,19 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [5.53.0] - 2026-11-04
 
 ### Changed
 
+- **The sidebar names the app first and the company last.** Nexstrom is the
+  company and NexAnalyzer the app, but the sidebar showed only the Nexstrom
+  logo where the app's name belongs. Now **NexAnalyzer** sits at the top of
+  the sidebar with its version as a tag under it, and "A product of" with the
+  Nexstrom logo sits at its foot, replacing the "NexAnalyzer vX — Nexstrom's
+  measurement data analyzer" caption. The name is drawn in IBM Plex by CSS
+  (`core/ui/theme.py`), since `st.logo` takes only an image; the logo moved to
+  `sidebar_footer()`. The collapsed sidebar no longer shows the Nexstrom mark;
+  the browser tab still does. No numbers move.
 - **The repository moved to the Nexstrom organisation:
   `https://github.com/Nexstrom/NexAnalyzer`** (was `angyulu/NexAnalyzer`,
   transferred 2026-10-28). The sidebar's User Guide / Report Issues links, the
