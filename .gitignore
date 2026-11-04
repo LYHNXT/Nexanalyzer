@@ -69,6 +69,7 @@ tests/fixtures/*.txt
 # And the validated set's bad-input cases: hand-written, a few bytes each,
 # no measurement in them (an empty file, a header, one column).
 !tests/golden/cases/bad_input/*/input.txt
+!tests/golden/cases/spectral_fit/synthetic_*/input.txt
 
 # Per-installation "last used material" preference, regenerated on first use
 # (unlike data/materials.json, which is shared and committed).
