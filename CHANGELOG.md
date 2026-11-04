@@ -15,14 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   neighbours were outvoted but three were not: a 3-pixel ray at +2000 counts
   kept +1000 on all three pixels, unflagged, and went into the fit; a 4-pixel
   ray kept all of it. The PL despiker (`remove_spikes_local`, v5.41.0) never
-  had this; Raman now does the same: the window widens, up to 4x, until two
-  clean neighbours are in it, and their median replaces the pixel. A
-  one-pixel ray sees exactly the neighbours it always did. **Numbers move
-  only on Raman spectra holding a ray two pixels or wider inside the fit
-  window** (a 2-pixel ray's replacement loses one flagged vote). The golden
-  Raman records (DDAA10 RM_1..3) are unchanged to 1e-5: no ray is flagged
-  inside their fit windows. Found by the 2026-11-04 review (REVIEW.md #1);
-  pinned by `tests/unit/test_review_regressions.py`.
+  had this; Raman now does the same for a *ray* -- a flagged run no wider
+  than the window (5 pixels): the window widens, up to 4x, until two clean
+  neighbours are in it, and their median replaces the pixel. A one-pixel ray
+  sees exactly the neighbours it always did. A flagged run **wider** than
+  the window is not a ray but a real peak scored against a low threshold
+  (Silicon's 6, MoS2's 8; the score is against the whole spectrum's MAD),
+  and keeps the old replacement unchanged -- the clean-neighbour rule would
+  flatten such a peak to the baseline, which is what the first cut of this
+  fix did to every Silicon fit. **Numbers move only on Raman spectra holding
+  a flagged run of two to five pixels inside the fit window** (a 2-pixel
+  ray's replacement loses one flagged vote); every low-threshold preset's
+  numbers are unchanged. The golden Raman records (DDAA10 RM_1..3) are
+  unchanged to 1e-5: no ray is flagged inside their fit windows. Found by
+  the 2026-11-04 review (REVIEW.md #1); pinned by
+  `tests/unit/test_despiking.py` and `test_review_regressions.py`.
 
 ## [5.53.0] - 2026-11-04
 
