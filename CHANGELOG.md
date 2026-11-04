@@ -5,6 +5,31 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.56.0] - 2026-11-04
+
+### Changed
+
+- **The Raw PL width is the width of the band around the maximum, with the
+  half-maximum crossings interpolated.** `raw_peak_stats` reported the
+  distance between the first and last *sample* above half maximum anywhere
+  in the spectrum. Two consequences: it read about one grid step under the
+  true width on every spectrum, because the crossings lie between samples
+  (−0.5 nm on a 0.5 nm export, −1 nm on a 1 nm one; synthetic 39.0 nm bands
+  read 38.5 and 38.0), which is optimistic against the ≤ 40 nm spec; and it
+  ran out to any other sample above half maximum — a second band (MoS₂'s B
+  beside A when I(B)/I(A) > 0.5: a 30 nm band read 79.5 nm) or a lone noise
+  sample in the tail of a weak spectrum (±3 nm at SNR 50, ±6 nm at SNR 20).
+  Now the run of samples at or above half maximum that *contains* the
+  maximum is taken, and each end is placed by linear interpolation between
+  the last sample inside and the first outside; a band running off the
+  spectrum's edge is measured to the edge, as before. **Numbers move: every
+  Raw FWHM (PL quality figure's Raw column and title, summary table's Raw
+  row, master CSV's Raw row) rises by about one grid step, ~0.5–1 nm; where a
+  second band or a tail sample was spanned it falls by the span.** Raw
+  centre and intensity, the fitted peaks and the golden tripwire (which does
+  not lock raw stats) are unchanged. Found by the 2026-11-04 review
+  (REVIEW.md #4); pinned by `tests/unit/test_review_regressions.py`.
+
 ## [5.55.0] - 2026-11-04
 
 ### Changed

@@ -123,21 +123,33 @@ class TestFinding3IntensityIsTheHeightNotTheTallestSample:
 
 
 class TestFinding4RawFwhm:
-    """REVIEW.md #4: raw_peak_stats measures first-to-last sample above half
-    maximum, with no interpolation."""
+    """REVIEW.md #4, fixed in v5.56.0: raw_peak_stats measured first-to-last
+    sample above half maximum, with no interpolation."""
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #4b: width is quantised to the sample spacing")
-    def test_the_half_maximum_crossing_is_interpolated(self):
-        x = np.arange(600.0, 800.0, 1.0)
+    @pytest.mark.parametrize("step, phase", [(1.0, 0.0), (1.0, 0.3), (0.5, 0.0), (0.5, 0.21)])
+    def test_the_half_maximum_crossing_is_interpolated(self, step, phase):
+        """Until v5.56.0 this read one grid step under the true width."""
+        x = np.arange(600.0, 800.0, step) + phase
         y = 100.0 * np.exp(-4.0 * np.log(2.0) * ((x - 760.3) / 39.0) ** 2)
-        assert raw_peak_stats(x, y).fwhm == pytest.approx(39.0, abs=0.2)
+        assert raw_peak_stats(x, y).fwhm == pytest.approx(39.0, abs=0.02)
 
-    @pytest.mark.xfail(strict=True, reason="REVIEW.md #4a (needs decision): a second band above half max is spanned")
     def test_a_second_band_above_half_maximum_does_not_widen_the_main_one(self):
+        """Until v5.56.0 the width ran out to the farther band (79.5 here)."""
         x = np.arange(600.0, 800.0, 0.5)
         g = lambda c, w: np.exp(-4.0 * np.log(2.0) * ((x - c) / w) ** 2)  # noqa: E731
         y = 100.0 * g(760.0, 30.0) + 60.0 * g(700.0, 20.0)
-        assert raw_peak_stats(x, y).fwhm == pytest.approx(30.0, abs=1.0)
+        assert raw_peak_stats(x, y).fwhm == pytest.approx(30.0, abs=0.05)
+
+    def test_a_noise_sample_in_the_tail_does_not_widen_the_band(self):
+        x = np.arange(600.0, 800.0, 0.5)
+        y = 100.0 * np.exp(-4.0 * np.log(2.0) * ((x - 760.0) / 30.0) ** 2)
+        y[40] = 60.0                                     # one sample at 620 nm above half max
+        assert raw_peak_stats(x, y).fwhm == pytest.approx(30.0, abs=0.05)
+
+    def test_a_band_running_off_the_spectrum_edge_is_measured_to_the_edge(self):
+        x = np.arange(750.0, 800.0, 0.5)                # starts above half max (crossing would be 745)
+        y = 100.0 * np.exp(-4.0 * np.log(2.0) * ((x - 760.0) / 30.0) ** 2)
+        assert raw_peak_stats(x, y).fwhm == pytest.approx(775.0 - 750.0, abs=0.05)
 
     def test_one_band_measures_its_own_width(self):
         x = np.arange(600.0, 800.0, 0.5)
