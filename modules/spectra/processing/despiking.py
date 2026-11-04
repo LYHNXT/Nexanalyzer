@@ -113,29 +113,44 @@ def remove_spikes(
     # Detect spikes
     spike_mask = z_scores > threshold
 
-    # Replace each spike with the median of its *clean* neighbours. Until
-    # v5.54.0 the neighbours included other flagged pixels, so a ray wider
-    # than two pixels was replaced by the median of itself: a 3-pixel ray at
-    # +2000 kept +1000 on all three pixels and went into the fit unflagged
-    # (one or two flagged neighbours are outvoted by the median of four, three
-    # are not). The window widens, up to 4x, until two clean neighbours are in
-    # it, as `remove_spikes_local` does; a one-pixel ray sees exactly the
-    # neighbours it always did.
+    # Replace each flagged pixel by the median of its neighbours.
+    #
+    # A *ray* -- a flagged run no wider than the window -- is replaced by the
+    # median of its *clean* neighbours, the window widening up to 4x until two
+    # are in it, as `remove_spikes_local` does (v5.54.0). Until then the
+    # neighbours included the other flagged pixels, so a 3-pixel ray at +2000
+    # kept +1000 on all three pixels and went into the fit unflagged: one or
+    # two flagged neighbours are outvoted by the median of four, three are not.
+    # A one-pixel ray sees exactly the neighbours it always did.
+    #
+    # A flagged run *wider* than the window is not a cosmic ray but a real
+    # peak scored against a low threshold (Silicon's 6, MoS2's 8: the whole
+    # spectrum's MAD is the yardstick, see the docstring). Those pixels keep
+    # the pre-v5.54.0 replacement, the median of the fixed window with flagged
+    # pixels included -- a 5-point median filter over the peak top -- so every
+    # number a low-threshold preset ever produced is unchanged; the
+    # clean-neighbour rule would flatten the peak to the baseline instead.
     y_clean = y.copy()
-    spike_indices = np.where(spike_mask)[0]
     half_window = window_size // 2
+    flagged = np.flatnonzero(spike_mask)
+    runs = np.split(flagged, np.flatnonzero(np.diff(flagged) > 1) + 1) if flagged.size else []
 
-    for idx in spike_indices:
-        for half in range(half_window, 4 * half_window + 1):
-            start = max(0, idx - half)
-            end = min(len(y), idx + half + 1)
-            neighbors = [y[i] for i in range(start, end) if i != idx and not spike_mask[i]]
-            if len(neighbors) >= 2:
-                y_clean[idx] = np.median(neighbors)
-                break
-        else:
-            # Fallback: use global median (a ray covering the whole window).
-            y_clean[idx] = median_y
+    for run in runs:
+        is_ray = len(run) <= window_size
+        for idx in run:
+            if is_ray:
+                for half in range(half_window, 4 * half_window + 1):
+                    start, end = max(0, idx - half), min(len(y), idx + half + 1)
+                    neighbors = [y[i] for i in range(start, end) if i != idx and not spike_mask[i]]
+                    if len(neighbors) >= 2:
+                        y_clean[idx] = np.median(neighbors)
+                        break
+                else:
+                    y_clean[idx] = median_y
+            else:
+                start, end = max(0, idx - half_window), min(len(y), idx + half_window + 1)
+                neighbors = [y[i] for i in range(start, end) if i != idx]
+                y_clean[idx] = np.median(neighbors) if neighbors else median_y
 
     return y_clean, spike_mask
 

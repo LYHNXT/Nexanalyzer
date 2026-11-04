@@ -59,6 +59,40 @@ class TestRemoveSpikes:
         assert not high.any()
         np.testing.assert_array_equal(y_clean, y)
 
+    def test_a_real_peak_flagged_at_a_low_threshold_is_smoothed_as_before_not_flattened(self):
+        """v5.54.0 changed how a *ray* is replaced (clean neighbours only). A
+        flagged run wider than the window is a real peak above a low threshold
+        (Silicon's 6, MoS2's 8); it keeps the old 5-point neighbour median,
+        flagged pixels included, so those presets' numbers do not move and the
+        peak is not flattened to the baseline."""
+        x = np.linspace(100.0, 400.0, 600)
+        rng = np.random.default_rng(1)
+        y = 100.0 + 2000.0 * np.exp(-0.5 * ((x - 250.0) / 4.0) ** 2) + rng.normal(0, 5, x.size)
+
+        y_clean, mask = remove_spikes(y, threshold=6.0, window_size=5)
+
+        flagged = np.flatnonzero(mask)
+        assert flagged.size > 5 and np.all(np.diff(flagged) == 1)   # one broad run
+        # The pre-v5.54.0 rule, written out: median of the 4 neighbours.
+        for idx in flagged:
+            neighbours = [y[i] for i in range(max(0, idx - 2), min(y.size, idx + 3)) if i != idx]
+            assert y_clean[idx] == pytest.approx(np.median(neighbours))
+        assert y_clean.max() > 1500.0                                 # still a peak
+
+    @pytest.mark.parametrize("width", [2, 3, 5])
+    def test_a_ray_up_to_the_window_width_is_removed_to_the_noise(self, width):
+        """v5.54.0: the replacement reads clean neighbours only, widening the
+        window until it has two, so a multi-pixel ray no longer survives as
+        the median of itself."""
+        rng = np.random.default_rng(0)
+        y = 100.0 + rng.normal(0.0, 2.0, 400)
+        y[200:200 + width] += 2000.0
+
+        y_clean, mask = remove_spikes(y, threshold=100.0, window_size=5)
+
+        assert mask[200:200 + width].all()
+        np.testing.assert_allclose(y_clean[200:200 + width], 100.0, atol=10.0)
+
     def test_even_window_size_raises(self):
         y = np.arange(20, dtype=float)
         with pytest.raises(ValueError):
