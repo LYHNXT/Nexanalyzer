@@ -68,8 +68,10 @@ region; the reports use 25. The two MoS₂ values are shown as nominal targets
   Robust CV, 1.4826 · MAD / median over all spectra, which also counted
   within-region scatter and so read higher — e.g. 0.06 % vs 0.04 %.)
 - **Cleaning** — Raman: a 1.5 × IQR fence within each region; PL: FWHM ≤ 5 nm,
-  peaks under 2 % of the spectrum's strongest, and the widest 5 % per peak are
-  dropped.
+  peaks under 2 % of the spectrum's strongest, and the widest 5 % per fitted
+  peak are dropped. The Raw band keeps every spectrum above the 5 nm floor
+  (v5.57.0; until then it went through the widest-5 % cut too, so the title's
+  Raw FWHM was the median of the narrowest 95 %).
 
 ## The ratio rule: 25 per region where the data allow
 
