@@ -5,6 +5,25 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [5.54.0] - 2026-11-04
+
+### Fixed
+
+- **The Raman despiker now removes a cosmic ray wider than two pixels.**
+  `remove_spikes` replaced each flagged pixel by the median of its four
+  neighbours *including other flagged pixels*, so one or two flagged
+  neighbours were outvoted but three were not: a 3-pixel ray at +2000 counts
+  kept +1000 on all three pixels, unflagged, and went into the fit; a 4-pixel
+  ray kept all of it. The PL despiker (`remove_spikes_local`, v5.41.0) never
+  had this; Raman now does the same: the window widens, up to 4x, until two
+  clean neighbours are in it, and their median replaces the pixel. A
+  one-pixel ray sees exactly the neighbours it always did. **Numbers move
+  only on Raman spectra holding a ray two pixels or wider inside the fit
+  window** (a 2-pixel ray's replacement loses one flagged vote). The golden
+  Raman records (DDAA10 RM_1..3) are unchanged to 1e-5: no ray is flagged
+  inside their fit windows. Found by the 2026-11-04 review (REVIEW.md #1);
+  pinned by `tests/unit/test_review_regressions.py`.
+
 ## [5.53.0] - 2026-11-04
 
 ### Changed
