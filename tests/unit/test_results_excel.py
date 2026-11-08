@@ -354,3 +354,21 @@ class TestSpectrumColumn:
         ws = _build(techniques=[TechniqueResults("Raman", [(1, _spectrum())], None)])["Raman"]
 
         assert _column(ws, "Spectrum") == ["Raman_1"]
+
+    def test_the_identity_block_ends_with_layer_and_app_version(self):
+        """What a QC summary collected from many reports needs to say which
+        fit made a number; Sample, Material and Date keep their rows."""
+        from core.version import __version__
+
+        ws = _build(techniques=[TechniqueResults("Raman", [(1, _spectrum())], None)],
+                    layer="2L")["Summary"]
+        identity = {row[0]: row[1] for row in _rows(ws)[2:8] if row and row[0]}
+
+        assert [ws.cell(row=r, column=1).value for r in (3, 4, 5)] == ["Sample", "Material", "Date"]
+        assert identity["Layer"] == "2L"
+        assert identity["NexAnalyzer"] == __version__
+
+    def test_no_layer_row_without_a_layer(self):
+        ws = _build(techniques=[TechniqueResults("Raman", [(1, _spectrum())], None)])["Summary"]
+        assert "Layer" not in _cells(ws)
+        assert "NexAnalyzer" in _cells(ws)

@@ -37,7 +37,7 @@ technique and went stale the moment a page grew an OM image.
 
 ### Frontend
 - **Framework**: Streamlit (Python web framework for data apps), multi-page via `st.navigation()` (v2.11.0+)
-- **Pages**: eight, in four groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: the fit workspace — file, preset and Run above the plot, exports top right; the sidebar held all of it until v5.43.0), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry), **Split Table** (`pages/8_Split_Table.py`, v5.42.0: a tool's run-by-run split-table workbook, read-only — filters, column groups, trend and X-vs-Y charts, and a picked row opens its datalog, runcard or QC folder on those pages). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready for that wafer, and publishes it through Microsoft Graph — device-code sign-in, notebook from `data/onenote.json`, one section per tool, one page per wafer, appended to on each upload). Under **Setup** — **Tools** (`pages/7_Tools.py`: records where each tool folder is on this PC in the gitignored `data/tool_roots.json`, beside the committed `data/tool_layouts.json` that says which subfolder holds datalogs, runcards and optical data; Datalog, Runcard, QC Report and OneNote then offer a **Tool** dropdown). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
+- **Pages**: eight, in four groups. Unlabelled — **Spectra** (`pages/1_Spectra.py`: the fit workspace — file, preset and Run above the plot, exports top right; the sidebar held all of it until v5.43.0), **QC Report** (`pages/2_QC_Report.py`: seven figures and one workbook from a sample folder's 9-point OM + Raman + PL grid), **Material Presets** (`pages/3_Material_Presets.py`: create/edit/delete materials; below them the objective calibration and, since 5.47.0+local.3, the run-ID precursor rules). Under **Process** — **Datalog** (`pages/4_Datalog.py`: a run folder's 1 Hz process logs as stacked PV/SV charts, with tolerance violations, summary stats, tagging, bulk rename and duplicate cleanup), **Runcard** (`pages/5_Runcard.py`: a recipe's reconstructed time profile, growth window and gas chemistry), **Split Table** (`pages/8_Split_Table.py`, v5.42.0: a tool's run-by-run split-table workbook — filters, column groups, trend and X-vs-Y charts, and a picked row opens its datalog, runcard or QC folder on those pages; since 5.47.0+local.4 VB1P01's has **Refresh now**, which updates the workbook in place from new QC Reports, datalogs, runcards and the Milestone sheet — see docs/Split_Table_Refresh.md). Under **Publish** — **OneNote** (`pages/6_OneNote.py`: picks a wafer from a tool folder, checks its material against `data/material_prefixes.json`, and shows what the other pages have ready for that wafer, and publishes it through Microsoft Graph — device-code sign-in, notebook from `data/onenote.json`, one section per tool, one page per wafer, appended to on each upload). Under **Setup** — **Tools** (`pages/7_Tools.py`: records where each tool folder is on this PC in the gitignored `data/tool_roots.json`, beside the committed `data/tool_layouts.json` that says which subfolder holds datalogs, runcards and optical data; Datalog, Runcard, QC Report and OneNote then offer a **Tool** dropdown). Sample Report and QC Panel were merged into QC Report at v5.0.0, and the Plot Explorer was dropped at the same time. The "Raman & PL" group was removed at v4.2.0 for naming a technique; "Process" names a data source instead, which is why it survives that argument.
 - **State Management**: Streamlit session state with automatic persistence
 - **Visualization**: Plotly (interactive multi-layer plots)
 
@@ -66,7 +66,7 @@ nexanalyzer/
 │   ├── 5_Runcard.py                # Runcard page: one recipe's reconstructed profile
 │   ├── 6_OneNote.py                # OneNote page: publish a wafer's results
 │   ├── 7_Tools.py                  # Tools page: each tool's folder on this PC, and its layout
-│   └── 8_Split_Table.py            # Split Table page: a tool's run workbook, read-only
+│   └── 8_Split_Table.py            # Split Table page: a tool's run workbook (+ VB1P01 Refresh now)
 ├── core/                           # Platform. Knows nothing about peaks or spectra.
 │   ├── paths.py                    # PROJECT_ROOT / DATA_DIR, anchored on this file
 │   ├── version.py                  # APP_NAME, __version__, REPO_URL (single source of truth)
@@ -75,7 +75,9 @@ nexanalyzer/
 │   │   │                           # output filename construction
 │   │   ├── folder_picker.py        # Native folder- and file-picker dialogs
 │   │   │                           # (isolated subprocess)
+│   │   ├── precursor_rules.py      # data/precursor_rules.json: run-ID prefix -> W precursor
 │   │   ├── report_settings.py      # Persisted default-material setting
+│   │   ├── shared_read.py          # Read a file Excel/OneDrive hold open (shares delete)
 │   │   ├── tool_layout.py          # data/tool_layouts.json: where a tool folder keeps each artifact
 │   │   └── tool_roots.py           # data/tool_roots.json: where each tool folder is on this PC
 │   ├── ui/
@@ -117,6 +119,13 @@ nexanalyzer/
 │   │   └── viz/profile.py          # The profile figure (Plotly; the ancestor drew SVG)
 │   ├── splittable/                 # A tool's split-table workbook (built by its SPLITTABLE scripts)
 │   │   ├── io/workbook.py          # The run sheet + Column_Design groups, read as bytes
+│   │   │                           # (shared, so a workbook open in Excel still reads)
+│   │   ├── io/refresh.py           # Refresh now: QC summary -> run list -> rows -> write
+│   │   ├── io/qc_summary.py        # QC Reports -> <tool>_QC_summary.xlsx (+ frozen Legacy)
+│   │   ├── io/table_writer.py      # In-place write: hand edits kept (_Computed), backup, lock
+│   │   ├── processing/qc_select.py # Which QC row a wafer shows ("QC" preset, newest, legacy)
+│   │   ├── processing/datalog_runs.py  # Incremental datalog -> runcard naming (cached reads)
+│   │   ├── processing/vb_build.py  # VB1P01's rows (port of build_vb_splittable.py)
 │   │   ├── processing/table.py     # Filters, series, std columns, growth vs non-growth
 │   │   ├── processing/links.py     # A row -> its datalog, runcard and optical folder
 │   │   └── viz/charts.py           # Trend vs run order, and X vs Y (Plotly)

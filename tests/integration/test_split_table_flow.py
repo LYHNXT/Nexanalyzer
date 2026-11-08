@@ -65,6 +65,50 @@ class TestTheSplitTablePage:
         assert "declares no split table" in at.warning[0].value
 
 
+def _vb_tool(tool, monkeypatch):
+    """`tool`'s workbook under VB1P01's name, the one tool with a refresh."""
+    root = tool.root.parent / "VB1P01"
+    (root / "SPLITTABLE").mkdir(parents=True)
+    (root / "SPLITTABLE" / "VB_SplitTable_from_runcards.xlsx").write_bytes(
+        tool.splittable_file.read_bytes())
+    layout = ToolLayout(name="VB1P01", root=root, spec={
+        "splittable": {"file": "SPLITTABLE/VB_SplitTable_from_runcards.xlsx"}})
+    monkeypatch.setattr(tool_select, "configured_tools", lambda: [layout])
+    return layout
+
+
+class TestRefreshNow:
+    def test_only_a_tool_with_a_refresh_offers_the_button(self, tool, monkeypatch):
+        at = AppTest.from_file(str(_PAGES / "8_Split_Table.py"), default_timeout=60)
+        at.session_state["splittable"] = {"tool_folder": str(tool.root)}
+        at.run()
+        assert not [b for b in at.button if b.key == "splittable_refresh"]
+
+        vb = _vb_tool(tool, monkeypatch)
+        at = AppTest.from_file(str(_PAGES / "8_Split_Table.py"), default_timeout=60)
+        at.session_state["splittable"] = {"tool_folder": str(vb.root)}
+        at.run()
+        assert at.button(key="splittable_refresh").label == "Refresh now"
+
+    def test_a_press_while_open_in_excel_changes_nothing(self, tool, monkeypatch):
+        vb = _vb_tool(tool, monkeypatch)
+        milestone = vb.root.parent / "HA1P01" / "SPLITTABLE" / "Milestone and Schedule.xlsx"
+        milestone.write_bytes(b"")
+        workbook = vb.splittable_file
+        (workbook.parent / ("~$" + workbook.name)).write_bytes(b"")
+        before = workbook.read_bytes()
+
+        at = AppTest.from_file(str(_PAGES / "8_Split_Table.py"), default_timeout=60)
+        at.session_state["splittable"] = {"tool_folder": str(vb.root)}
+        at.run()
+        at.button(key="splittable_refresh").click().run()
+
+        assert not at.exception, [e.value for e in at.exception]
+        assert any("open in Excel" in w.value for w in at.warning)
+        assert workbook.read_bytes() == before
+        assert not (workbook.parent / "_backups").exists()
+
+
 class TestHandOffs:
     def test_the_datalog_page_opens_on_the_handed_over_run(self, tmp_path):
         folder = tmp_path / "DATALOG"

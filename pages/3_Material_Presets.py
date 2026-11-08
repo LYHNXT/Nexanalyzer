@@ -30,6 +30,7 @@ import streamlit as st
 from PIL import Image, ImageDraw
 
 from core.io.om_calibration import load_om_calibration, save_om_calibration
+from core.io.precursor_rules import load_precursor_rules, save_precursor_rules, validate_rules
 from core.ui.theme import card, page_header
 from modules.optical.processing.contrast import layer_word
 from modules.optical.processing.scale_bar import (
@@ -829,4 +830,70 @@ with card("calibration"):
                 str(r["Magnification"]).strip(): float(r["um_per_px"]) for r in rows
             })
             st.success("Calibration saved.")
+            st.rerun()
+
+with card("precursor-rules"):
+    st.markdown("#### Precursor by run ID")
+    st.caption(
+        "The W precursor a run used, read off its run ID — by system, not by material: "
+        "the same series letters can mean different precursors on different tools, so "
+        "rules are grouped by the run ID's first two letters, and inside a group the "
+        "longest matching prefix wins. The split table uses a rule only where the "
+        "Milestone sheet's W column is NA or blank; a run no rule matches takes its "
+        "series' majority. Stored in data/precursor_rules.json."
+    )
+
+    precursor_rules = load_precursor_rules()
+    groups = sorted(precursor_rules)
+    rule_columns = {
+        "Prefix": st.column_config.TextColumn(
+            "Run-ID prefix", required=True, help="Must start with the group's two letters."
+        ),
+        "Precursor": st.column_config.TextColumn(
+            "Precursor", required=True, help='e.g. "W foil", "WO3", "W(CO)6".'
+        ),
+    }
+    edited_rules = {}
+    tabs = st.tabs(groups + ["New group"])
+    for group, tab in zip(groups, tabs):
+        with tab:
+            frame = pd.DataFrame(
+                [{"Prefix": p, "Precursor": v} for p, v in sorted(precursor_rules[group].items())],
+                columns=["Prefix", "Precursor"],
+            )
+            edited_rules[group] = st.data_editor(
+                frame, num_rows="dynamic", width="stretch", column_config=rule_columns,
+                key=f"precursor_rules_{group}",
+            )
+    with tabs[-1]:
+        new_group = st.text_input(
+            "Group (first two letters of the run IDs)", max_chars=2, key="precursor_new_group"
+        ).strip().upper()
+        new_frame = st.data_editor(
+            pd.DataFrame(columns=["Prefix", "Precursor"]), num_rows="dynamic", width="stretch",
+            column_config=rule_columns, key="precursor_rules_new",
+        )
+        if new_group:
+            if new_group in edited_rules:
+                st.caption(f"{new_group} already exists: these rows are added to it.")
+                edited_rules[new_group] = pd.concat([edited_rules[new_group], new_frame])
+            else:
+                edited_rules[new_group] = new_frame
+
+    if st.button("Save precursor rules", icon=":material/save:", type="primary"):
+        rules = {}
+        for group, frame in edited_rules.items():
+            for row in frame.dropna(subset=["Prefix", "Precursor"]).to_dict("records"):
+                rules.setdefault(group, {})[str(row["Prefix"]).strip().upper()] = (
+                    str(row["Precursor"]).strip()
+                )
+        flat = [str(row).strip().upper() for frame in edited_rules.values()
+                for row in frame["Prefix"].dropna()]
+        twice = sorted({p for p in flat if flat.count(p) > 1})
+        problems = validate_rules(rules) + [f"Prefix {p!r} is listed twice." for p in twice]
+        if problems:
+            st.error(" ".join(problems))
+        else:
+            save_precursor_rules(rules)
+            st.success("Precursor rules saved.")
             st.rerun()

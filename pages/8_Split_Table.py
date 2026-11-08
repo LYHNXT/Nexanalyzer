@@ -5,10 +5,13 @@ correlations out.
 Each tool folder's ``SPLITTABLE/<TOOL>_SplitTable_from_runcards.xlsx`` holds
 one row per run -- recipe parameters from the runcard, run time from the
 datalog, OM / Raman / PL results from the QC report -- built by the scripts
-beside it. This page reads that workbook and never writes it: the scripts own
-it, keep a ``.bak`` chain of it, and carry the naming overrides that decide
-what a row is called. A page that edited it would be a second author nobody
-reruns. Views are saved elsewhere, as CSV or XLSX.
+beside it. Views are saved elsewhere, as CSV or XLSX.
+
+**Refresh now** (VB1P01 only, `modules.splittable.io.refresh`) is the one
+write: it reads what changed -- new QC Reports, datalogs, runcards, Milestone
+rows -- and updates the workbook in place, keeping hand edits and backing the
+old file up first. It runs only when pressed. HA1P01's table is still built
+by its own SPLITTABLE scripts.
 
 Where the workbook is comes from ``data/tool_layouts.json`` (each tool's
 ``splittable.file``), so HA1P01 and VB1P01 are picked from the same Tool
@@ -41,6 +44,8 @@ from modules.spectra.processing.sample_scanner import (
     default_magnification,
     scan_sample_folder,
 )
+from modules.splittable.io import refresh as table_refresh
+from modules.splittable.io.table_writer import TableBusy
 from modules.splittable.io.workbook import SplitTable, read_split_table
 from modules.splittable.processing import links
 from modules.splittable.processing.table import (
@@ -171,12 +176,66 @@ def _render_save(view: pd.DataFrame, tool: tool_layout.ToolLayout, workbook: Pat
     st.success(f"Saved {len(view)} row(s) to `{target}`.")
 
 
+# ------------------------------------------------------------------- Refresh
+def _refresh_button(tool: tool_layout.ToolLayout) -> bool:
+    """The Workbook card's refresh button, for a tool that has a refresh."""
+    if table_refresh.profile_for(tool) is None:
+        return False
+    return st.button("Refresh now", key="splittable_refresh", width="stretch",
+                     icon=":material/refresh:",
+                     help="Read new QC Reports, datalogs, runcards and Milestone rows into the "
+                          "split table. The old file is backed up first; hand edits are kept.")
+
+
+def _run_refresh(tool: tool_layout.ToolLayout, state: dict) -> None:
+    """Run it with its progress shown, keep what it did for after the rerun."""
+    with st.status("Refreshing the split table...", expanded=True) as status:
+        try:
+            result = table_refresh.refresh_split_table(tool, progress=status.write)
+        except TableBusy as e:
+            status.update(label="Not refreshed", state="error")
+            state["refresh_message"] = ("warning", str(e))
+        except Exception as e:
+            status.update(label="Refresh failed", state="error")
+            state["refresh_message"] = ("error", f"Refresh failed: {e}")
+        else:
+            status.update(label="Refreshed", state="complete")
+            state["refresh_message"] = ("success", _refresh_summary(result))
+    st.rerun()
+
+
+def _refresh_summary(result) -> str:
+    def line(label, items):
+        return f"- {label}: {len(items)}" + (f" ({', '.join(items[:5])}{' ...' if len(items) > 5 else ''})"
+                                               if items else "")
+    lines = [
+        f"Refreshed in {result.seconds:.0f} s: {result.rows} rows.",
+        line("New QC Reports", result.qc_added),
+        line("Regenerated QC Reports", result.qc_updated + result.qc_kept_preset),
+        line("New runs", result.new_runs),
+        line("Renamed runs", result.renamed_runs),
+        line("Rows added", result.rows_added),
+        line("Rows removed", result.rows_removed),
+        line("Hand edits kept", result.hand_edits),
+    ]
+    if result.qc_unreadable:
+        lines.append(line("QC Reports not readable (OneDrive not synced?)", result.qc_unreadable))
+    if result.first_refresh_changes:
+        lines.append(f"- First refresh: {result.first_refresh_changes} cell(s) changed; listed "
+                     "in the workbook's Refresh_Changes sheet.")
+    if result.unchanged:
+        lines.append("- Nothing changed: the workbook was left as it is (no backup needed).")
+    if result.backup:
+        lines.append(f"- Backup: `{result.backup.name}` in `_backups`.")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------- Page
 page_header(
     "Process · Split Table",
     "Split Table",
     "Every run on a tool, one row each: recipe, run time and QC results from the "
-    "tool's split-table workbook. Read-only; the SPLITTABLE scripts build it.",
+    "tool's split-table workbook. Refresh now (VB1P01) brings it up to date.",
 )
 
 state = st.session_state.setdefault(_STATE_KEY, {"tool_folder": None})
@@ -220,10 +279,20 @@ with card("source"):
         st.stop()
 
     data = table.data
-    st.caption(
-        f"`{workbook}` · sheet `{table.sheet}` · {len(data)} rows × {len(data.columns)} columns · "
-        f"saved {datetime.fromtimestamp(mtime):%Y-%m-%d %H:%M} · read-only"
-    )
+    col_caption, col_refresh = st.columns([3, 1], vertical_alignment="center")
+    with col_caption:
+        st.caption(
+            f"`{workbook}` · sheet `{table.sheet}` · {len(data)} rows × {len(data.columns)} "
+            f"columns · saved {datetime.fromtimestamp(mtime):%Y-%m-%d %H:%M}"
+        )
+    with col_refresh:
+        pressed = _refresh_button(tool)
+    if pressed:
+        _run_refresh(tool, state)
+    message = state.pop("refresh_message", None)
+    if message:
+        kind, text = message
+        getattr(st, kind)(text)
 
 # ------------------------------------------------------------------- Filters
 with card("filters"):

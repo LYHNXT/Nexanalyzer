@@ -52,6 +52,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font
 
 from core.report.models import RAW_STAT_LABEL, DomainSizeStat, PeakStat
+from core.version import __version__
 from modules.optical.io import frame_tables
 
 from ..processing.peak_metrics import peak_intensity_and_stderr, raw_peak_stats
@@ -406,9 +407,15 @@ def _add_summary_sheet(
     material_name: str,
     report_date: str,
     techniques: Sequence[TechniqueResults],
+    layer: Optional[str] = None,
 ) -> None:
     """The reading sheet: identity block, then each technique's summary table
-    and ratios, then whatever was excluded."""
+    and ratios, then whatever was excluded.
+
+    The identity block ends with the layer the report was judged against and
+    the NexAnalyzer version that wrote it, so a summary collected from many
+    reports can say which fit made each number. Sample, Material and Date keep
+    their rows; the new ones come after them."""
     ws = wb.create_sheet(title="Summary", index=0)
     summary_columns = _summary_columns()
 
@@ -420,6 +427,8 @@ def _add_summary_sheet(
         ("Sample", sample_name),
         ("Material", material_name),
         ("Date", report_date),
+        *((("Layer", layer),) if layer else ()),
+        ("NexAnalyzer", __version__),
     ):
         ws.cell(row=row, column=1, value=label).font = _HEADING_FONT
         ws.cell(row=row, column=2, value=value)
@@ -472,6 +481,7 @@ def build_sample_results_xlsx(
     optical_threshold_pair=None,
     domain_stat: Optional[DomainSizeStat] = None,
     domain_class_label: Optional[str] = None,
+    layer: Optional[str] = None,
 ) -> bytes:
     """
     The sample's results as .xlsx bytes: a `Summary` sheet, one per-point sheet
@@ -491,6 +501,8 @@ def build_sample_results_xlsx(
     arguments of the same name -- the pooled `DomainSizeStat`, and the OM
     class its domains were split from. None (no domain-size analysis ran)
     omits the `Domain_Size` sheet entirely rather than writing an empty one.
+    `layer` is the reference layer the report was judged against; it and the
+    app version close the Summary sheet's identity block.
 
     Returns
     -------
@@ -504,7 +516,7 @@ def build_sample_results_xlsx(
     # created with their titles below.
     wb.remove(wb.active)
 
-    _add_summary_sheet(wb, sample_name, material_name, report_date, techniques)
+    _add_summary_sheet(wb, sample_name, material_name, report_date, techniques, layer)
     for technique in techniques:
         _add_data_sheet(wb, technique)
     _add_optical_sheets(wb, optical_frames, optical_threshold_pair)

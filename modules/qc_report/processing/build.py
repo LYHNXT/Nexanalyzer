@@ -459,6 +459,7 @@ def build_qc_report(inputs: QcReportInputs, progress, warn: Callable[[str], None
             material_name=inputs.material,
             report_date=report_date,
             techniques=techniques,
+            layer=inputs.reference_layer,
             optical_frames=frames or (),
             optical_threshold_pair=threshold_pair,
             domain_stat=out["domain_stat"],

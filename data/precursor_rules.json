@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "groups": {
+    "VA": {
+      "VA1P0125": "W(CO)6",
+      "VA1P0126": "W foil",
+      "VAA": "W foil",
+      "VAB": "WO3",
+      "VAHA": "W(CO)6"
+    },
+    "VB": {
+      "VBA": "WO3",
+      "VBB": "W(CO)6",
+      "VBC": "W foil"
+    }
+  }
+}

@@ -3,8 +3,8 @@ Read a tool's split-table workbook: the run sheet, and the column design that
 groups it.
 
 The workbook is written by the scripts in each tool's ``SPLITTABLE`` folder
-(``add_splittable_rows.py`` and friends on HA1P01, ``build_vb_splittable.py``
-on VB1P01), never by this app. The two tools' workbooks share a shape but not
+(``add_splittable_rows.py`` and friends on HA1P01) or, on VB1P01, by the
+page's Refresh now (`refresh`); this module only reads it. The two tools' workbooks share a shape but not
 a schema -- HA has 90 columns and VB 98, and the QC columns are spelled
 differently (``E2g_A1g_FWHM_Mean`` against ``E2g_A1g_FWHM``) -- so nothing here
 names a column beyond the few both carry: ``WaferID``, ``Month``,
@@ -13,7 +13,9 @@ names a column beyond the few both carry: ``WaferID``, ``Month``,
 **Read as bytes first.** openpyxl opens the path as a seekable zip, and on a
 OneDrive file that seek fails with ``OSError: [Errno 22] Invalid argument``
 (seen on VB_SplitTable_from_runcards.xlsx while HA's beside it opened fine).
-One ``read_bytes()`` is a plain sequential read, which OneDrive serves.
+One ``read_bytes()`` is a plain sequential read, which OneDrive serves. It
+shares the file for deletion too (`core.io.shared_read`), so a workbook open
+in Excel still reads -- as of its last save.
 """
 
 import io
@@ -22,6 +24,8 @@ from pathlib import Path
 from typing import Union
 
 import pandas as pd
+
+from core.io.shared_read import read_bytes_shared
 
 #: The sheet the column design lives on, and the group a column it does not
 #: list falls into.
@@ -45,10 +49,11 @@ class SplitTable:
 def read_split_table(path: Union[str, Path]) -> SplitTable:
     """The workbook's first sheet as a frame, with its columns grouped.
 
-    Raises what reading raises -- a missing file, a workbook open and locked
-    in Excel -- because the page has to say which of those it was.
+    Raises what reading raises -- a missing file, one no process will share --
+    because the page has to say which of those it was. A workbook merely open
+    in Excel is not one of them.
     """
-    raw = Path(path).read_bytes()
+    raw = read_bytes_shared(path)
     book = pd.ExcelFile(io.BytesIO(raw))
     sheet = book.sheet_names[0]
     data = _tidy(book.parse(sheet))

@@ -194,3 +194,42 @@ class TestFitWindowsSurviveTheEditor:
         assert _read(store) == before
         assert before["materials"][0]["pl"]["energy_gaps"] == [
             {"upper": "Exciton", "lower": "Trion", "gap_meV": 35.0, "tolerance_meV": 10.0}]
+
+
+class TestPrecursorRules:
+    """The Precursor by run ID card writes the committed data/precursor_rules.json."""
+
+    @pytest.fixture
+    def rules_path(self, store, tmp_path, monkeypatch):
+        import core.io.precursor_rules as precursor_rules
+
+        path = tmp_path / "precursor_rules.json"
+        monkeypatch.setattr(precursor_rules, "get_precursor_rules_path", lambda: path)
+        precursor_rules.save_precursor_rules(precursor_rules.DEFAULT_RULES)
+        return path
+
+    def _save(self, at):
+        next(b for b in at.button if b.label == "Save precursor rules").click().run()
+
+    def test_one_tab_per_group_and_a_new_group_tab(self, rules_path):
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        assert not at.exception
+        assert [t.label for t in at.tabs][-3:] == ["VA", "VB", "New group"]
+
+    def test_saving_without_editing_changes_nothing(self, rules_path):
+        before = _read(rules_path)
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        self._save(at)
+        assert not at.exception
+        assert _read(rules_path) == before
+
+    def test_a_new_group_is_saved_under_its_letters(self, rules_path):
+        at = AppTest.from_file(PAGE, default_timeout=60).run()
+        at.text_input(key="precursor_new_group").input("ha").run()
+        at.session_state["precursor_rules_new"] = {
+            "added_rows": [{"Prefix": "HAD", "Precursor": "WO3"}],
+            "edited_rows": {}, "deleted_rows": [],
+        }
+        self._save(at)
+        assert not at.exception
+        assert _read(rules_path)["groups"]["HA"] == {"HAD": "WO3"}

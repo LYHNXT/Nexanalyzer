@@ -16,8 +16,9 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 8. [How Updates Work](#how-updates-work)
 9. [Quick Start: Auto-Workflow with Material Presets](#quick-start-auto-workflow-with-material-presets)
 10. [QC Report: Seven Figures and a Workbook from a Sample Folder](#qc-report-seven-figures-and-a-workbook-from-a-sample-folder)
-11. [File Format](#file-format)
-12. [Troubleshooting](#troubleshooting)
+11. [Split Table: Refresh Now](#split-table-refresh-now)
+12. [File Format](#file-format)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -285,6 +286,14 @@ automatically — check both, and type the length if the label wasn't read. If t
 smaller than the camera's full frame (2240 px wide), the result is scaled to full-frame
 pixels. Pick the magnification and click **"Save measured µm/px"**.
 
+**Precursor by run ID.** Below the calibration, the **Precursor by run ID** card says which W
+precursor a run used, from its run ID. Rules are grouped by the run ID's first two letters
+(one tab per system: VA, VB, ...); inside a group the longest matching prefix wins, so
+`VAHA` → W(CO)6 overrides `VA…` rules and `VA1P0125` / `VA1P0126` split the serials by year.
+Add rows with the table's `+`, add a system on the **New group** tab, and click
+**"Save precursor rules"**. The split table uses a rule only where the Milestone sheet's W
+column is NA or blank.
+
 ### 2. Load Your Spectrum Files
 
 1. On the **Spectra** page, click **"Add files…"** beside the **Spectrum file** dropdown
@@ -423,13 +432,61 @@ lands beside it sharing that stem:
 
 | Sheet | Holds |
 |---|---|
-| `Summary` | Each technique's mean ± std table, the intensity ratios, and any point that failed to fit |
+| `Summary` | Sample, material (the preset), date, reference layer and the NexAnalyzer version that wrote it; then each technique's mean ± std table, the intensity ratios, and any point that failed to fit |
 | `Raman` / `PL` | One row per fitted peak per point — centre, intensity, FWHM and their stderrs, R², χ², and the file each row came from |
 | `OM_Stats` | Per-class coverage and contrast, with how many frames were noise-limited |
 | `OM_Points` | One row per frame: its coverages, contrasts, and the histogram landmarks the thresholds were placed from |
 
 Anything that had no data writes no file — a Raman-only sample produces five figures, not seven
 with two blank ones.
+
+---
+
+## Split Table: Refresh Now
+
+The **Split Table** page shows a tool's run-by-run workbook. For **VB1P01** it also has a
+**Refresh now** button (top right of the *Workbook* card). It runs only when you press it, and
+reads only what changed since the last press:
+
+1. **QC Reports** — every `OPTICAL/<month>/<wafer>/*_QC_Report.xlsx` that is new or was
+   regenerated goes into `OPTICAL/VB_QC_summary.xlsx`, one row per wafer and preset. A report
+   regenerated with another preset adds a row; the old preset's row stays.
+2. **Datalogs** — new logs are named by their tag, or matched to a runcard.
+3. **Runcards and the Milestone sheet** — re-read for every row.
+4. **The workbook** is updated in place.
+
+**Which QC a row shows.** A preset whose name contains "QC" (e.g. WSe2_QC) first, the newest
+such report if there are two; else the newest report with any other preset; else the old values
+from `OM_Raman_PL_summary.xlsx`, which are kept frozen. The `QC_Source`, `QC_Fit_Mode`,
+`QC_Layer`, `QC_Version` and `QC_Report_Date` columns say which. Mind `QC_Layer`:
+`OM_Reference_pct` is the area *at that layer*, so a 1L and a 2L number are not the same
+measure. A wafer with no report gets no QC, but its runcard, datalog and Milestone columns still
+update.
+
+**Gaps are filled from the next source.** When the chosen source has none of a measurement
+block (e.g. the raw PL `PL_Raw_*`, which the old summaries never had), that block is taken
+whole from the next-ranked report that has it, and the row's `Remark` says so:
+`QC filled: PL_Raw from VBCA00_QC_Report.xlsx (WSe2, 2026-10-10)`. `QC_Source` and
+`QC_Fit_Mode` still name the main source.
+
+**W_source** comes from the Milestone sheet's W column; where that says NA or is blank, from
+the run-ID rules (Material Presets → *Precursor by run ID*); else the series' most common
+source. `W_source_rule` says which, and `Precursor_check` points out a Milestone value the
+run-ID rule disagrees with.
+
+**Your edits are kept.** Change a cell in Excel and the next refresh keeps it, naming the
+column in `Hand_Edits` (with today's value from the sources, when that differs). Columns and
+rows you add yourself are carried over. Every refresh that changes something first copies the
+old file to `SPLITTABLE/_backups/` — to undo one, copy the latest `.bak_<time>` back over the
+workbook. A press that finds nothing new leaves the workbook alone (about 7 s); one that writes
+takes about 15 s, most of it saving the workbook.
+
+**Close the workbook in Excel first.** A refresh stops without changing anything when Excel
+has it open, or when someone else's refresh is running.
+
+The same refresh runs without the app: `update_vb_splittable.py` in VB1P01's SPLITTABLE folder
+(add `--dry-run <folder>` to write everything to another folder instead). HA1P01's table is
+still built by its own scripts.
 
 ---
 

@@ -5,7 +5,7 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Local additions (on top of 5.47.0; app version 5.47.0+local.1)
+## Local additions (on top of 5.47.0; app version 5.47.0+local.4)
 
 Installation-specific changes carried on top of upstream. `core/version.py`
 reports them as `<upstream>+local.N`: the upstream release they sit on, plus a
@@ -24,6 +24,108 @@ the rest are dropped in favour of upstream's own versions:
   those figures;
 - the in-app edits to WSe2_truncate (Raman 110-320 cm-1, a 1L optical block,
   2L -9.0/+4.5) -- upstream's WSe2_truncate is used as is.
+
+### 5.47.0+local.4 - 2026-11-08
+
+#### Added
+
+- **Split Table: Refresh now** (VB1P01). One press brings
+  `VB_SplitTable_from_runcards.xlsx` up to date, reading only what changed:
+  new or regenerated QC Reports into `OPTICAL/VB_QC_summary.xlsx` (one row
+  per wafer and preset; a report regenerated with another preset keeps the
+  old row), new datalogs named by tag or matched to a runcard (reads are
+  cached, so a press takes seconds instead of the eight minutes a full match
+  takes), runcards and the Milestone sheet. The workbook is updated in place:
+  cells edited by hand are kept and named in a new `Hand_Edits` column (a
+  hidden `_Computed` sheet holds what the refresh computed), columns and rows
+  added by hand are carried, the old file is copied to `_backups/` first, and
+  nothing is written while Excel has the file open or another refresh is
+  running. Press-only, never on a timer. Ported from Ang-Yu Lu's
+  `build_vb_splittable.py` / `match_datalogs.py`
+  (`modules/splittable/processing/vb_build.py`, `datalog_runs.py`); those
+  scripts stay in SPLITTABLE because HA1P01's `build_ha_w_source.py` imports
+  them, and `update_vb_splittable.py` beside them runs the refresh without
+  the app. HA1P01 is unchanged. See docs/Split_Table_Refresh.md.
+- **QC choice per wafer** (`processing/qc_select.py`, user 2026-11-08): a
+  preset containing "QC" first (the newer of two), else the newest QC Report,
+  else the frozen legacy value (`OM_Raman_PL_summary.xlsx`, and
+  `VB_Raman_PL_summary_WSe2_QC.xlsx` + `OM_WSe2_QC.csv` for VBCA, as the old
+  builder used them). New columns `QC_Source`, `QC_Fit_Mode`, `QC_Layer`,
+  `QC_Version`, `QC_Report_Date` say which. The table now also carries the
+  PL Raw spectrum's `PL_Raw_Center`, `PL_Raw_FWHM` (the width the PL spec is
+  judged on) and `PL_Raw_Intensity`; they are blank where the legacy value is
+  shown, because the old summaries never had them -- see the gap fill below.
+  OM numbers are taken from the
+  report's `OM_Points` the way `build_om_wse2_qc.py` takes them; on VBCA00
+  and VBCA03 they reproduce the legacy WSe2_QC values to the legacy's three
+  decimals.
+- **QC gaps are filled from the next source** (user, 2026-11-08). When the
+  chosen QC row has none of a measurement block (`PL_Raw`, `Raman_C/LB`,
+  `OM`, ...), the whole block comes from the next-ranked row that has it,
+  and the row's `Remark` says `QC filled: <block> from <report> (<fit mode>,
+  <date>)`. VBCA00-20 (legacy 3_WSe2_QC) take `PL_Raw` and `Raman_C/LB`
+  from their WSe2 / WSe2_truncate reports.
+- **A press with nothing new writes nothing**: no cell changed means no
+  rewrite and no backup (about 7 s instead of 15 s).
+- **W_source uses the run-ID rules**: Milestone's W column, then the
+  *Precursor by run ID* rule where it is NA or blank, then the series
+  majority. New columns `W_source_rule` (which one) and `Precursor_check`
+  (Milestone disagreeing with the rule).
+- **The QC Report workbook's Summary sheet states the reference layer and the
+  NexAnalyzer version** that wrote it, after Sample / Material / Date (which
+  keep their rows), so a summary collected from many reports can say which fit
+  made each number. No number in the report moves.
+
+#### Changed
+
+- **Numbers that move in the VB split table** on its first refresh (all
+  listed cell by cell in the workbook's `Refresh_Changes` sheet): VBBF66-70
+  take their QC Reports (preset WSe2, judged at 1L) instead of the legacy
+  values (judged at 2L); VBCA25-41 gain QC from their reports; VBCA00-24
+  are unchanged (legacy 3_WSe2_QC still outranks their WSe2 / WSe2_truncate
+  reports). VBCA's W_source becomes W foil (rule VBC) where Milestone says
+  NA; it was the series majority, WO3, carried from the August typo series.
+  Rows follow Process_Start, else the card's save time. No fitted number
+  moves.
+
+#### Fixed
+
+- **The refresh's write took ~6 s longer than it needed**: greying the
+  non-growth rows indexed each row with `ws[i]`, and openpyxl rescans the
+  whole sheet for its width on every such call. One pass over the rows now.
+- **The August 2026 VBAC runs are their own rows again.** Their logs were
+  tagged VBCA02-17 (a typo, renamed to VBAC on 2026-11-08) and joined as
+  `VBCAxx-2608`; that workaround is gone. VB1P01's copier re-creates the old
+  `~VBCAxx` names beside the renamed files, so of two tagged files for one
+  run the refresh cites the one `runcard_tags.json` records.
+
+### 5.47.0+local.3 - 2026-11-08
+
+#### Added
+
+- **Precursor by run ID** -- a new card on the Material Presets page, after
+  *Objective calibration*: which W precursor a run used, read off its run ID.
+  Rules are grouped by the run ID's first two letters (the system: VA, VB, ...,
+  because the same series letters can mean different precursors on different
+  tools), and inside a group the longest matching prefix wins. Stored in the
+  committed `data/precursor_rules.json` (module `core/io/precursor_rules.py`),
+  apart from the material presets: a fit preset changes with the fitting, a
+  run's precursor never does. Defaults (user, 2026-11-08): VA -- VAA W foil,
+  VAB WO3, VAHA W(CO)6, VA1P0125 W(CO)6, VA1P0126 W foil; VB -- VBA WO3,
+  VBB W(CO)6, VBC W foil. Nothing reads the rules yet: the split-table refresh
+  that will (Milestone W column, then this rule where it is NA or blank, then
+  the series majority) is the next step. No number moves.
+
+### 5.47.0+local.2 - 2026-11-08
+
+#### Fixed
+
+- **The Split Table page reads a workbook that is open in Excel.** It showed
+  `Could not read VB_SplitTable_from_runcards.xlsx: [Errno 13] Permission
+  denied` instead: Excel and OneDrive hold the file with delete access, and
+  Python's `open()` does not share delete, so Windows refused it. The read now
+  shares delete as Explorer does (`core/io/shared_read.py`) and gets the last
+  saved version. No number moves.
 
 ### 5.47.0+local.1 - 2026-11-03
 
