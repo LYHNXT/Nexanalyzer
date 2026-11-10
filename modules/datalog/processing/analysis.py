@@ -25,6 +25,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from modules.runcard.processing.growth_window import HeaterHold
+
 TIME_COLUMN = "Time"
 """The datalog's timestamp column, logged as ``%Y/%m/%d %H:%M:%S``.
 
@@ -64,6 +66,79 @@ SV_FLOOR: Dict[str, float] = {
     **{f"MFC-{i}": 0.05 for i in range(1, 9)},
     **{f"P{i}": 1.0 for i in range(1, 4)},
 }
+
+#: Pairs whose process value falls on its own once the channel stops being
+#: driven -- the heaters, in °C. Nothing pulls a chamber down to ambient; it
+#: cools, and the controller logs no command for it (see `cooldown_tail_mask`).
+#: Every other channel is driven in both directions: an MFC at 0 sccm is a
+#: valve held shut, and a flow that stops while the setpoint still asks for it
+#: is a finding.
+PASSIVE_PAIRS = frozenset({"Heater", "P1_H", "P2_H", "P3_H"})
+
+#: How far a passive channel must fall before its tail reads as a cool-down
+#: rather than a droop, as a fraction of the distance from its setpoint to the
+#: coldest the run itself ever saw -- the chamber's own ambient, which is the
+#: only floor in the log and the one a cool-down is heading for.
+#:
+#: Measured against a fixed fraction of the setpoint instead, this rule worked
+#: on the 910 °C main heater (ending at 94 °C) and failed on P1_H, whose 40 °C
+#: zone cools to 35 against an ambient of 33 and so can never reach half its
+#: own setpoint. Against ambient both are past 90 % of the way down, while a
+#: heater sagging to 880 °C of a commanded 910 has travelled 3 % and stays a
+#: finding.
+COOLDOWN_FALL_FRACTION = 0.5
+
+#: How far the log's setpoint may sit from the card's commanded level and
+#: still count as the tool having arrived at it. The controller logs whole
+#: degrees and walks the setpoint up one degree at a time, so it lands on the
+#: card's number exactly; the band is for a card written to a half-degree.
+HOLD_MATCH_C = 2.0
+
+
+def runcard_heater_off(df: pd.DataFrame, sv_col: str,
+                       hold: HeaterHold) -> Optional[pd.Timestamp]:
+    """When the recipe switched the main heater off, read from card and log together.
+
+    The log cannot answer this on its own. A recipe ends the heater with
+    `Heater Soak,0` and **the controller logs nothing for it**: `Heater SV`
+    stays at the growth value to the last row while `Heater PV` decays to
+    ambient, so every run ends with a setpoint nothing is driving. The card
+    does say it -- and the card's clock does not survive contact with the tool
+    (see `HeaterHold`), so neither side is usable alone.
+
+    Each is used for what it is good at. The card gives the **level** the
+    heater is held at last and **how long** it is held; the log gives the
+    **moment** its setpoint arrived there. Off is that moment plus that
+    duration.
+
+    The anchor is the start of the **last** block of rows at the card's level,
+    not the first: a run that touches the level, leaves it and comes back is
+    held from the return. The stale lead-in is excluded first, because a run
+    whose previous occupant left the setpoint at this very value -- the common
+    case, the heater is rarely changed between runs -- would otherwise anchor
+    on row 0 and put the heater-off before the ramp had even started.
+
+    Returns None when the log never reaches the card's level: a run aborted
+    during the ramp, or a card matched to the wrong log. The caller then falls
+    back to `cooldown_tail_mask`'s log-only reading rather than trusting a
+    number built from a level this run never saw.
+    """
+    sv = df[sv_col]
+    if sv.empty:
+        return None
+    at = ((sv - hold.level_c).abs() <= HOLD_MATCH_C) & ~stale_lead_in_mask(sv)
+    if not at.any():
+        return None
+    # The start of the last block: walk back along the contiguous tail of the
+    # at-level positions. A gap of more than one row ends the block.
+    pos = at.to_numpy().nonzero()[0]
+    start = pos[-1]
+    for a, b in zip(reversed(pos[:-1]), reversed(pos[1:])):
+        if b - a != 1:
+            break
+        start = a
+    return df[TIME_COLUMN].iloc[start] + pd.Timedelta(seconds=hold.seconds)
+
 
 
 def get_tolerance_pct(thresholds: dict, pair_name: str) -> float:
@@ -209,6 +284,79 @@ def evaluable_rows(df: pd.DataFrame, pair_name: str, sv_col: str) -> pd.Series:
     floor = SV_FLOOR.get(pair_name, SV_ZERO_EPSILON)
     # NaN >= floor is False, so a missing setpoint is not evaluated either.
     return (sv.abs() >= floor) & ~stale_lead_in_mask(sv)
+
+
+def cooldown_tail_mask(df: pd.DataFrame, pair_name: str, pv_col: str, sv_col: str,
+                       deviation_pct: pd.Series, tolerance_pct: float,
+                       heater_off: Optional[pd.Timestamp] = None) -> pd.Series:
+    """True on the trailing rows where a heater is cooling with nobody driving it.
+
+    The twin of `stale_lead_in_mask`, at the other end of the run and for the
+    same reason: the setpoint no longer says what the tool was told to do. A
+    recipe ends the heater with ``Heater Soak,0`` -- switch it off and let the
+    chamber fall -- and **the controller logs nothing for that**: `Heater SV`
+    stays at the growth value to the last row while `Heater PV` decays to
+    ambient. On VBCA26 (2026-11-02) that is 910 °C held against a PV falling
+    to 94 °C over 33 minutes, and it is not particular to that run: of 60 runs
+    sampled across HA1P01 and VB1P01, every one ends this way, with 60-84 % of
+    the final setpoint block outside tolerance. Judged literally, the table
+    reports a half-hour heater violation on every run the tool has ever made.
+
+    **With the runcard in hand this is not inferred at all.** `heater_off` is
+    the card's own `Heater Soak,0`, placed on the log's clock by
+    `runcard_heater_off`; every row from it on is cool-down, full stop, and
+    none of the tests below are consulted. The card says the heater was switched
+    off, which is the fact the log is missing -- whether the chamber then
+    cooled quickly, slowly or not at all changes nothing about the setpoint no
+    longer meaning anything. Only the main `Heater` can be read this way: a
+    card's `heater_off_t` is the main heater's, and `P1_H`..`P3_H` keep the
+    reading below.
+
+    Without it -- no tag, no card, or a card that never switches the heater off
+    -- the cool-down is anchored on the **PV**, because that is the only side
+    that moves: it is the stretch after the last row where the heater was at
+    its setpoint, and it counts only when
+
+    - the pair cools passively at all (`PASSIVE_PAIRS`) -- a driven channel
+      that walks away from a live setpoint is a fault, not physics;
+    - the heater did reach that setpoint. A ramp that never arrives has no
+      cool-down in it, and stays judged to the last row;
+    - it never comes back. The last in-tolerance row is the anchor, so a dip
+      and a recovery mid-soak is left where it is, in the table;
+    - and it ends genuinely cold -- `COOLDOWN_FALL_FRACTION` of the way from
+      the setpoint to the coldest reading of the whole run. A heater that sags
+      and stays sagging has barely moved by that measure, and stays a finding.
+
+    **What the log-only reading knowingly gives up**: a heater that fails
+    during the final soak and never recovers cools exactly like one that was
+    switched off, and the log holds nothing to tell them apart. Such a run is
+    not reported there. That is precisely what `heater_off` buys back -- a
+    failure before the card's off is still inside the judged stretch -- and it
+    is the reason to prefer the card whenever a run has one. Either way the
+    chart draws it: the PV trace falls away from the setpoint in both cases,
+    which is what a process engineer reads anyway.
+    """
+    tail = pd.Series(False, index=df.index)
+    if pair_name not in PASSIVE_PAIRS or df.empty:
+        return tail
+    if heater_off is not None and pair_name == "Heater":
+        return df[TIME_COLUMN] >= heater_off
+    sv, pv = df[sv_col], df[pv_col]
+    in_band = deviation_pct.abs() <= tolerance_pct
+    if not in_band.any():
+        return tail
+    last_at_setpoint = in_band.index[in_band.to_numpy()][-1]
+    after = df.index.get_loc(last_at_setpoint) + 1
+    if after >= len(df.index):
+        return tail
+    final_sv = sv.iloc[-1]
+    ambient = pv.min()
+    if pd.isna(final_sv) or pd.isna(ambient) or ambient >= final_sv:
+        return tail
+    if pv.iloc[-1] > ambient + (1.0 - COOLDOWN_FALL_FRACTION) * (final_sv - ambient):
+        return tail
+    tail.iloc[after:] = True
+    return tail
 
 
 def find_violation_mask(deviation_pct: pd.Series, tolerance_pct: float) -> pd.Series:
@@ -360,6 +508,7 @@ def compute_all_violations(
     pv_sv_pairs: List[Tuple[str, str, str]],
     thresholds: dict,
     get_tolerance_pct: Callable[[dict, str], float] = get_tolerance_pct,
+    heater_off: Optional[pd.Timestamp] = None,
 ) -> Tuple[pd.DataFrame, Dict[str, Tuple[pd.Series, pd.Series]]]:
     """
     Every pair's violations, pooled into one chronological table.
@@ -379,10 +528,24 @@ def compute_all_violations(
         defaults to the one above, which is the only copy — the source app kept
         a duplicate in its page and required the two to be edited together,
         which is not a mechanism.
+    heater_off : Optional[pd.Timestamp]
+        When the matched runcard switched the main heater off, from
+        `runcard_heater_off`. It fixes the one thing the log gets wrong —
+        `Heater SV` holds the growth setpoint through a cool-down the
+        controller never logs — and is optional throughout: an untagged run, a
+        card without a `Heater Soak,0`, or a run that never reached the card's
+        level falls back to reading the log alone. Nothing else in the
+        judgement changes, and no other channel consults it. Resolved by the
+        caller rather than here, so the card lookup stays out of a function
+        whose job is to judge a frame it was handed.
 
     A pair is judged only on `evaluable_rows`: the stale lead-in a run
     inherits and a setpoint below the channel's `SV_FLOOR` are blanked to NaN
-    in the deviation series, exactly as an idle channel's are.
+    in the deviation series, exactly as an idle channel's are. So is the
+    cool-down a heater is left in at the end (`cooldown_tail_mask`), which the
+    controller logs as a setpoint it is no longer driving — located from the
+    runcard when `heater_off` is given, and from the PV's own fall when it is
+    not.
 
     Returns
     -------
@@ -407,6 +570,11 @@ def compute_all_violations(
         # or below the channel's resolution -- are NaN, like an idle channel's:
         # not flagged, and not drawn as deviating on the chart either.
         deviation_pct[~evaluable_rows(df, pair_name, sv_col)] = float("nan")
+        # After the lead-in, so the anchor cannot land on an inherited setpoint
+        # the heater was never driven to.
+        deviation_pct[cooldown_tail_mask(df, pair_name, pv_col, sv_col,
+                                         deviation_pct, tolerance_pct,
+                                         heater_off)] = float("nan")
         mask = find_violation_mask(deviation_pct, tolerance_pct)
         masks[pair_name] = (mask, deviation_pct)
         all_segments.extend(find_violation_segments(df, pair_name, mask, deviation_pct))

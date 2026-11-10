@@ -95,7 +95,8 @@ def _vertical_spacing(n_rows: int) -> float:
 
 
 def build_single_run_figure(df: pd.DataFrame, plot_items: List[dict],
-                            violation_masks: Dict[str, Tuple[pd.Series, pd.Series]]) -> go.Figure:
+                            violation_masks: Dict[str, Tuple[pd.Series, pd.Series]],
+                            heater_off: Optional[pd.Timestamp] = None) -> go.Figure:
     """
     One run: a panel per selected channel, against wall-clock time.
 
@@ -119,6 +120,17 @@ def build_single_run_figure(df: pd.DataFrame, plot_items: List[dict],
         ``pair_name -> (mask, deviation_pct)`` from
         `analysis.compute_all_violations`. A pair absent from it, or one whose
         mask is all-False, simply draws no markers.
+    heater_off : Optional[pd.Timestamp]
+        When the run's runcard switched the main heater off
+        (`analysis.runcard_heater_off`). The ``Heater`` panel's dashed setpoint
+        **stops there**, because from that moment the logged ``Heater SV`` is
+        not a setpoint: the controller holds the growth value to the last row
+        while nothing drives the chamber. Drawing it on was the complaint this
+        answers -- a dashed line at 910 °C beside a PV at 94 °C reads as a
+        half-hour failure. The PV is still drawn to the end, so the cool-down
+        itself stays visible; only the claim that something was commanding it
+        goes away. Without a card the line is drawn whole, as before: no card
+        means nothing better to say than what the controller logged.
     """
     n = len(plot_items)
     fig = make_subplots(
@@ -142,8 +154,12 @@ def build_single_run_figure(df: pd.DataFrame, plot_items: List[dict],
                            mode="lines", line=dict(color=PV_COLOR), showlegend=False),
                 row=row, col=1,
             )
+            sv = df[sv_col]
+            if heater_off is not None and pair_name == "Heater":
+                # .where keeps the index and x alignment: the line simply ends.
+                sv = sv.where(time < heater_off)
             fig.add_trace(
-                go.Scatter(x=time, y=df[sv_col], name=sv_col, legendgroup=pair_name,
+                go.Scatter(x=time, y=sv, name=sv_col, legendgroup=pair_name,
                            mode="lines", line=dict(color=SV_COLOR, dash="dash"),
                            showlegend=False),
                 row=row, col=1,

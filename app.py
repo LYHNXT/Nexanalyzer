@@ -41,8 +41,8 @@ where each tool's folders are, for every page above to use.
 import streamlit as st
 
 from core.paths import PROJECT_ROOT
-from core.ui.theme import apply_theme
-from core.version import APP_NAME, APP_TAGLINE, __version__
+from core.ui.theme import apply_theme, sidebar_footer
+from core.version import APP_NAME
 from modules.spectra.ui.session_state import initialize_session_state
 
 # Configure page (must run once, before any other Streamlit command)
@@ -92,6 +92,8 @@ nav = st.navigation(
     position="sidebar",
 )
 
-st.sidebar.caption(f"{APP_NAME} v{__version__} — {APP_TAGLINE}")
+# The app name and version sit at the top of the sidebar (core/ui/theme.py);
+# the maker sits at its foot.
+sidebar_footer()
 
 nav.run()

@@ -17,9 +17,9 @@ described in [CHANGELOG.md](CHANGELOG.md).
 
 ### Windows: one click
 
-Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/Nexstrom/NexAnalyzer/main/Install-NexAnalyzer.bat)**
-(right-click the link, *Save link as...*; you must be signed in to GitHub with access to
-this repository) and double-click it. It installs Python and Git if they are missing,
+Open **[Install-NexAnalyzer.bat](https://github.com/Nexstrom/NexAnalyzer/blob/main/Install-NexAnalyzer.bat)** on GitHub (sign in
+first — the repository is private), click the **Download raw file** button at the top right
+of the file, and double-click what you downloaded. It installs Python and Git if they are missing,
 downloads the app, puts a shortcut on your Desktop, and launches it. Your browser may warn
 about keeping a `.bat` file; choose **Keep**.
 
@@ -154,7 +154,7 @@ technique means adding a package under `modules/` and registering its pages in `
 ```bash
 pip install -r requirements-dev.txt
 git config core.hooksPath .githooks       # once per clone: golden-fit check on commit and push
-python -m pytest                          # ~1,560 tests
+python -m pytest                          # ~1,790 tests
 python -m ruff check .
 python -m tests.golden.run                # validated golden set -> dist/golden/golden_report.md
 powershell -File scripts\ship.ps1         # gates, push, open the PR, wait for CI

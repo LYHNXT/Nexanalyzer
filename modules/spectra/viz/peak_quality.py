@@ -893,7 +893,13 @@ def build_peak_quality_figure(
     raw = [_PeakRecord(point=point, spectrum=-1 - i, label=RAW_LABEL, center=float(center),
                        fwhm=float(fwhm), intensity=1.0)
            for i, (point, center, fwhm) in enumerate(raw_by_point or ()) if fwhm is not None]
-    records += _clean(raw, spec.cleaning)
+    # The Raw band keeps every spectrum above the width floor (v5.57.0). The
+    # widest-5 % cut exists for *fitted* peaks, where a width that ran wide is
+    # a broken fit; a raw width is read off the spectrum, so a wide one is a
+    # wide band, and dropping it made the title's "Raw FWHM" the median of the
+    # narrowest 95 % -- a little under the true median, in the passing
+    # direction, exactly where the 40 nm limit is read.
+    records += _clean(raw, dataclasses.replace(spec.cleaning, fwhm_top_fraction=None))
 
     # Resolved from the fits, not from `spec`: a material whose peaks the
     # inherited columns never name gets columns built from its own. Taken

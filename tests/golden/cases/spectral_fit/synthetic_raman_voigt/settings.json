@@ -1,0 +1,38 @@
+{
+  "mode": "Raman",
+  "preset": {
+    "material_name": "Synthetic Raman",
+    "enabled": true,
+    "description": "synthetic validated case; see make_synthetic.py",
+    "raman": {
+      "x_range_enabled": false,
+      "x_min": null,
+      "x_max": null,
+      "despike_threshold": 500.0,
+      "baseline_algorithm": "None (Skip)",
+      "baseline_degree": null,
+      "baseline_lambda": null,
+      "baseline_p": null,
+      "peak_templates": [
+        {
+          "peak_label": "E2g+A1g",
+          "center": 250.0,
+          "center_tolerance": 5.0,
+          "width_fwhm": 5.0,
+          "shape": 0.5,
+          "color": "#1f77b4"
+        },
+        {
+          "peak_label": "B2g",
+          "center": 308.0,
+          "center_tolerance": 5.0,
+          "width_fwhm": 5.0,
+          "shape": 0.5,
+          "color": "#ff7f0e"
+        }
+      ],
+      "exclusion_ranges": null,
+      "max_iterations": 2000
+    }
+  }
+}

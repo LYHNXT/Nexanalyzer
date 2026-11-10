@@ -55,9 +55,11 @@ from modules.splittable.processing.table import (
     series_of,
 )
 from modules.splittable.viz.charts import (
+    PREFERRED_KNOBS,
     X_PROCESS_START,
     X_RUN_ORDER,
     build_scatter_figure,
+    build_trend_bar_figure,
     build_trend_figure,
 )
 
@@ -353,7 +355,7 @@ with card("charts"):
         st.info("No numeric column has a value in these rows.", icon=":material/info:")
         st.stop()
 
-    tab_trend, tab_scatter = st.tabs(["Trend", "X vs Y"])
+    tab_trend, tab_bar, tab_scatter = st.tabs(["Trend", "Trend + bars", "X vs Y"])
 
     with tab_trend:
         trend_cols = st.multiselect(
@@ -373,6 +375,32 @@ with card("charts"):
                 "Points are growth runs; lines are cleanings, anneals and other non-growth "
                 "runs (dotted if stopped). A hollow marker on an OM column is a run whose "
                 "cut sat in the frame noise. Error bars are the table's frame-to-frame std."
+            )
+
+    with tab_bar:
+        bar_cols = st.multiselect(
+            "Columns", numeric,
+            default=[c for c in _DEFAULT_TREND if c in numeric] or numeric[:1],
+            key=f"{key}_bar_cols",
+        )
+        knob_choices = [c for c in rows.columns if c in PREFERRED_KNOBS] + [
+            c for c in numeric if c not in PREFERRED_KNOBS]
+        knobs = st.multiselect(
+            "Setting bars", knob_choices,
+            default=[c for c in PREFERRED_KNOBS if c in rows.columns][:3],
+            key=f"{key}_bar_knobs",
+            help="One band per column above the plot, a block per run of wafers "
+                 "that shared a value.",
+        )
+        bar_mark = st.checkbox("Mark non-growth runs", value=True, key=f"{key}_bar_mark")
+        if bar_cols:
+            render_plot(build_trend_bar_figure(rows, bar_cols, knobs, bar_mark),
+                        key=f"{key}_bar")
+            st.caption(
+                "The SPLITTABLE scripts' PNG format: the setting bars above the plot, "
+                "and under the wafer IDs one date per day, centred on the wafers that "
+                "ran that day. Run order only -- a bar and a date row both describe "
+                "consecutive runs, which a wall-clock axis does not have."
             )
 
     with tab_scatter:

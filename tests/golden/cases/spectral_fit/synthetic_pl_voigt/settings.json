@@ -1,0 +1,30 @@
+{
+  "mode": "PL",
+  "preset": {
+    "material_name": "Synthetic PL",
+    "enabled": true,
+    "description": "synthetic validated case; see make_synthetic.py",
+    "pl": {
+      "x_range_enabled": false,
+      "x_min": null,
+      "x_max": null,
+      "despike_threshold": 500.0,
+      "baseline_algorithm": "None (Skip)",
+      "baseline_degree": null,
+      "baseline_lambda": null,
+      "baseline_p": null,
+      "peak_templates": [
+        {
+          "peak_label": "Exciton",
+          "center": 757.0,
+          "center_tolerance": 15.0,
+          "width_fwhm": 20.0,
+          "shape": 0.5,
+          "color": "#1f77b4"
+        }
+      ],
+      "exclusion_ranges": null,
+      "max_iterations": 2000
+    }
+  }
+}

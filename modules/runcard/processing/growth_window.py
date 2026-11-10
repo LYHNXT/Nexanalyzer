@@ -621,6 +621,68 @@ def find_growth_window(temp_trace: List[TracePoint], heater_off_t: Optional[floa
     return GrowthWindow(start_s=start_s, end_s=end_s, peak_temp_c=peak)
 
 
+#: Two trace vertices within this many degrees are the same commanded level.
+#: A hold is written as one `Heater Soak`, so its vertices carry the identical
+#: float and any tolerance at all would do; a degree keeps a card that steps
+#: 910 -> 910.5 from reading as two holds without merging a real 5 C step-down.
+HOLD_SAME_LEVEL_C = 1.0
+
+
+@dataclass(frozen=True)
+class HeaterHold:
+    """The last level the card commands the main heater to, and for how long.
+
+    `level_c` is the temperature in the final `Heater Soak` before the heater
+    is switched off, and `seconds` is how long the card holds it there. Both
+    are **durations and levels, never absolute times** -- deliberately, because
+    a card's clock does not survive contact with the tool. Measured over 98
+    tagged runs on HA1P01 and VB1P01, the offset between a card's own clock and
+    its log's ran from -2123 s to +497 s: pump-down, purge and the operator all
+    move, so nothing placed on the recipe clock lands where the log has it.
+
+    What does survive is this pair. Anchor `seconds` on the moment the *log*
+    shows the setpoint arriving at `level_c` and it locates the heater-off to a
+    median of 64 s over those same 98 runs, 93 of them inside two minutes --
+    and that 64 s is the chamber taking a minute to fall out of a 2 % band, not
+    error. See `modules.datalog.processing.analysis.runcard_heater_off`, the
+    one caller.
+    """
+
+    level_c: float
+    seconds: float
+
+
+def heater_hold(profile: RuncardProfile) -> Optional[HeaterHold]:
+    """The card's final heater hold, or None when it never switches the heater off.
+
+    The level is the last trace vertex at or before `heater_off_t`, and the
+    duration runs back from the off to the first vertex still at that level --
+    so a recipe that ramps *down* and holds before cutting the heater reports
+    the ramp-down's plateau, not the growth peak. `find_growth_window` cannot
+    answer this: its window ends at whichever of the ramp-down and the
+    heater-off comes first, which on such a card is minutes before the off.
+
+    None when the card never commands `Heater Soak,0`. That is not a malformed
+    card -- some recipes simply end with the heater still driven -- and the
+    caller falls back to reading the log alone.
+    """
+    off = profile.timeline.heater_off_t
+    if off is None:
+        return None
+    pts = [(t, v) for t, v in profile.temp_trace if t <= off]
+    if not pts:
+        return None
+    level = pts[-1][1]
+    start = pts[-1][0]
+    for t, v in reversed(pts):
+        if abs(v - level) > HOLD_SAME_LEVEL_C:
+            break
+        start = t
+    if off <= start:
+        return None
+    return HeaterHold(level_c=float(level), seconds=float(off - start))
+
+
 def build_profile(commands: List[RuncardCommand]) -> RuncardProfile:
     """Commands in, everything the page reads out. The single public entry point.
 

@@ -143,10 +143,13 @@ class TestHeadersAndFootersAreSkipped:
         rows = [f"{a:.3f}\t{b:.1f}\t{b + 1:.1f}" for a, b in zip(self.X, self.Y)]
         rows[5] = f"{self.X[5]:.3f}\t\t{self.Y[5] + 1:.1f}"
 
-        # Column A carries the gap and is rejected; column B is intact.
-        spectra = parse_spectrum_multi(self._path(tmp_path, ["x\tA\tB"] + rows))
+        # Column A carries the gap and is left out -- and said so (v5.58.0);
+        # column B is intact.
+        skipped = []
+        spectra = parse_spectrum_multi(self._path(tmp_path, ["x\tA\tB"] + rows), skipped=skipped)
         assert len(spectra) == 1
         np.testing.assert_allclose(spectra[0].Y, self.Y + 1, atol=0.05)
+        assert skipped == ["column 2 skipped: 1 missing or non-numeric value, first at data row 6"]
 
     def test_multi_y_with_a_header_counts_the_same_as_it_parses(self, tmp_path):
         rows = [f"{a:.3f}\t{b:.1f}\t{b:.1f}\t{b:.1f}" for a, b in zip(self.X, self.Y)]

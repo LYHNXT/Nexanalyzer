@@ -206,13 +206,41 @@ with sample_card:
         wafers = _tool_wafers(tool.name, str(tool.root), json.dumps(tool.spec, sort_keys=True))
         current_wafer = Path(state["folder"]).name if state["folder"] else None
         options = wafers if current_wafer in wafers else [""] + wafers
-        wafer = st.selectbox(
-            "Wafer",
-            options,
-            index=options.index(current_wafer) if current_wafer in options else 0,
-            key=f"qc_wafer__{tool.name}__{current_wafer}",
-            help="Every wafer with optical data under this tool, newest first.",
-        )
+        col_wafer, col_refresh = st.columns([5, 1], vertical_alignment="bottom")
+        with col_wafer:
+            wafer = st.selectbox(
+                "Wafer",
+                options,
+                index=options.index(current_wafer) if current_wafer in options else 0,
+                key=f"qc_wafer__{tool.name}__{current_wafer}",
+                help="Every wafer with optical data under this tool, newest first.",
+            )
+        with col_refresh:
+            refresh_clicked = st.button(
+                "Refresh",
+                icon=":material/refresh:",
+                key="qc_wafer_refresh",
+                width="stretch",
+                help="Re-read the tool's optical tree and the selected folder. The "
+                     "wafer list is cached for five minutes, so a folder created or "
+                     "filled while the page was open needs this.",
+            )
+        if refresh_clicked:
+            _tool_wafers.clear()
+            if state["folder"]:
+                # A folder whose contents moved invalidates the results drawn from
+                # them, so re-selecting it is the honest response -- but only when
+                # the scan actually changed, or every refresh would throw away a
+                # run that is still current.
+                try:
+                    fresh = scan_sample_folder(state["folder"])
+                except OSError as e:
+                    st.warning(f"Could not re-read {state['folder']}: {e}")
+                else:
+                    if fresh != state["scan"]:
+                        select_folder(state, state["folder"], fresh,
+                                      default_magnification(fresh))
+            st.rerun()
         if wafer and wafer != current_wafer:
             optical = find_wafer(tool, wafer).optical
             if optical is not None and optical.is_dir():

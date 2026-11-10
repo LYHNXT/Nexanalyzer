@@ -87,7 +87,7 @@ jobs:
           python -m pytest -q -p no:cacheprovider -n 4 -o faulthandler_timeout=600
           --ignore=tests/unit/test_golden_fit.py
           --cov=core --cov=modules --cov-report=term-missing:skip-covered
-          --cov-report=xml:coverage.xml --cov-fail-under=87
+          --cov-report=xml:coverage.xml --cov-fail-under=92
           --junitxml=junit.xml --durations=15
       - name: Test, coverage and golden reports
         if: always()

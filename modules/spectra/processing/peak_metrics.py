@@ -36,23 +36,33 @@ def peak_intensity_and_stderr(peak) -> Tuple[float, float]:
     A fitted peak's intensity and the standard error on that intensity.
 
     Intensity is the maximum of the fitted component curve, not
-    `FittedPeak.area` (the area lmfit solves for). The reported stderr is
+    `FittedPeak.area` (the area lmfit solves for). Since v5.55.0 the fitter
+    records that maximum analytically (`FittedPeak.intensity`, from
+    `fitting.voigt_height`); the tallest *sample* of the curve, read until
+    then, under-read a peak whose centre fell between grid points by up to
+    2.4 % at FWHM 5 on a 0.9 cm-1 grid, differently from spectrum to spectrum.
+    A peak without that field (built by hand, or loaded from an older
+    project) still reads its curve's tallest sample. The reported stderr is
     `area_stderr` rescaled by the same intensity/area ratio — a linear
     approximation, but the only sensible one without re-propagating the
     covariance matrix.
 
-    Without a component curve (a reloaded project whose curve list is empty)
-    there is no maximum to read, so both are NaN -- never the area, which is a
-    different quantity (until v5.34.0 it was returned here, under "Intensity").
-    A peak fitted to zero area has no ratio to rescale by, so its stderr is
-    NaN as well: an unestimable stderr is NaN, never 0.0 (it printed "0 +- 0"
-    on the MoS2 A0 points that fit to nothing).
+    Without either (a reloaded project whose curve list is empty) there is no
+    maximum to read, so both are NaN -- never the area, which is a different
+    quantity (until v5.34.0 it was returned here, under "Intensity"). A peak
+    fitted to zero area has no ratio to rescale by, so its stderr is NaN as
+    well: an unestimable stderr is NaN, never 0.0 (it printed "0 +- 0" on the
+    MoS2 A0 points that fit to nothing).
     """
-    curve = getattr(peak, "component_curve", None)
-    if curve is None or len(curve) == 0:
-        return float("nan"), float("nan")
+    recorded = getattr(peak, "intensity", None)
+    if recorded is not None and np.isfinite(recorded):
+        intensity = float(recorded)
+    else:
+        curve = getattr(peak, "component_curve", None)
+        if curve is None or len(curve) == 0:
+            return float("nan"), float("nan")
+        intensity = float(np.max(curve))
 
-    intensity = float(np.max(curve))
     if peak.area > 0:
         return intensity, float(peak.area_stderr) * (intensity / peak.area)
     return intensity, float("nan")
@@ -65,12 +75,22 @@ def peak_intensity(peak) -> float:
 
 class RawPeakStats(NamedTuple):
     """Fit-free stats read straight off a spectrum: the tallest point and the
-    width of the spectrum at half that intensity. `fwhm` is None when the
-    half-maximum crossing can't be measured (flat or non-positive signal)."""
+    width of the band around it at half that intensity. `fwhm` is None when
+    the half-maximum crossing can't be measured (flat or non-positive signal)."""
 
     intensity: float
     center: float
     fwhm: Optional[float]
+
+
+def _half_max_crossing(x, y, inside: int, outside: int, half: float) -> float:
+    """Where the signal crosses `half` between sample `inside` (at or above it)
+    and `outside` (below it), by linear interpolation; the sample itself when
+    the band runs off the end of the spectrum or the two samples are level."""
+    if outside < 0 or outside >= len(y) or y[inside] == y[outside]:
+        return float(x[inside])
+    t = (y[inside] - half) / (y[inside] - y[outside])
+    return float(x[inside] + t * (x[outside] - x[inside]))
 
 
 def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
@@ -81,6 +101,17 @@ def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
     reported alongside the fitted peaks — a sanity check on the fit and the
     number some instrument software quotes. Returns None for an empty
     spectrum.
+
+    The width is that of the band *around the maximum*: the run of samples at
+    or above half the maximum that contains it, with the two crossings placed
+    by linear interpolation between the last sample inside and the first
+    outside (v5.56.0). Until then it was the distance between the first and
+    last sample above half maximum anywhere in the spectrum, which (a) read
+    about one grid step under the true width on every spectrum (the crossings
+    lie between samples: -0.5 nm on a 0.5 nm export, -1 nm on a 1 nm one),
+    and (b) ran out to any other sample above half maximum -- a second band
+    (MoS2's B beside A), or a noise sample in the tail of a weak spectrum --
+    so the number was no longer the band's width.
     """
     if len(y) == 0:
         return None
@@ -91,11 +122,17 @@ def raw_peak_stats(x: np.ndarray, y: np.ndarray) -> Optional[RawPeakStats]:
 
     fwhm: Optional[float] = None
     if intensity > 0:
-        above = y >= intensity / 2.0
-        if above.any():
-            idxs = np.where(above)[0]
-            # abs(): nothing sorts X, and some exports run high-to-low.
-            fwhm = float(abs(x[idxs[-1]] - x[idxs[0]]))
+        half = intensity / 2.0
+        lo = imax
+        while lo > 0 and y[lo - 1] >= half:
+            lo -= 1
+        hi = imax
+        while hi < len(y) - 1 and y[hi + 1] >= half:
+            hi += 1
+        left = _half_max_crossing(x, y, lo, lo - 1, half)
+        right = _half_max_crossing(x, y, hi, hi + 1, half)
+        # abs(): nothing sorts X, and some exports run high-to-low.
+        fwhm = float(abs(right - left))
 
     return RawPeakStats(intensity=intensity, center=center, fwhm=fwhm)
 

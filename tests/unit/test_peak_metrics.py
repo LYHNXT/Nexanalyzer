@@ -265,6 +265,24 @@ class TestPeakIntensityAndStderr:
         assert stderr == 5.0
         assert peak_intensity(peak) == 100.0
 
+    def test_the_recorded_analytic_maximum_wins_over_the_tallest_sample(self):
+        """v5.55.0: the fitter records the curve's true maximum; a grid that
+        misses the centre makes the tallest sample smaller, never larger."""
+        curve = np.array([0.0, 25.0, 98.0, 25.0, 0.0])      # samples straddle the centre
+        peak = FittedPeak(
+            label="LA", center=250.0, center_stderr=0.1,
+            area=1000.0, area_stderr=50.0,
+            width_fwhm=10.0, width_stderr=0.1, shape=0.3, component_curve=curve,
+            intensity=100.0,
+        )
+
+        intensity, stderr = peak_intensity_and_stderr(peak)
+        assert intensity == 100.0
+        assert stderr == 5.0
+        assert peak_intensity(peak) == 100.0
+        # The field round-trips, so a saved project keeps the true maximum.
+        assert FittedPeak.from_dict(peak.to_dict()).intensity == 100.0
+
     def test_no_component_curve_is_nan_never_the_area(self):
         peak = FittedPeak(
             label="LA", center=250.0, center_stderr=0.1,

@@ -27,7 +27,7 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 - **OS**: Windows 10/11 or macOS 12+
 - **Python**: 3.10 or higher
 - **Git**: required for auto-updates — the app pulls the latest version on every launch
-- **GitHub account**: not needed — the repository is public, so anyone can clone it
+- **GitHub account**: required — the repository is private to the Nexstrom organisation
 - **Disk space**: ~500 MB (including Python and dependencies)
 - **Browser**: Any modern browser (Chrome, Edge, Firefox, Safari)
 
@@ -37,8 +37,10 @@ A step-by-step guide for installing and running NexAnalyzer on **Windows** and *
 
 **On Windows, this replaces Steps 1 to 3 entirely.**
 
-1. Download **[Install-NexAnalyzer.bat](https://raw.githubusercontent.com/Nexstrom/NexAnalyzer/main/Install-NexAnalyzer.bat)** — right-click that link and choose
-   **Save link as...**
+1. Sign in to GitHub, open **[Install-NexAnalyzer.bat](https://github.com/Nexstrom/NexAnalyzer/blob/main/Install-NexAnalyzer.bat)**,
+   and click the **Download raw file** button at the top right of the file.
+   (Right-clicking a `raw.githubusercontent.com` link will not work on a private
+   repository — that host ignores your browser sign-in.)
 2. Your browser will probably warn about keeping a `.bat` file. Choose **Keep**.
 3. **Double-click the file you just downloaded.**
 
@@ -125,8 +127,9 @@ If it's missing, macOS will offer to install it — accept. Or with Homebrew: `b
 > **Clone it with Git — don't download the ZIP.** A ZIP copy has no Git history, so it can
 > never auto-update: you would be frozen on whatever version you downloaded.
 
-You don't need a GitHub account, and there is nothing to sign up for — the repository is
-public, so the command below just works.
+The repository is private to the Nexstrom organisation, so you need a GitHub account with
+access to it. The first clone opens a GitHub sign-in window (Git Credential Manager, which
+comes with Git); sign in once and it remembers you. If you have no access yet, ask Angyu.
 
 ### Windows
 
@@ -584,16 +587,17 @@ files you care about, delete the folder, and redo [Step 3](#step-3-download-nexa
 
 ### "Repository not found", or GitHub asks you to sign in
 
-The repository is public, so you should never be asked to log in. A sign-in prompt or a
-"not found" error almost always means the URL is wrong — GitHub reports a mistyped URL as
-"not found" rather than admitting the repo doesn't exist. Check it character for character:
+A sign-in prompt is expected on the first clone — the repository is private. Sign in with
+the GitHub account that has access and it will go through.
+
+"Repository not found" after signing in means that account is not a member of the Nexstrom
+organisation, or has not been given access to this repository: ask Angyu. GitHub reports a
+private repository you cannot see exactly the same way as one that doesn't exist, so also
+check the URL character for character:
 
 ```
 https://github.com/Nexstrom/NexAnalyzer.git
 ```
-
-If the URL is right and it still fails, the repository may have been switched to private —
-ask Angyu for access.
 
 ### "[WARN] Could not update - offline, or no access to the repo"
 

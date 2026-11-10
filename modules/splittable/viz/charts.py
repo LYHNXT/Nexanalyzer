@@ -25,6 +25,7 @@ from typing import Sequence
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from ..processing.table import (
     is_growth,
@@ -78,9 +79,36 @@ def build_trend_figure(
     x = x_values(data, x_mode)
     growth = data[is_growth(data) & x.notna()]
     wafer = growth.get("WaferID", pd.Series("", index=growth.index)).astype("string").fillna("")
-    run_type = growth.get("Run_Type", pd.Series("", index=growth.index)).astype("string").fillna("")
 
     fig = go.Figure()
+    _add_trend_traces(fig, data, growth, columns, x)
+
+    if mark_non_growth:
+        _add_non_growth_lines(fig, data[~is_growth(data) & x.notna()], x)
+
+    xaxis = dict(title=X_PROCESS_START if x_mode == X_PROCESS_START else "Run # (workbook order)")
+    if x_mode != X_PROCESS_START and 0 < len(growth) <= MAX_WAFER_TICKS:
+        xaxis.update(tickmode="array", tickvals=list(x.loc[growth.index]),
+                     ticktext=list(wafer), tickangle=-60)
+    fig.update_layout(
+        height=FIGURE_HEIGHT, xaxis=xaxis,
+        yaxis=dict(title=columns[0] if len(columns) == 1 else "value"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(t=60, b=40, l=60, r=20), hovermode="closest",
+    )
+    return fig
+
+
+def _add_trend_traces(fig: go.Figure, data: pd.DataFrame, growth: pd.DataFrame,
+                      columns: Sequence[str], x: pd.Series, row: int = None) -> None:
+    """The growth points themselves, shared by both trend charts.
+
+    `row` places them in a subplot, for the chart that carries a knob strip
+    above them; None is the plain single-axes figure.
+    """
+    wafer = growth.get("WaferID", pd.Series("", index=growth.index)).astype("string").fillna("")
+    run_type = growth.get("Run_Type", pd.Series("", index=growth.index)).astype("string").fillna("")
+    where = dict(row=row, col=1) if row else {}
     if len(columns) == 1:
         by_series = growth.groupby(series_of(growth), sort=True).groups
         traces = [(str(name), columns[0], idx) for name, idx in by_series.items()]
@@ -113,25 +141,11 @@ def build_trend_figure(
                 "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
                 f"{col} = %{{y}}<extra>{name}</extra>"
             ),
-        ))
-
-    if mark_non_growth:
-        _add_non_growth_lines(fig, data[~is_growth(data) & x.notna()], x)
-
-    xaxis = dict(title=X_PROCESS_START if x_mode == X_PROCESS_START else "Run # (workbook order)")
-    if x_mode != X_PROCESS_START and 0 < len(growth) <= MAX_WAFER_TICKS:
-        xaxis.update(tickmode="array", tickvals=list(x.loc[growth.index]),
-                     ticktext=list(wafer), tickangle=-60)
-    fig.update_layout(
-        height=FIGURE_HEIGHT, xaxis=xaxis,
-        yaxis=dict(title=columns[0] if len(columns) == 1 else "value"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        margin=dict(t=60, b=40, l=60, r=20), hovermode="closest",
-    )
-    return fig
+        ), **where)
 
 
-def _add_non_growth_lines(fig: go.Figure, rows: pd.DataFrame, x: pd.Series) -> None:
+def _add_non_growth_lines(fig: go.Figure, rows: pd.DataFrame, x: pd.Series,
+                          yref: str = "paper") -> None:
     """One vertical line per non-growth run, one legend entry per kind.
 
     Dotted where the run stopped early. The line is a layout shape, which has
@@ -149,7 +163,7 @@ def _add_non_growth_lines(fig: go.Figure, rows: pd.DataFrame, x: pd.Series) -> N
         color = NON_GROWTH_COLORS[kind]
         stopped = "stopped" in str(run_type or "").lower()
         shapes.append(dict(
-            type="line", xref="x", yref="paper", x0=x.loc[i], x1=x.loc[i], y0=0, y1=1,
+            type="line", xref="x", yref=yref, x0=x.loc[i], x1=x.loc[i], y0=0, y1=1,
             line=dict(color=color, width=1, dash="dot" if stopped else "solid"),
             opacity=0.6, layer="below",
         ))
@@ -189,3 +203,211 @@ def build_scatter_figure(data: pd.DataFrame, x_col: str, y_col: str) -> go.Figur
         margin=dict(t=60, b=40, l=60, r=20), hovermode="closest",
     )
     return fig
+
+
+# ------------------------------------------------- the scripts' chart format
+#: The knob strip's bands, light to dark by value rank -- the ramp the
+#: SPLITTABLE PNGs use, so a run of the same setting reads as one block.
+KNOB_RAMP = ["#eaf1fb", "#d6e4f7", "#c0d6f2", "#a8c8ee", "#8fb9e9", "#74a9e4", "#5798de"]
+
+#: Offered first, where the table has them: what `plot_om_coverage_trend_range.py`
+#: (HA) and `plot_vb_om_coverage_trend.py` (VB) draw above their plots.
+PREFERRED_KNOBS = ("H2O_PC1_torr", "P_torr", "H2Se_on_sccm",
+                   "Ar_in_sccm", "Ar_MFC6_sccm")
+
+#: Plotly cannot measure text, and the chart is responsive, so a date or a
+#: band value is placed on an estimate: this plotting width, which is what the
+#: app's layout gives at a usual window size, and this label width, "10-09" at
+#: the chart's font size rounded up. A label that would not fit its own span
+#: is rotated (dates) or left off (band values) -- the same rule the PNGs
+#: apply, which can measure their text and do not have to guess.
+ASSUMED_PLOT_PX = 900
+DAY_LABEL_PX = 46
+
+#: One knob band's height, and the room under the axis for the wafer IDs plus
+#: the date row beneath them.
+KNOB_ROW_PX = 28
+BOTTOM_MARGIN_DATED = 150
+#: Where the date row and the rules between days sit, in paper units below the
+#: plotting area. Tied to BOTTOM_MARGIN_DATED: the dates clear the rotated
+#: wafer IDs, and the rules run from the axis to just under the dates.
+DATE_ROW_PAPER = -0.17
+RULE_TOP_PAPER = -0.012
+RULE_BOTTOM_PAPER = -0.235
+
+
+def _constant_runs(values: Sequence) -> list:
+    """`values` as (first index, last index, value) for each run of equal ones."""
+    runs, i = [], 0
+    while i < len(values):
+        j = i
+        while j + 1 < len(values) and values[j + 1] == values[i]:
+            j += 1
+        runs.append((i, j, values[i]))
+        i = j + 1
+    return runs
+
+
+def _is_number(value) -> bool:
+    try:
+        float(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _knob_colors(values: Sequence) -> dict:
+    """A colour per distinct value, light to dark in the value's own order."""
+    distinct = sorted({v for v in values if v not in (None, "")},
+                      key=lambda v: (0, float(v)) if _is_number(v) else (1, str(v)))
+    if not distinct:
+        return {}
+    last = len(KNOB_RAMP) - 1
+    if len(distinct) == 1:
+        return {distinct[0]: KNOB_RAMP[last // 2]}
+    return {v: KNOB_RAMP[round(i * last / (len(distinct) - 1))]
+            for i, v in enumerate(distinct)}
+
+
+def _knob_text(value) -> str:
+    """A band's value as the PNGs print it: no trailing .0 on a whole number."""
+    if _is_number(value):
+        return "{:g}".format(float(value))
+    return str(value)
+
+
+def build_trend_bar_figure(
+    data: pd.DataFrame,
+    columns: Sequence[str],
+    knob_columns: Sequence[str] = (),
+    mark_non_growth: bool = True,
+) -> go.Figure:
+    """`build_trend_figure` in the SPLITTABLE scripts' PNG format.
+
+    Two things the plain chart leaves out, both about reading a point against
+    what the chamber was doing:
+
+    * **the knob strip** -- one band per chosen column above the plot, a block
+      per run of wafers that shared a value, labelled once;
+    * **the dated axis** -- under the wafer IDs, one date per day, horizontal
+      and centred on the wafers that ran that day, with a rule between days.
+      The x axis is run order, not time, so the gap between two neighbours can
+      be an hour or three weeks, and only the date says which.
+
+    Run order only: a strip of bands and a date row both describe consecutive
+    runs, and on a wall-clock axis neither is a block. The plain chart keeps
+    both x modes, and is unchanged.
+    """
+    x = x_values(data, X_RUN_ORDER)
+    growth = data[is_growth(data) & x.notna()]
+    wafer = growth.get("WaferID", pd.Series("", index=growth.index)).astype("string").fillna("")
+    knobs = [c for c in knob_columns if c in data.columns]
+
+    strip_px = KNOB_ROW_PX * len(knobs) + 12
+    height = FIGURE_HEIGHT + (strip_px if knobs else 0)
+    if knobs:
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03,
+                            row_heights=[strip_px / height, 1 - strip_px / height])
+        trend_row = 2
+    else:
+        fig = make_subplots(rows=1, cols=1)
+        trend_row = 1
+
+    _add_trend_traces(fig, data, growth, columns, x, row=trend_row)
+    if not fig.data:
+        return fig
+    xref = fig.data[0].xaxis or "x"
+    yref = "{} domain".format(fig.data[0].yaxis or "y")
+
+    if knobs:
+        _add_knob_strip(fig, growth, x, knobs)
+    if mark_non_growth:
+        _add_non_growth_lines(fig, data[~is_growth(data) & x.notna()], x, yref=yref)
+
+    dated = 0 < len(growth) <= MAX_WAFER_TICKS
+    if dated:
+        fig.update_xaxes(tickmode="array", tickvals=list(x.loc[growth.index]),
+                         ticktext=list(wafer), tickangle=-60, row=trend_row, col=1)
+        _add_day_row(fig, growth, x, xref)
+    # The date row is annotations, which the axis title does not know about,
+    # so it needs to be pushed past them by hand.
+    fig.update_xaxes(title="Run # (workbook order)",
+                     title_standoff=34 if dated else 8, row=trend_row, col=1)
+    fig.update_yaxes(title=columns[0] if len(columns) == 1 else "value",
+                     row=trend_row, col=1)
+    fig.update_layout(
+        height=height,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        margin=dict(t=60, b=BOTTOM_MARGIN_DATED if dated else 40, l=60, r=20),
+        hovermode="closest",
+    )
+    return fig
+
+
+def _add_knob_strip(fig: go.Figure, growth: pd.DataFrame, x: pd.Series,
+                    knobs: Sequence[str]) -> None:
+    """One band per knob column, a block per run of wafers sharing a value.
+
+    The bands are shapes rather than traces: they carry nothing to hover for
+    beyond the number printed on them, and a trace per block would put a few
+    hundred legend entries on a VB table.
+    """
+    xs = list(x.loc[growth.index])
+    per_tick = ASSUMED_PLOT_PX / max(1, len(xs))
+    for row_index, column in enumerate(knobs):
+        values = ["" if pd.isna(v) else v for v in growth[column]]
+        colors = _knob_colors(values)
+        top = len(knobs) - row_index
+        for first, last, value in _constant_runs(values):
+            if value == "":
+                continue
+            x0, x1 = xs[first] - 0.5, xs[last] + 0.5
+            fig.add_shape(
+                type="rect", x0=x0, x1=x1, y0=top - 0.86, y1=top - 0.14,
+                fillcolor=colors.get(value, KNOB_RAMP[0]), line=dict(width=0),
+                layer="below", row=1, col=1,
+            )
+            text = _knob_text(value)
+            if len(text) * 7 <= (last - first + 1) * per_tick:
+                fig.add_annotation(
+                    x=0.5 * (x0 + x1), y=top - 0.5, text=text, showarrow=False,
+                    font=dict(size=11, color="#1f2937"), row=1, col=1,
+                )
+    fig.update_yaxes(range=[0, len(knobs)], tickmode="array",
+                     tickvals=[len(knobs) - i - 0.5 for i in range(len(knobs))],
+                     ticktext=list(knobs), showgrid=False, zeroline=False,
+                     row=1, col=1)
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False, row=1, col=1)
+
+
+def _add_day_row(fig: go.Figure, growth: pd.DataFrame, x: pd.Series, xref: str) -> None:
+    """One date per day under the wafer IDs, and a rule between days.
+
+    The rules go under the axis only. The plot already carries the non-growth
+    lines, and a second set of verticals through it would compete with them.
+    """
+    if "Process_Start" not in growth.columns:
+        return
+    stamps = pd.to_datetime(growth["Process_Start"], errors="coerce")
+    days = ["" if pd.isna(s) else "{:%m-%d}".format(s) for s in stamps]
+    if not any(days):
+        return
+    xs = list(x.loc[growth.index])
+    per_tick = ASSUMED_PLOT_PX / max(1, len(xs))
+    for first, last, day in _constant_runs(days):
+        if not day:
+            continue
+        fig.add_annotation(
+            x=0.5 * (xs[first] + xs[last]), y=DATE_ROW_PAPER, xref=xref, yref="paper",
+            text=day, showarrow=False, font=dict(size=11, color="#4b5563"),
+            # Rotated where the day's own wafers are too few to fit it, which
+            # is the single-wafer day on a crowded range.
+            textangle=0 if DAY_LABEL_PX <= (last - first + 1) * per_tick else -90,
+        )
+        if first:
+            fig.add_shape(
+                type="line", xref=xref, yref="paper",
+                x0=xs[first] - 0.5, x1=xs[first] - 0.5,
+                y0=RULE_TOP_PAPER, y1=RULE_BOTTOM_PAPER,
+                line=dict(color="#d1d5db", width=1), layer="below",
+            )

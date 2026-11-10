@@ -55,7 +55,7 @@ import streamlit as st
 
 from core.io.export import create_filename, export_figure_png, prompt_save_path
 from core.io.folder_picker import prompt_folder_path
-from core.io.tool_layout import DATALOG
+from core.io.tool_layout import DATALOG, RUNCARD, configured_tools, tool_owning
 from core.ui.theme import card, page_header
 from core.ui.tool_select import render_tool_select
 from core.viz.render import render_plot
@@ -72,7 +72,7 @@ from modules.datalog.io.scanner import (
     scan_folder,
 )
 from modules.datalog.io.runcard_index import (
-    default_runcard_folder,
+    recipe_folder,
     read_run_steps,
     read_runcards,
     runcard_signature,
@@ -90,7 +90,10 @@ from modules.datalog.processing.analysis import (
     compute_all_violations,
     compute_summary_stats,
     find_final_plateau_start,
+    runcard_heater_off,
 )
+from modules.runcard.io.parser import load_runcard
+from modules.runcard.processing.growth_window import build_profile, heater_hold
 from modules.datalog.ui.datalog_state import (
     SEARCH_KEY,
     VIEW_MODE_KEY,
@@ -384,10 +387,65 @@ def _steps_for(path: str):
 
 
 def _runcard_folder(root_folder: str, state: dict) -> str:
-    """The recipe folder to match against: the operator's pick, else the guess."""
+    """The recipe folder to match against: the operator's pick, else the Tools setting.
+
+    Derived from the tool's own ``runcard`` subfolder as the Tools page records
+    it, widened where the shared recipes live a level above it -- see
+    `runcard_index.recipe_folder`, which carries the rule and both tools'
+    folder shapes. A tool with no layout, or a folder browsed to by hand, falls
+    back to the guess from the datalog folder as before.
+
+    Cleared by `reset_results` whenever the datalog folder changes, so
+    switching tools re-derives rather than carrying the previous tool's
+    recipes.
+    """
     if state.get("runcard_folder") is None:
-        state["runcard_folder"] = default_runcard_folder(root_folder) or ""
+        tool = tool_owning(root_folder, DATALOG, configured_tools())
+        layout_folder = tool.subfolder(RUNCARD) if tool else None
+        state["runcard_folder"] = recipe_folder(root_folder, layout_folder) or ""
     return state["runcard_folder"]
+
+
+@st.cache_data(show_spinner=False, max_entries=1024)
+def _heater_hold(card_path: str, mtime: float):
+    """One card's final heater hold, parsed once per edit to the file.
+
+    `mtime` is the cache key and is never read -- the same arrangement, and the
+    same reason, as `_runcards`.
+    """
+    try:
+        return heater_hold(build_profile(load_runcard(card_path)))
+    except (OSError, UnicodeDecodeError, ValueError, IndexError):
+        return None
+
+
+def _heater_off(root_folder: str, df: pd.DataFrame, tag: str, pv_sv_pairs):
+    """When this run's runcard switched the main heater off, or None.
+
+    The recipe ends the heater with ``Heater Soak,0`` and the controller logs
+    nothing for it, so the log alone cannot say when the chamber stopped being
+    driven -- see `analysis.runcard_heater_off`, which this feeds. Every step
+    is allowed to come back empty, and each returns None rather than guessing:
+    an untagged run, a tag with no card of that name in the recipe folder, a
+    card that never switches the heater off, or a run that never reached the
+    card's level. The page then shows exactly what it showed before.
+    """
+    if not tag:
+        return None
+    folder = _runcard_folder(root_folder, get_datalog_state())
+    if not folder:
+        return None
+    card = next((c for c in _runcards(folder, _runcard_signature(folder))
+                 if c.name.casefold() == tag.casefold()), None)
+    if card is None:
+        return None
+    hold = _heater_hold(card.path, card.mtime)
+    if hold is None:
+        return None
+    sv_col = next((sv for name, _pv, sv in pv_sv_pairs if name == "Heater"), None)
+    if sv_col is None or sv_col not in df.columns:
+        return None
+    return runcard_heater_off(df, sv_col, hold)
 
 
 def _usable(steps) -> bool:
@@ -526,6 +584,22 @@ def _render_runcard_detection(root_folder: str, state: dict) -> None:
         col_folder, col_change = st.columns([3, 1])
         with col_folder:
             st.caption(f"Runcard folder: {runcard_folder or 'none found next to this datalog folder'}")
+            # Where it came from, so the Tools page and this one cannot
+            # disagree silently -- the pool is the Tools setting unless
+            # somebody browsed away from it, and only this line says which.
+            tool = tool_owning(root_folder, DATALOG, configured_tools())
+            layout_folder = tool.subfolder(RUNCARD) if tool else None
+            if layout_folder is None:
+                st.caption("From this folder's neighbours — "
+                           "set this tool up on the **Tools** page to drive it from there.")
+            elif runcard_folder == recipe_folder(root_folder, layout_folder):
+                suffix = ("" if str(layout_folder) == runcard_folder
+                          else f" ({tool.name} keeps its shared recipes here, "
+                               f"one level above `{Path(layout_folder).name}`)")
+                st.caption(f"From the **Tools** page's {tool.name} runcard folder{suffix}.")
+            else:
+                st.caption(f"Browsed to by hand. The **Tools** page has {tool.name} at "
+                           f"`{layout_folder}` — switch tools to go back to it.")
         with col_change:
             if st.button("Change...", key="datalog_runcard_folder_pick", width="stretch",
                          icon=":material/folder_open:"):
@@ -1160,9 +1234,11 @@ def _render_single_run_view(path: str, df: pd.DataFrame, plot_items, pv_sv_pairs
     # Every pair in the file, not just the plotted ones: a violation on a
     # channel nobody happened to select is the one most worth surfacing. Only
     # the red markers are limited to the panels on screen.
-    violations_df, masks = compute_all_violations(df, pv_sv_pairs, thresholds)
+    heater_off = _heater_off(root_folder, df, get_runcard_tag(root_folder, path), pv_sv_pairs)
+    violations_df, masks = compute_all_violations(df, pv_sv_pairs, thresholds,
+                                                  heater_off=heater_off)
 
-    fig = build_single_run_figure(df, plot_items, masks)
+    fig = build_single_run_figure(df, plot_items, masks, heater_off)
     # Keyed by the run, not just by the page: a keyed chart keeps its frontend
     # state across reruns, so one fixed key hands the next run the previous
     # one's zoom -- a pressure axis held at 0-8 Torr while the new trace lives
@@ -1202,7 +1278,7 @@ def _render_comparison_view(root_folder: str, loaded, plot_items, pv_sv_pairs,
         if align_time is None:
             align_time = start
             fallback_labels.append(label)
-        runs.append((label, df))
+        runs.append((label, df, _heater_off(root_folder, df, tag, pv_sv_pairs)))
         align_times.append(align_time)
 
     if fallback_labels:
@@ -1213,7 +1289,11 @@ def _render_comparison_view(root_folder: str, loaded, plot_items, pv_sv_pairs,
             "— aligned by run start time instead."
         )
 
-    fig = build_comparison_figure(runs, plot_items, align_times)
+    # Label and frame only: the comparison chart draws no setpoint at all (see
+    # `build_comparison_figure`), so the heater-off beside each run is for the
+    # violations table and nothing else.
+    fig = build_comparison_figure([(label, df) for label, df, _off in runs],
+                                  plot_items, align_times)
     # Keyed by the run set, for the reason `_render_single_run_view` gives: a
     # kept zoom from a different set of runs is a chart that does not show what
     # it says it shows.
@@ -1225,12 +1305,13 @@ def _render_comparison_view(root_folder: str, loaded, plot_items, pv_sv_pairs,
     # same for all of them, and a run missing one of those columns is skipped
     # by compute_summary_stats rather than reported as a row of NaNs.
     stat_channels = _plotted_channels(plot_items)
-    for label, df in runs:
+    for label, df, heater_off in runs:
         stats = compute_summary_stats(df, stat_channels)
         if not stats.empty:
             stats.insert(0, "Run", label)
             summaries.append(stats)
-        violations, _masks = compute_all_violations(df, pv_sv_pairs, thresholds)
+        violations, _masks = compute_all_violations(df, pv_sv_pairs, thresholds,
+                                                    heater_off=heater_off)
         if not violations.empty:
             violations.insert(0, "Run", label)
             violation_tables.append(violations)
@@ -1368,10 +1449,9 @@ with card("source"):
                 save_last_folder(state["folder"])
             except OSError as e:
                 st.warning(f"Could not remember this folder: {e}")
-            # The runcard folder is left to the guess from the new datalog folder,
-            # not the layout's runcard subfolder: matching needs the operator's
-            # whole recipe folder (HA1P01's CLEANING cards sit at RUNCARD/lcy, one
-            # level above the layout's RUNCARD/lcy/NSHA1P01).
+            # reset_results clears state["runcard_folder"] with the rest of the
+            # detector's artifacts, so the recipe pool is re-derived from the
+            # new tool's layout rather than staying on the previous tool's.
             reset_results(state)
             st.rerun()
 

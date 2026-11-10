@@ -5,7 +5,7 @@ All notable changes to NexAnalyzer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Local additions (on top of 5.47.0; app version 5.47.0+local.4)
+## Local additions (on top of 5.58.0; app version 5.58.0+local.5)
 
 Installation-specific changes carried on top of upstream. `core/version.py`
 reports them as `<upstream>+local.N`: the upstream release they sit on, plus a
@@ -24,6 +24,15 @@ the rest are dropped in favour of upstream's own versions:
   those figures;
 - the in-app edits to WSe2_truncate (Raman 110-320 cm-1, a 1L optical block,
   2L -9.0/+4.5) -- upstream's WSe2_truncate is used as is.
+
+### 5.58.0+local.5 - 2026-11-10
+
+Merged upstream 5.48.0-5.58.0 into the local line. Conflicts only in this
+file and `core/version.py`; `pages/8_Split_Table.py` merged cleanly
+(upstream's Trend + bars tab beside the local Refresh now). No local change
+moves a number; upstream's do (5.55.0 intensity, 5.56.0/5.57.0 Raw PL FWHM),
+so a split-table row's `QC_Version` says which rules its QC numbers were
+fitted under.
 
 ### 5.47.0+local.4 - 2026-11-08
 
@@ -184,10 +193,136 @@ the rest are dropped in favour of upstream's own versions:
   (`preset._GAP_CHECK_SLACK_MEV`). A gap with a tolerance validates exactly as
   before. No number moves.
 
-## [Unreleased]
+## [5.58.0] - 2026-11-04
+
+### Fixed
+
+- **A spectrum file with one bad cell no longer loses that spectrum in
+  silence.** `parse_spectrum_multi` turned a Y column with a blank or
+  non-numeric value into NaN, `SpectrumData` refused it, and the loop
+  swallowed the error: only "no usable Y columns" was ever raised, so a
+  36-spectrum map with one blank cell quietly became 35 and the report's `n`
+  changed with no message. Now the column is left out and *named* — "column
+  3 skipped: 1 missing or non-numeric value, first at data row 1" — beside
+  the QC Report's fit errors (`sample_batch`) and as a warning on the
+  Spectra page; a caller that does not collect the message (the scripts)
+  gets the file refused with it instead. A bad value in the X column refuses
+  the file, naming the row. `_is_numeric_row` also stops taking Python's
+  `float()` word for what a number is: `nan`, `inf` and `1_000` are not
+  instrument numbers, so a "NaN NaN" header line is header and a `nan` in
+  the block is a reported bad cell. **No numbers move** — files that parsed
+  cleanly parse identically. Found by the 2026-11-04 review (REVIEW.md #2);
+  pinned by `tests/unit/test_review_regressions.py`.
+
+## [5.57.0] - 2026-11-04
 
 ### Changed
 
+- **The PL quality figure's Raw column keeps every spectrum; the widest-5 %
+  cut applies to fitted peaks only.** `PL_CLEANING` drops the widest 5 % of
+  each fitted peak's widths because a fit that ran wide is a broken fit. The
+  Raw band's values went through the same rule, but a raw width is read off
+  the spectrum, so a wide one is a wide band; dropping it made the title's
+  "Raw FWHM x (spec ≤ 40)" the median of the narrowest 95 % — about
+  0.1–0.3 nm under the true median, always in the passing direction, and
+  nothing on the figure said so. **Numbers move: the PL figure's Raw FWHM
+  title value, panel median and uniformity rise slightly wherever the cut
+  had removed spectra**; the Raw column now holds the same spectra as the
+  summary table's Raw row (above the 5 nm floor). Fitted peaks, the table,
+  the workbook and the golden tripwire are unchanged. Decided 2026-11-04
+  (REVIEW.md #5, option A); `docs/QC_Report_Spec.md` updated.
+
+## [5.56.0] - 2026-11-04
+
+### Changed
+
+- **The Raw PL width is the width of the band around the maximum, with the
+  half-maximum crossings interpolated.** `raw_peak_stats` reported the
+  distance between the first and last *sample* above half maximum anywhere
+  in the spectrum. Two consequences: it read about one grid step under the
+  true width on every spectrum, because the crossings lie between samples
+  (−0.5 nm on a 0.5 nm export, −1 nm on a 1 nm one; synthetic 39.0 nm bands
+  read 38.5 and 38.0), which is optimistic against the ≤ 40 nm spec; and it
+  ran out to any other sample above half maximum — a second band (MoS₂'s B
+  beside A when I(B)/I(A) > 0.5: a 30 nm band read 79.5 nm) or a lone noise
+  sample in the tail of a weak spectrum (±3 nm at SNR 50, ±6 nm at SNR 20).
+  Now the run of samples at or above half maximum that *contains* the
+  maximum is taken, and each end is placed by linear interpolation between
+  the last sample inside and the first outside; a band running off the
+  spectrum's edge is measured to the edge, as before. **Numbers move: every
+  Raw FWHM (PL quality figure's Raw column and title, summary table's Raw
+  row, master CSV's Raw row) rises by about one grid step, ~0.5–1 nm; where a
+  second band or a tail sample was spanned it falls by the span.** Raw
+  centre and intensity, the fitted peaks and the golden tripwire (which does
+  not lock raw stats) are unchanged. Found by the 2026-11-04 review
+  (REVIEW.md #4); pinned by `tests/unit/test_review_regressions.py`.
+
+## [5.55.0] - 2026-11-04
+
+### Changed
+
+- **Intensity is the fitted curve's true maximum, not its tallest sample.**
+  `peak_intensity` read `max(component_curve)`, the curve evaluated on the
+  spectrum's own grid, so a peak whose centre fell between two grid points was
+  under-read by an amount that depended on where the grid happened to fall:
+  up to 2.4 % (mean 0.8 %) for a Voigt of FWHM 5 cm⁻¹ on a 0.9 cm⁻¹ grid
+  (E₂g+A₁g), up to 3.7 % at FWHM 4, under 0.1 % for a broad peak (LA). The
+  error differed from spectrum to spectrum, so I(LA)/I(E₂g+A₁g) carried up to
+  2.4 % of grid-phase scatter on top of the measurement. The fitter now
+  records the analytic Voigt maximum (`fitting.voigt_height`, the Faddeeva
+  expression lmfit itself uses for `height`) on `FittedPeak.intensity`, and
+  `peak_intensity` reads it; a peak without the field (built by hand, or a
+  project saved before this version) still reads its curve's tallest sample.
+  **Numbers move: every intensity, intensity stderr and intensity ratio, up
+  by 0 to ~2.4 % per peak; centres, widths, areas, R² and χ² do not.**
+  Golden-fit record regenerated on the golden laptop; the shifts are
+  intensity only: DDAA10 RM_1 E₂g+A₁g +0.29 %, 2LA +0.77 %, 2ZA(M) +0.27 %,
+  B₂g +0.38 %, LA +0.01 %; RM_2 +0.18 / +0.37 / +0.69 / +1.21 / 0.00 %;
+  RM_3 +0.06 / +0.40 / +0.75 / 0.00 / 0.00 %; HADI51 and VA1P012504023 PL_5
+  Exciton and Trion ≤ +0.002 % (broad peaks on a 0.5 nm grid). Found by the
+  2026-11-04 review (REVIEW.md #3); the known-answer tests in
+  `tests/unit/test_known_answer_fit.py` and `test_review_regressions.py` pin
+  it.
+
+## [5.54.0] - 2026-11-04
+
+### Fixed
+
+- **The Raman despiker now removes a cosmic ray wider than two pixels.**
+  `remove_spikes` replaced each flagged pixel by the median of its four
+  neighbours *including other flagged pixels*, so one or two flagged
+  neighbours were outvoted but three were not: a 3-pixel ray at +2000 counts
+  kept +1000 on all three pixels, unflagged, and went into the fit; a 4-pixel
+  ray kept all of it. The PL despiker (`remove_spikes_local`, v5.41.0) never
+  had this; Raman now does the same for a *ray* -- a flagged run no wider
+  than the window (5 pixels): the window widens, up to 4x, until two clean
+  neighbours are in it, and their median replaces the pixel. A one-pixel ray
+  sees exactly the neighbours it always did. A flagged run **wider** than
+  the window is not a ray but a real peak scored against a low threshold
+  (Silicon's 6, MoS2's 8; the score is against the whole spectrum's MAD),
+  and keeps the old replacement unchanged -- the clean-neighbour rule would
+  flatten such a peak to the baseline, which is what the first cut of this
+  fix did to every Silicon fit. **Numbers move only on Raman spectra holding
+  a flagged run of two to five pixels inside the fit window** (a 2-pixel
+  ray's replacement loses one flagged vote); every low-threshold preset's
+  numbers are unchanged. The golden Raman records (DDAA10 RM_1..3) are
+  unchanged to 1e-5: no ray is flagged inside their fit windows. Found by
+  the 2026-11-04 review (REVIEW.md #1); pinned by
+  `tests/unit/test_despiking.py` and `test_review_regressions.py`.
+
+## [5.53.0] - 2026-11-04
+
+### Changed
+
+- **The sidebar names the app first and the company last.** Nexstrom is the
+  company and NexAnalyzer the app, but the sidebar showed only the Nexstrom
+  logo where the app's name belongs. Now **NexAnalyzer** sits at the top of
+  the sidebar with its version as a tag under it, and "A product of" with the
+  Nexstrom logo sits at its foot, replacing the "NexAnalyzer vX — Nexstrom's
+  measurement data analyzer" caption. The name is drawn in IBM Plex by CSS
+  (`core/ui/theme.py`), since `st.logo` takes only an image; the logo moved to
+  `sidebar_footer()`. The collapsed sidebar no longer shows the Nexstrom mark;
+  the browser tab still does. No numbers move.
 - **The repository moved to the Nexstrom organisation:
   `https://github.com/Nexstrom/NexAnalyzer`** (was `angyulu/NexAnalyzer`,
   transferred 2026-10-28). The sidebar's User Guide / Report Issues links, the
@@ -204,6 +339,158 @@ the rest are dropped in favour of upstream's own versions:
   and the two PL records are unchanged to the bit, and portable mode passed
   before the regeneration. The customer edition's record is regenerated
   identically.
+
+## [5.52.0] - 2026-11-03
+
+### Added
+
+- **A "Trend + bars" chart on the Split Table page**, the interactive form of
+  the SPLITTABLE scripts' PNGs (`plot_om_coverage_trend_range.py`,
+  `plot_vb_om_coverage_trend.py`). Two things the plain Trend chart leaves out,
+  both about reading a point against what the chamber was doing:
+  - **the setting bars** -- one band per chosen column above the plot, a block
+    per run of wafers that shared a value, shaded light to dark by value and
+    labelled once. `H2O_PC1_torr`, `P_torr`, `H2Se_on_sccm`, `Ar_in_sccm` and
+    `Ar_MFC6_sccm` are offered first where the table has them; any numeric
+    column can be added. The bands are layout shapes, not traces, so a VB
+    table does not gain a few hundred legend entries;
+  - **the dated axis** -- under the wafer IDs, one date per day, horizontal and
+    centred on the wafers that ran that day, with a rule between days. The x
+    axis is run order, not time, so the gap between two neighbours can be an
+    hour or three weeks and only the date says which.
+- Run order only, and the tab says so: a bar and a date row both describe
+  consecutive runs, which a wall-clock axis does not have. Plotly cannot
+  measure text and the chart is responsive, so a date whose day spans too few
+  wafers is rotated and a band value too wide for its block is left off, both
+  judged against the plotting width the app's layout gives at a usual window
+  size -- the PNGs measure their text instead.
+
+### Changed
+
+- The Trend chart is unchanged; its point-drawing moved into
+  `_add_trend_traces`, which both charts now call, so the markers, the hollow
+  `OM_Discriminable` flag and the error bars come from one place.
+- The same date row and day rules were added to the PNG scripts themselves
+  (`HA1P01/SPLITTABLE/plot_om_coverage_trend_range.py`,
+  `VB1P01/SPLITTABLE/plot_vb_om_coverage_trend.py`), which live outside this
+  repository.
+
+## [5.51.0] - 2026-11-03
+
+### Added
+
+- **A Refresh button beside the QC Report's wafer dropdown.** The tool's wafer
+  list is cached for five minutes, because the optical tree is on OneDrive, so
+  a wafer folder created or filled while the page was open did not appear --
+  the only way to pick it up was a full rerun. The button clears that cache and
+  re-scans the folder already selected, so frames or spectra exported into it
+  after it was picked are read too.
+- A re-scan that comes back different goes through `select_folder`, which drops
+  the figures built from the old contents; an unchanged scan leaves the current
+  run standing, so pressing Refresh out of habit does not cost a 30-second
+  segmentation. A folder that has been moved or deleted since it was picked
+  gives a warning rather than a traceback.
+
+## [5.50.0] - 2026-11-03
+
+### Changed
+
+- **The Datalog page's runcard folder now comes from the Tools page.** It was
+  guessed from the datalog folder's neighbours (`RUNCARD/lcy`, then `RUNCARD`),
+  which ignored the tool's own `runcard` subfolder and could disagree with what
+  the Tools page showed -- VB1P01 reads `RUNCARD/LYH` there and the Datalog
+  page was matching against `RUNCARD`.
+- **The Tools setting is widened where a tool keeps its shared recipes a level
+  up** (`runcard_index.recipe_folder`). The two settings answer different
+  questions: Tools records where *one wafer's* card is, matching needs that
+  plus the recipes a run can also be (CLEANING-1, O2-annealing). Which folder
+  is the pool is decided by what is loose in it, the same thing `read_runcards`
+  reads to call a card shared:
+  - **HA1P01** `RUNCARD/lcy/NSHA1P01` holds CLEANING-1..5 and O2-annealing
+    loose, so it is the pool. That **drops 284 cards** the guess was including
+    from `NSHA1N01` -- a different tool -- plus `HBr test`, `Test` and
+    `Testing`: 1128 candidates to 844. Leave-one-out and all-at-once scores are
+    **identical** on both folders over the 312 tagged runs, so no answer moves;
+    the pool is simply no longer full of another tool's recipes.
+  - **VB1P01** `RUNCARD/LYH` holds 1192 wafer cards loose and no shared ones,
+    so the pool is its parent `RUNCARD` -- what the page already used, now for
+    a stated reason. Taking `LYH` itself would mark 1189 of those wafer cards
+    reusable and card exclusivity would stop meaning anything.
+- **The page says where the folder came from**, under the path: the Tools
+  page's setting, that setting widened, or browsed to by hand. The two could
+  disagree silently before, which is how this was found.
+
+## [5.49.0] - 2026-11-03
+
+### Changed
+
+- **The heater's cool-down is now located from the runcard, not guessed from
+  the log.** v5.48.0 inferred it from the PV's own fall because the log is all
+  the Datalog page had; the card says it outright, in the `Heater Soak,0` the
+  controller never logs. The card's clock is not usable for this -- over 98
+  tagged runs on HA1P01 and VB1P01 the offset between a card's clock and its
+  log's ran from -2123 s to +497 s -- so only the card's **level and
+  duration** are taken, anchored on the moment the *log* shows the setpoint
+  arriving at that level (`growth_window.heater_hold`,
+  `analysis.runcard_heater_off`). That locates the heater-off to a median of
+  64 s across those runs, 93 of them inside two minutes, and the 64 s is the
+  chamber taking a minute to fall out of a 2 % band.
+- **The Heater panel's dashed setpoint now stops at the heater-off.** Drawing
+  it on at 910 C beside a PV at 94 C was the complaint: it reads as a
+  half-hour failure. The PV is still drawn to the last row, so the cool-down
+  stays visible.
+- **A heater that fails during the final soak is reported again.** It cools
+  exactly like one switched off, which is why the log-only rule had to let it
+  go; the card tells them apart. HADI51 is the case in this dataset: the card
+  commands a 720 s hold at 900 C, the chamber left 900 after ~440 s and was at
+  555 C by the card's heater-off, and those 281 s are now a finding (23 s ->
+  229 s reported).
+- **Runs without a card are unchanged.** No tag, no card of that name, a card
+  with no `Heater Soak,0` (2 of 99 runs), or a run that never reached the
+  card's level (1 of 99) falls back to v5.48.0's log-only reading. Over the 99
+  runs measured, heater findings moved from 263 segments / 11,623 s to 262 /
+  6,395 s, and only 3 runs changed at all.
+
+## [5.48.0] - 2026-11-03
+
+### Fixed
+
+- **The heater's cool-down at the end of a run is no longer reported as an
+  out-of-tolerance violation.** A recipe ends the heater with
+  `Heater Soak,0` -- switch it off, let the chamber fall -- and the controller
+  logs nothing for it: `Heater SV` stays at the growth setpoint to the last
+  row while `Heater PV` decays to ambient. Every sample of every cool-down was
+  measured against a setpoint nothing was driving. On VBCA26 (2026-11-02) that
+  is 910 °C held against a PV falling to 94 °C over 33 minutes, and it was not
+  particular to that run: of 60 runs sampled across HA1P01 and VB1P01, every
+  one ends this way, 60-84 % of the final setpoint block outside tolerance.
+
+  `analysis.cooldown_tail_mask` blanks it, the twin of the inherited lead-in
+  already excluded at the other end of the run and for the same reason -- the
+  setpoint has stopped saying what the tool was told to do. The cool-down is
+  anchored on the PV, as the only side that moves: the stretch after the last
+  row where the heater was at its setpoint, counted only for a channel that
+  cools passively (`Heater`, `P1_H`..`P3_H`; an MFC at 0 against a live
+  setpoint is a shut valve and stays a finding), only when the heater reached
+  that setpoint at all, and only when it ends `COOLDOWN_FALL_FRACTION` of the
+  way from the setpoint to the coldest reading of the run. A heater that sags
+  to 850 °C of a commanded 910 has travelled 7 % of that distance and is still
+  reported; a dip the heater recovered from keeps its place in the table.
+
+  Over the 25 November runs on both tools, heater findings fall from 74,396 s
+  across 88 segments to 3,712 s across 66 -- the remainder being the first
+  minute of each ramp, where the PV lags. The chart's red markers go with
+  them; the dashed setpoint still shows what the controller logged.
+
+  **Knowingly given up**: a heater that failed during the final soak and never
+  recovered cools exactly like one switched off, and the log holds nothing to
+  separate them -- only the runcard does, through
+  `modules.runcard.processing.growth_window`'s `heater_off_t`. Such a run is
+  no longer in the table, though the chart still draws the PV falling away
+  from its setpoint. Unchanged, and still a limitation of its own: a run whose
+  heater setpoint never changes at all (the stale 910 of a bare pumping or
+  stage-position session) is judged from the first row, because nothing in the
+  log says where the inherited value stops.
 
 ## [5.47.0] - 2026-11-02
 
